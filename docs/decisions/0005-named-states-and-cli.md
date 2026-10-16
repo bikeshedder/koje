@@ -14,6 +14,8 @@ Several flag designs were discussed (`--clean`, `--no-restore`, `--from`, `--sav
 - All states are named and equal; `default` and `fresh` are *roles* (renamable in
   `context.toml`); `empty` is reserved, virtual and read-only.
 - `koje up <ctx> [-s NAME]` loads (default role `default`). Missing → `fresh` → `empty`.
+  On a running context it switches states: shared windows stay, others close or
+  start; the current windows are saved into `default` first unless `--no-save`.
 - `koje down <ctx> [-s NAME]` writes exactly that one state. `--no-save` writes nothing
   and changes nothing. `-s` and `--no-save` are mutually exclusive.
 - `koje save <ctx> [-s NAME]` saves without shutting down.

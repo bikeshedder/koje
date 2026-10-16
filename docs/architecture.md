@@ -121,7 +121,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 
 | Command | Effect |
 |---|---|
-| `koje up <context> [-s <state>]` | start, open and arrange the state's windows (default role `default`); if running, switch to the state |
+| `koje up <context> [-s <state>] [--no-save]` | start, open and arrange the state's windows (default role `default`); if running, switch to the state (saving the current windows into `default` first unless `--no-save`) |
 | `koje up <context> --recover \| --no-recover` | after a crash, take or discard the recovery file without asking |
 | `koje down <context> [-s <state>]` | save (only that state), close windows in order, stop container |
 | `koje down <context> --no-save` | shut down without saving; all states unchanged |

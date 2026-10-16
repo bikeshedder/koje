@@ -27,8 +27,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.8 Layout model operations**
   - Done when: pure functions for `layout new [--copy]`, `mv`, `rm` (cannot remove active layout), `autosave on|off`, next/prev order, "window closed → remove from all layouts", "new window → join active layout"; unit tests.
   - Notes: `layouts` module; also `save_active` (`layout save`) and `window_moved` (autosave). `layout new` makes the new layout active (concept: "all windows start in the stash"). Order per ADR 0011.
-- [ ] **M1.9 State switch planning**
+- [x] **M1.9 State switch planning**
   - Done when: pure function computing keep/close/start sets when switching states in a running context (concept "Zustand wechseln"); unit tests.
+  - Notes: `state::plan_state_switch`; matches windows by id (refine in M5.10). Added `koje up --no-save` (concept had it, CLI did not); docs + ADR 0005 synced. Same id with a different launch spec counts as "keep" for now.
 - [ ] **M1.10 Recovery file model**
   - Done when: write/read/delete helpers, atomic; "recovery present" detection; unit tests. (Writing it continuously is M5.)
 - [x] **M1.11 Refuse dangerous mount targets** (ADR 0009)

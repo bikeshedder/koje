@@ -238,6 +238,56 @@ pub fn resolve_load(
     Resolved::Empty { fell_back: true }
 }
 
+/// What has to happen when `up -s <target>` hits a running context
+/// (concept "Zustand wechseln").
+#[derive(Debug, Clone, PartialEq)]
+pub struct StateSwitch {
+    /// State to save the current windows into before switching, like `down`
+    /// without `-s` (the `default` role). `None` with `--no-save`.
+    pub save_to: Option<StateName>,
+    /// Open in both: stay open and take the target's layouts.
+    pub keep: Vec<WindowId>,
+    /// Open now but not in the target: close in order (programs ask about
+    /// unsaved work themselves). In the current state's window order.
+    pub close: Vec<WindowId>,
+    /// Only in the target: start these, in the target's window order.
+    pub start: Vec<WindowSpec>,
+    /// The state the context is in afterwards: the target's windows and layouts.
+    pub result: State,
+}
+
+/// Plan switching a running context from `current` to `target`.
+///
+/// Windows match by id. Matching several windows of the same program more
+/// cleverly is M5.10.
+pub fn plan_state_switch(
+    current: &State,
+    target: &State,
+    roles: &StateRoles,
+    no_save: bool,
+) -> StateSwitch {
+    let in_target: BTreeSet<&WindowId> = target.windows.iter().map(|w| &w.id).collect();
+    let open: BTreeSet<&WindowId> = current.windows.iter().map(|w| &w.id).collect();
+    let (keep, close) = current
+        .windows
+        .iter()
+        .map(|w| w.id.clone())
+        .partition(|id| in_target.contains(id));
+    let start = target
+        .windows
+        .iter()
+        .filter(|w| !open.contains(&w.id))
+        .cloned()
+        .collect();
+    StateSwitch {
+        save_to: (!no_save).then(|| roles.default.clone()),
+        keep,
+        close,
+        start,
+        result: target.clone(),
+    }
+}
+
 /// Fail if `name` may not be written (`empty` is read-only).
 pub fn ensure_writable(name: &StateName) -> Result<()> {
     if name.is_empty_state() {
@@ -402,6 +452,78 @@ editor  = { monitor = "DP-1", x = 3170, y = 0, w = 1950, h = 2160 }
     fn explicit_empty_is_not_a_fallback() {
         let r = resolve_load(&s("empty"), &StateRoles::default(), |_| true);
         assert_eq!(r, Resolved::Empty { fell_back: false });
+    }
+
+    fn switch_states() -> (State, State) {
+        let current = State::from_toml(EXAMPLE, Path::new("x")).unwrap();
+        let target = State::from_toml(
+            r#"
+active_layout = "talk"
+windows = [
+  { id = "slides",  command = "impress talk.odp" },
+  { id = "browser", integration = "browser" },
+  { id = "notes",   command = "gedit notes.md" },
+]
+[layout.talk.windows]
+slides  = { monitor = "DP-1", x = 0, y = 0, w = 100, h = 100 }
+browser = { monitor = "DP-1", x = 100, y = 0, w = 100, h = 100 }
+"#,
+            Path::new("y"),
+        )
+        .unwrap();
+        (current, target)
+    }
+
+    fn ids(list: &[WindowId]) -> Vec<&str> {
+        list.iter().map(WindowId::as_str).collect()
+    }
+
+    #[test]
+    fn state_switch_keeps_closes_and_starts() {
+        let (current, target) = switch_states();
+        let plan = plan_state_switch(&current, &target, &StateRoles::default(), false);
+        assert_eq!(ids(&plan.keep), ["browser"]);
+        assert_eq!(ids(&plan.close), ["editor", "term", "spec"]);
+        let started: Vec<_> = plan.start.iter().map(|w| w.id.as_str()).collect();
+        assert_eq!(started, ["slides", "notes"]);
+        assert_eq!(plan.save_to, Some(s("default")));
+        // Kept windows take the target's layouts.
+        assert_eq!(plan.result, target);
+    }
+
+    #[test]
+    fn state_switch_without_saving() {
+        let (current, target) = switch_states();
+        let roles = StateRoles {
+            default: s("daily"),
+            fresh: s("fresh"),
+        };
+        assert_eq!(
+            plan_state_switch(&current, &target, &roles, false).save_to,
+            Some(s("daily"))
+        );
+        assert_eq!(
+            plan_state_switch(&current, &target, &roles, true).save_to,
+            None
+        );
+    }
+
+    #[test]
+    fn switch_to_empty_closes_everything() {
+        let (current, _) = switch_states();
+        let empty = State::new(LayoutName::initial());
+        let plan = plan_state_switch(&current, &empty, &StateRoles::default(), true);
+        assert_eq!(plan.keep, []);
+        assert_eq!(plan.close.len(), current.windows.len());
+        assert_eq!(plan.start, []);
+    }
+
+    #[test]
+    fn switch_to_same_windows_changes_only_layouts() {
+        let (current, _) = switch_states();
+        let plan = plan_state_switch(&current, &current, &StateRoles::default(), true);
+        assert_eq!(plan.keep.len(), 4);
+        assert_eq!((plan.close.len(), plan.start.len()), (0, 0));
     }
 
     #[test]

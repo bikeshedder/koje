@@ -39,6 +39,10 @@ pub enum Command {
         /// State to load (default: the `default` role).
         #[arg(short, long)]
         state: Option<String>,
+        /// When switching a running context: do not save the current windows
+        /// into the `default` role first.
+        #[arg(long)]
+        no_save: bool,
         /// After a crash, restore the recovery file without asking.
         #[arg(long, conflicts_with = "no_recover")]
         recover: bool,
@@ -234,6 +238,16 @@ mod tests {
         assert!(parse(&["down", "kp", "-s", "review", "--no-save"]).is_err());
         assert!(parse(&["down", "kp", "--no-save"]).is_ok());
         assert!(parse(&["down", "kp", "-s", "review"]).is_ok());
+    }
+
+    #[test]
+    fn up_takes_no_save() {
+        assert!(matches!(
+            parse(&["up", "kp", "-s", "workshop", "--no-save"])
+                .unwrap()
+                .command,
+            Command::Up { no_save: true, .. }
+        ));
     }
 
     #[test]
