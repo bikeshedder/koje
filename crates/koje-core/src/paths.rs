@@ -69,8 +69,23 @@ impl Paths {
         self.config.join("contexts")
     }
 
+    /// `~/.config/koje/contexts/<context>/`
+    pub fn context_dir(&self, ctx: &ContextName) -> PathBuf {
+        self.contexts_dir().join(ctx.as_str())
+    }
+
     pub fn context_config(&self, ctx: &ContextName) -> PathBuf {
-        self.contexts_dir().join(ctx.as_str()).join("context.toml")
+        self.context_dir(ctx).join("context.toml")
+    }
+
+    /// `~/.local/share/koje/<context>/`
+    pub fn context_data_dir(&self, ctx: &ContextName) -> PathBuf {
+        self.data.join(ctx.as_str())
+    }
+
+    /// `~/.local/state/koje/<context>/`
+    pub fn context_state_dir(&self, ctx: &ContextName) -> PathBuf {
+        self.state.join(ctx.as_str())
     }
 
     pub fn integrations_dir(&self) -> PathBuf {
@@ -78,7 +93,7 @@ impl Paths {
     }
 
     pub fn states_dir(&self, ctx: &ContextName) -> PathBuf {
-        self.data.join(ctx.as_str()).join("states")
+        self.context_data_dir(ctx).join("states")
     }
 
     pub fn state_file(&self, ctx: &ContextName, state: &StateName) -> PathBuf {
@@ -86,7 +101,7 @@ impl Paths {
     }
 
     pub fn recovery_file(&self, ctx: &ContextName) -> PathBuf {
-        self.state.join(ctx.as_str()).join("recovery.toml")
+        self.context_state_dir(ctx).join("recovery.toml")
     }
 }
 

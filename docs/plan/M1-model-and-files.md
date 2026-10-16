@@ -15,8 +15,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.4 `koje new <context>`**
   - Done when: creates `context.toml` with name, prefix (default: first letters, uppercase), color (default: next unused color from a fixed palette), default image; refuses existing names; CLI test with temp XDG dirs.
   - Notes: ADR 0012. New `context` module (list/load/create); `context::load` also checks that `name` matches the directory.
-- [ ] **M1.5 `koje edit <context>` and `koje rm <context>`**
+- [x] **M1.5 `koje edit <context>` and `koje rm <context>`**
   - Done when: `edit` opens `$VISUAL`/`$EDITOR` and re-validates after save (reopen on error); `rm` asks for confirmation unless `--yes`, removes config + states + recovery file. (Container removal joins in M3.)
+  - Notes: `edit` works on a draft next to `context.toml` (original replaced atomically only when `context::validate` passes: syntax, name = directory, ADR 0009 mounts); fallback editor `vi`, run via `sh -c` like git. `rm` deletes the three per-context dirs; no input on stdin = no.
 - [ ] **M1.6 `koje state list|cp|mv|rm`**
   - Done when: list shows name, window/layout counts, modified time and marks role states; cp/mv/rm follow ADR 0005 (`empty` reserved, roles cannot be removed while configured? → decide); CLI tests.
 - [ ] **M1.7 `koje list` with more detail**

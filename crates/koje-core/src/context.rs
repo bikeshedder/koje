@@ -155,13 +155,54 @@ pub fn create(
     Ok(cfg)
 }
 
-/// Everything koje stores for a context, in the order [`remove`] deletes it.
-pub fn files(paths: &Paths, name: &ContextName) -> Vec<PathBuf> {
+/// Check an edited `context.toml` for `name` completely: syntax and values,
+/// the name matching the directory, and the mount rules (ADR 0009).
+pub fn validate(paths: &Paths, name: &ContextName, text: &str) -> Result<ContextConfig> {
+    let path = paths.context_config(name);
+    let cfg = ContextConfig::from_toml(text, &path)?;
+    if cfg.name != *name {
+        return Err(Error::ContextNameMismatch {
+            path,
+            expected: name.clone(),
+            found: cfg.name,
+        });
+    }
+    cfg.expand_mounts(&paths.host_dirs()?)?;
+    Ok(cfg)
+}
+
+/// Replace a context's `context.toml` after [`validate`] accepted `text`.
+pub fn replace_config(paths: &Paths, name: &ContextName, text: &str) -> Result<ContextConfig> {
+    let cfg = validate(paths, name, text)?;
+    fsutil::write_atomic(&paths.context_config(name), text.as_bytes())?;
+    Ok(cfg)
+}
+
+/// Directories koje keeps for a context: config, states, recovery.
+/// [`remove`] deletes them; the ones that exist are what `koje rm` lists.
+pub fn dirs(paths: &Paths, name: &ContextName) -> Vec<PathBuf> {
     vec![
-        paths.recovery_file(name),
-        paths.states_dir(name),
-        paths.context_config(name),
+        paths.context_dir(name),
+        paths.context_data_dir(name),
+        paths.context_state_dir(name),
     ]
+}
+
+/// Delete everything koje stores for a context. Containers and volumes are
+/// removed separately (M3.8).
+pub fn remove(paths: &Paths, name: &ContextName) -> Result<()> {
+    if !exists(paths, name) {
+        return Err(Error::UnknownContext(name.clone()));
+    }
+    // Config last: if anything fails, the context still exists and `rm` can be retried.
+    for dir in dirs(paths, name).into_iter().rev() {
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => return Err(Error::Write { path: dir, source }),
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -244,6 +285,47 @@ mod tests {
         assert!(matches!(
             load(&paths, &n("kp")),
             Err(Error::ContextNameMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_checks_name_and_mounts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = temp_paths(&tmp);
+        let good = new_config_toml(&n("kp"), "KP", PALETTE[0]);
+        assert!(validate(&paths, &n("kp"), &good).is_ok());
+        assert!(matches!(
+            validate(&paths, &n("other"), &good),
+            Err(Error::ContextNameMismatch { .. })
+        ));
+        let relative = good.replace("mounts = []", "mounts = [\"src\"]");
+        assert!(validate(&paths, &n("kp"), &relative).is_err());
+        let home = good.replace("mounts = []", "mounts = [\"~\"]");
+        assert!(matches!(
+            validate(&paths, &n("kp"), &home),
+            Err(Error::RefusedMount { .. })
+        ));
+        assert!(validate(&paths, &n("kp"), "garbage").is_err());
+    }
+
+    #[test]
+    fn remove_deletes_config_states_and_recovery() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = temp_paths(&tmp);
+        create(&paths, &n("kp"), None, None).unwrap();
+        create(&paths, &n("shop"), None, None).unwrap();
+        fsutil::write_atomic(&paths.recovery_file(&n("kp")), b"x").unwrap();
+        let state = crate::name::StateName::new("default").unwrap();
+        fsutil::write_atomic(&paths.state_file(&n("kp"), &state), b"x").unwrap();
+
+        remove(&paths, &n("kp")).unwrap();
+        for dir in dirs(&paths, &n("kp")) {
+            assert!(!dir.exists(), "{}", dir.display());
+        }
+        assert!(exists(&paths, &n("shop")));
+        assert!(matches!(
+            remove(&paths, &n("kp")),
+            Err(Error::UnknownContext(_))
         ));
     }
 

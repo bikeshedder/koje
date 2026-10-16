@@ -3,18 +3,58 @@
 
 #![allow(clippy::expect_used)]
 
-use std::path::Path;
-use std::process::{Command, Output};
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
 
-fn koje(xdg: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_koje"))
-        .args(args)
+fn command(xdg: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_koje"));
+    cmd.args(args)
         .env("XDG_CONFIG_HOME", xdg.join("config"))
         .env("XDG_DATA_HOME", xdg.join("data"))
         .env("XDG_STATE_HOME", xdg.join("state"))
         .env_remove("RUST_LOG")
+        .env_remove("VISUAL")
+        .env_remove("EDITOR");
+    cmd
+}
+
+fn koje(xdg: &Path, args: &[&str]) -> Output {
+    command(xdg, args)
+        .stdin(Stdio::null())
         .output()
         .expect("run koje")
+}
+
+/// Run koje with `input` on stdin and extra environment variables.
+fn koje_with(xdg: &Path, args: &[&str], env: &[(&str, &str)], input: &str) -> Output {
+    let mut child = command(xdg, args)
+        .envs(env.iter().copied())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn koje");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(input.as_bytes())
+        .expect("write stdin");
+    child.wait_with_output().expect("wait for koje")
+}
+
+/// A fake editor: a shell script that runs `body` with the file as `$1`.
+/// Returned as `sh <script>`; executing a just-written file directly can fail
+/// with "text file busy" while other test threads fork.
+fn editor(dir: &Path, body: &str) -> String {
+    let path = dir.join("fake-editor.sh");
+    std::fs::write(&path, format!("set -e\n{body}\n")).expect("write fake editor");
+    format!("sh {}", path.display())
+}
+
+fn config_of(xdg: &Path, ctx: &str) -> PathBuf {
+    xdg.join(format!("config/koje/contexts/{ctx}/context.toml"))
 }
 
 #[test]
@@ -91,6 +131,93 @@ fn new_refuses_existing_and_invalid_input() {
         assert!(!out.status.success(), "{args:?}");
         assert!(String::from_utf8_lossy(&out.stderr).starts_with("koje: "));
     }
+}
+
+#[test]
+fn edit_saves_valid_changes() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let ed = editor(
+        tmp.path(),
+        r#"sed -i 's/^prefix = "KP"/prefix = "XY"/' "$1""#,
+    );
+    let out = koje_with(tmp.path(), &["edit", "kp"], &[("VISUAL", ed.as_str())], "");
+    assert!(stdout(&out).contains("saved"));
+    let text = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
+    assert!(text.contains("prefix = \"XY\""), "{text}");
+    // No draft file is left behind.
+    let dir = config_of(tmp.path(), "kp").parent().unwrap().to_owned();
+    assert_eq!(std::fs::read_dir(dir).unwrap().count(), 1);
+}
+
+#[test]
+fn edit_keeps_original_when_invalid_and_not_reopened() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let before = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
+    let ed = editor(tmp.path(), r#"echo 'mounts = ["relative"]' > "$1""#);
+    let out = koje_with(
+        tmp.path(),
+        &["edit", "kp"],
+        &[("EDITOR", ed.as_str())],
+        "n\n",
+    );
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("unchanged"), "{stderr}");
+    let after = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn edit_reopens_until_valid() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    // First run breaks the file, the second run (marker exists) fixes the prefix.
+    let marker = tmp.path().join("marker");
+    let ed = editor(
+        tmp.path(),
+        &format!(
+            r#"if [ -e {m} ]; then sed -i 's/^name .*/name = "kp"/; s/^prefix = "KP"/prefix = "OK"/' "$1"; else touch {m}; sed -i 's/^name .*/name = "other"/' "$1"; fi"#,
+            m = marker.display()
+        ),
+    );
+    let out = koje_with(
+        tmp.path(),
+        &["edit", "kp"],
+        &[("VISUAL", ed.as_str())],
+        "\n",
+    );
+    assert!(stdout(&out).contains("saved"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("directory"));
+    let text = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
+    assert!(text.contains("prefix = \"OK\""), "{text}");
+}
+
+#[test]
+fn rm_asks_unless_yes() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let state = tmp.path().join("data/koje/kp/states/default.toml");
+    std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+    std::fs::write(&state, "active_layout = \"main\"\n").unwrap();
+
+    let out = koje_with(tmp.path(), &["rm", "kp"], &[], "n\n");
+    assert!(!out.status.success());
+    assert!(config_of(tmp.path(), "kp").exists());
+
+    // No terminal input at all also means no.
+    assert!(!koje(tmp.path(), &["rm", "kp"]).status.success());
+    assert!(config_of(tmp.path(), "kp").exists());
+
+    let out = koje_with(tmp.path(), &["rm", "kp"], &[], "y\n");
+    assert!(stdout(&out).contains("removed"));
+    assert!(!config_of(tmp.path(), "kp").exists());
+    assert!(!state.exists());
+
+    stdout(&koje(tmp.path(), &["new", "shop"]));
+    stdout(&koje(tmp.path(), &["rm", "shop", "--yes"]));
+    assert!(!koje(tmp.path(), &["rm", "shop", "--yes"]).status.success());
 }
 
 #[test]
