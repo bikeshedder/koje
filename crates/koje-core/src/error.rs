@@ -22,6 +22,16 @@ pub enum Error {
     #[error("memory soft limit ({soft}) must be below the hard limit ({hard})")]
     LimitOrder { soft: String, hard: String },
 
+    #[error("invalid mount {value:?}: {reason}")]
+    InvalidMount { value: String, reason: &'static str },
+
+    #[error("mounts {first:?} and {second:?} both name {path}")]
+    DuplicateMount {
+        path: PathBuf,
+        first: String,
+        second: String,
+    },
+
     #[error("could not determine the home directory")]
     NoHomeDir,
 

@@ -13,6 +13,13 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 use crate::name::{ContextName, StateName};
 
+/// The user's real home directory (`$HOME`), used to expand `~` in mounts.
+pub fn home_dir() -> Result<PathBuf> {
+    directories::BaseDirs::new()
+        .map(|dirs| dirs.home_dir().to_path_buf())
+        .ok_or(Error::NoHomeDir)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
     config: PathBuf,

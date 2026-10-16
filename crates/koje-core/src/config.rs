@@ -4,13 +4,14 @@
 //! - `~/.config/koje/contexts/<context>/context.toml` → [`ContextConfig`]
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::layout::Rect;
+use crate::mount::{self, MountPath};
 use crate::name::{ContextName, StateName};
 use crate::size::ByteSize;
 
@@ -26,9 +27,10 @@ pub struct ContextConfig {
     /// Container image the context is created from. Defaults to the shared base image.
     #[serde(default = "default_image")]
     pub image: String,
-    /// Host folders bound into the context under the same path. `~` is expanded later.
+    /// Host folders bound into the context under the same path.
+    /// See [`ContextConfig::expand_mounts`].
     #[serde(default)]
-    pub mounts: Vec<String>,
+    pub mounts: Vec<MountPath>,
     #[serde(default)]
     pub limits: Limits,
     #[serde(default)]
@@ -112,6 +114,15 @@ impl ContextConfig {
         })?;
         Self::from_toml(&text, path)
     }
+
+    /// Absolute host paths of all mounts; rejects two entries naming the same folder.
+    ///
+    /// `home` is the user's real home (see [`crate::paths::home_dir`]). Each entry
+    /// is already validated on parse; duplicates can only be detected after
+    /// expansion (`~/a` and `/home/me/a`).
+    pub fn expand_mounts(&self, home: &Path) -> Result<Vec<PathBuf>> {
+        mount::expand_all(&self.mounts, home)
+    }
 }
 
 /// `config.toml`: settings shared by all contexts.
@@ -177,7 +188,29 @@ fresh   = "fresh"
         assert_eq!(cfg.name.as_str(), "kundenportal");
         assert_eq!(cfg.color.to_string(), "#2E7D5B");
         assert_eq!(cfg.limits.memory_hard, Some(ByteSize(8 << 30)));
-        assert_eq!(cfg.mounts.len(), 2);
+        assert_eq!(
+            cfg.expand_mounts(Path::new("/home/mj")).unwrap(),
+            [
+                PathBuf::from("/home/mj/src/kundenportal"),
+                PathBuf::from("/home/mj/Austausch")
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_relative_mount_on_parse() {
+        let text = EXAMPLE.replace("\"~/Austausch\"", "\"Austausch\"");
+        assert!(ContextConfig::from_toml(&text, Path::new("x")).is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_mounts() {
+        let text = EXAMPLE.replace("\"~/Austausch\"", "\"$HOME/src/kundenportal\"");
+        let cfg = ContextConfig::from_toml(&text, Path::new("x")).unwrap();
+        assert!(matches!(
+            cfg.expand_mounts(Path::new("/home/mj")),
+            Err(Error::DuplicateMount { .. })
+        ));
     }
 
     #[test]

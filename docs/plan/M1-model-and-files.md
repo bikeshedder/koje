@@ -3,8 +3,9 @@
 Goal: everything koje stores on disk works end to end through the CLI – without any
 container or Hyprland. Pure Rust, testable in the dev container.
 
-- [ ] **M1.1 Path expansion and mount validation**
+- [x] **M1.1 Path expansion and mount validation**
   - Done when: `~` and `$HOME` in `mounts` expand against the real home; relative paths are rejected; duplicate mounts rejected; tests.
+  - Notes: `mount::MountPath` validates on parse (also rejects `~user`, other `$VARS`, `..`); duplicates need the home, so they are checked in `ContextConfig::expand_mounts(home)` – callers (M1.5 `edit`, M3.2) must call it. Refused targets: ADR 0009, implemented in M1.11.
 - [ ] **M1.2 Global config loading with defaults**
   - Done when: missing `config.toml` = defaults; `Limits::or` applied when resolving a context's effective limits; tests.
 - [ ] **M1.3 Load and save states**
@@ -24,3 +25,5 @@ container or Hyprland. Pure Rust, testable in the dev container.
   - Done when: pure function computing keep/close/start sets when switching states in a running context (concept "Zustand wechseln"); unit tests.
 - [ ] **M1.10 Recovery file model**
   - Done when: write/read/delete helpers, atomic; "recovery present" detection; unit tests. (Writing it continuously is M5.)
+- [ ] **M1.11 Refuse dangerous mount targets** (ADR 0009)
+  - Done when: `mounts` accepts string and `{ path, unsafe }` table form (round-trips both); the three rule groups of ADR 0009 are refused unless `unsafe = true`; protected paths come from `Paths`/XDG, not hard-coded home paths; tests per rule.

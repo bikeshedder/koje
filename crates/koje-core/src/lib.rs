@@ -13,6 +13,7 @@ pub mod config;
 pub mod error;
 pub mod layout;
 pub mod memory;
+pub mod mount;
 pub mod name;
 pub mod paths;
 pub mod ports;
