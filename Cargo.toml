@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = ["crates/koje-core", "crates/koje", "crates/kojed"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88" # let-chains (edition 2024)
+authors = ["Michael P. Jung"]
+repository = "https://github.com/OWNER/koje"
+# License is still an open question (docs/open-questions.md).
+publish = false
+
+[workspace.dependencies]
+koje-core = { path = "crates/koje-core" }
+
+anyhow = "1"
+clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
+directories = "6"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that cost more than they help in this codebase:
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+
+[profile.release]
+lto = "thin"
+strip = true

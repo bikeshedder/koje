@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "koje list",
+      "cargo": { "args": ["build", "-p", "koje"], "filter": { "kind": "bin", "name": "koje" } },
+      "args": ["list"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "kojed",
+      "cargo": { "args": ["build", "-p", "kojed"], "filter": { "kind": "bin", "name": "kojed" } },
+      "env": { "RUST_LOG": "debug" },
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "koje-core unit tests",
+      "cargo": { "args": ["test", "--no-run", "-p", "koje-core", "--lib"] },
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

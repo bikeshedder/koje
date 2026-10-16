@@ -1,0 +1,26 @@
+[package]
+name = "koje"
+description = "Command line client for koje: isolated work contexts on Hyprland."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "koje"
+path = "src/main.rs"
+
+[dependencies]
+koje-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

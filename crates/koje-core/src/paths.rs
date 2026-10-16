@@ -1,0 +1,94 @@
+//! File locations following the XDG base directory spec.
+//!
+//! | Path | Content |
+//! |---|---|
+//! | `~/.config/koje/config.toml` | global settings |
+//! | `~/.config/koje/contexts/<context>/context.toml` | hand-maintained context config |
+//! | `~/.config/koje/integrations/*.toml` | user integrations |
+//! | `~/.local/share/koje/<context>/states/<state>.toml` | states incl. layouts |
+//! | `~/.local/state/koje/<context>/recovery.toml` | crash recovery |
+
+use std::path::{Path, PathBuf};
+
+use crate::error::{Error, Result};
+use crate::name::{ContextName, StateName};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paths {
+    config: PathBuf,
+    data: PathBuf,
+    state: PathBuf,
+}
+
+impl Paths {
+    /// Resolve from the environment (`XDG_*` variables or their defaults).
+    pub fn from_env() -> Result<Self> {
+        let dirs = directories::ProjectDirs::from("", "", "koje").ok_or(Error::NoHomeDir)?;
+        let state = dirs
+            .state_dir()
+            .map_or_else(|| dirs.data_local_dir().join("state"), Path::to_path_buf);
+        Ok(Self {
+            config: dirs.config_dir().to_path_buf(),
+            data: dirs.data_dir().to_path_buf(),
+            state,
+        })
+    }
+
+    /// Explicit roots, for tests and `--root`-style overrides.
+    pub fn with_roots(config: PathBuf, data: PathBuf, state: PathBuf) -> Self {
+        Self {
+            config,
+            data,
+            state,
+        }
+    }
+
+    pub fn global_config(&self) -> PathBuf {
+        self.config.join("config.toml")
+    }
+
+    pub fn contexts_dir(&self) -> PathBuf {
+        self.config.join("contexts")
+    }
+
+    pub fn context_config(&self, ctx: &ContextName) -> PathBuf {
+        self.contexts_dir().join(ctx.as_str()).join("context.toml")
+    }
+
+    pub fn integrations_dir(&self) -> PathBuf {
+        self.config.join("integrations")
+    }
+
+    pub fn states_dir(&self, ctx: &ContextName) -> PathBuf {
+        self.data.join(ctx.as_str()).join("states")
+    }
+
+    pub fn state_file(&self, ctx: &ContextName, state: &StateName) -> PathBuf {
+        self.states_dir(ctx).join(format!("{state}.toml"))
+    }
+
+    pub fn recovery_file(&self, ctx: &ContextName) -> PathBuf {
+        self.state.join(ctx.as_str()).join("recovery.toml")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layout_matches_concept() {
+        let p = Paths::with_roots("/c".into(), "/d".into(), "/s".into());
+        let kp = ContextName::new("kp").unwrap();
+        let st = StateName::new("fresh").unwrap();
+        assert_eq!(
+            p.context_config(&kp),
+            PathBuf::from("/c/contexts/kp/context.toml")
+        );
+        assert_eq!(
+            p.state_file(&kp, &st),
+            PathBuf::from("/d/kp/states/fresh.toml")
+        );
+        assert_eq!(p.recovery_file(&kp), PathBuf::from("/s/kp/recovery.toml"));
+    }
+}

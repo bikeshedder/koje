@@ -1,0 +1,14 @@
+/target
+*.rs.bk
+
+# Local, personal Claude Code settings
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Editors and OS
+.idea/
+*.swp
+.DS_Store
+
+# Scratch output of spikes (keep reports in docs/spikes/)
+/spike-output/

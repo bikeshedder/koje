@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(just)",
+      "Bash(just check)",
+      "Bash(just fmt)",
+      "Bash(just fmt-check)",
+      "Bash(just lint)",
+      "Bash(just test *)",
+      "Bash(just build)",
+      "Bash(just doc)",
+      "Bash(cargo build *)",
+      "Bash(cargo check *)",
+      "Bash(cargo test *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo doc *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo metadata *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
+    ],
+    "deny": [
+      "Bash(podman system reset *)",
+      "Bash(git push --force *)"
+    ]
+  }
+}

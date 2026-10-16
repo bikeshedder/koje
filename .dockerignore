@@ -1,0 +1,4 @@
+# Build context of the dev container image (.devcontainer/devcontainer.json).
+# It only needs the toolchain file; keep target/ etc. out of the context.
+*
+!rust-toolchain.toml

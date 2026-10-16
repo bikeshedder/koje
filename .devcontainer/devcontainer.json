@@ -1,0 +1,86 @@
+// Dev container for koje. Tested target: VS Code + rootless Podman on Linux.
+// One-time host setup (VS Code user settings): "dev.containers.dockerPath": "podman"
+// Details and optional extras (host Hyprland socket, nested Podman): docs/development.md
+{
+  "name": "koje",
+  // Context is the repo root so the image can install the toolchain from
+  // rust-toolchain.toml; .dockerignore limits the context to that file.
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  // Mount only this project, at a fixed path independent of the host folder name.
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "workspaceFolder": "/workspace",
+
+  "remoteUser": "vscode",
+  "containerUser": "vscode",
+
+  // Rootless Podman: map the host user to the container's vscode user (uid 1000),
+  // so files in the workspace keep the host user's ownership.
+  "runArgs": [
+    "--userns=keep-id:uid=1000,gid=1000",
+    "--security-opt=label=disable"
+
+    // Nested Podman for container integration tests (milestone M3+), uncomment:
+    // ,"--device=/dev/fuse"
+  ],
+
+  // The Claude Code feature installs via npm. Without the Node feature it falls
+  // back to Debian's nodejs package, which lacks npm on trixie, and fails.
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/anthropics/devcontainer-features/claude-code"
+  ],
+
+  "mounts": [
+    // Claude Code sign-in, settings and history survive rebuilds (per project).
+    "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    // Cargo registry cache survives rebuilds.
+    "source=koje-cargo-registry,target=/usr/local/cargo/registry,type=volume"
+
+    // Talk to the host's Hyprland from inside the container (milestone M2+).
+    // Requires Hyprland to be running on the host when the container starts:
+    // ,"source=${localEnv:XDG_RUNTIME_DIR}/hypr,target=/run/host-hypr,type=bind"
+  ],
+
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "CARGO_TERM_COLOR": "always",
+    "RUST_BACKTRACE": "1"
+    // With the Hyprland mount above, also set:
+    // ,"KOJE_HYPR_DIR": "/run/host-hypr"
+    // ,"HYPRLAND_INSTANCE_SIGNATURE": "${localEnv:HYPRLAND_INSTANCE_SIGNATURE}"
+  },
+
+  "postCreateCommand": "cargo fetch && just --list",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "myriad-dreamin.tinymist",
+        "editorconfig.editorconfig",
+        "github.vscode-github-actions",
+        "Anthropic.claude-code"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.cargo.targetDir": true,
+        "editor.formatOnSave": true,
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "files.insertFinalNewline": true
+      }
+    }
+  }
+}
