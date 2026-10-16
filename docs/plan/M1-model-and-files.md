@@ -24,8 +24,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.7 `koje list` with more detail**
   - Done when: shows prefix, color swatch (truecolor when on a TTY), number of states; machine-readable `--json`.
   - Notes: swatch only on a TTY and without `NO_COLOR`. A broken `context.toml` is listed with its error instead of failing. JSON fields (`name`, `prefix`, `color`, `image`, `mounts`, `states`, `error`) are an interface: only add; `status` joins in M3.
-- [ ] **M1.8 Layout model operations**
+- [x] **M1.8 Layout model operations**
   - Done when: pure functions for `layout new [--copy]`, `mv`, `rm` (cannot remove active layout), `autosave on|off`, next/prev order, "window closed → remove from all layouts", "new window → join active layout"; unit tests.
+  - Notes: `layouts` module; also `save_active` (`layout save`) and `window_moved` (autosave). `layout new` makes the new layout active (concept: "all windows start in the stash"). Order per ADR 0011.
 - [ ] **M1.9 State switch planning**
   - Done when: pure function computing keep/close/start sets when switching states in a running context (concept "Zustand wechseln"); unit tests.
 - [ ] **M1.10 Recovery file model**

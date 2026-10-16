@@ -60,6 +60,18 @@ pub enum Error {
         state: crate::name::StateName,
     },
 
+    #[error("layout {0} does not exist")]
+    UnknownLayout(crate::name::LayoutName),
+
+    #[error("layout {0} already exists")]
+    LayoutExists(crate::name::LayoutName),
+
+    #[error("layout {0} is active and cannot be removed (switch to another layout first)")]
+    ActiveLayout(crate::name::LayoutName),
+
+    #[error("window {0} already exists")]
+    WindowExists(crate::name::WindowId),
+
     #[error("could not determine the home directory")]
     NoHomeDir,
 

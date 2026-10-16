@@ -14,6 +14,7 @@ pub mod context;
 pub mod error;
 pub mod fsutil;
 pub mod layout;
+pub mod layouts;
 pub mod memory;
 pub mod mount;
 pub mod name;
