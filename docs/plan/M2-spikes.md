@@ -3,6 +3,9 @@
 Goal: prove the risky assumptions on the real machine before building on them.
 Each spike ends with a report in `docs/spikes/` and, where something is settled, an
 ADR. Agents can prepare scripts and report skeletons; the user runs them on the host.
+Runbook and scripts: [`docs/spikes/setup/`](../spikes/setup/README.md). Order: M2.3,
+M2.5, M2.6 under plain GNOME; then M2.2, M2.4, M2.8 with Hyprland nested in GNOME;
+M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 
 - [ ] **M2.1 Hyprland daily setup** *(host)*
   - Done when: all windows floating, Super+LMB/MMB move/resize, edge snapping, two special workspaces (`mail`, `chat`) toggle by key; one week of daily use noted in the report.

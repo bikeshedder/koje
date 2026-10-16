@@ -1,0 +1,42 @@
+# Throwaway base image for the M2 spikes – NOT the koje base image (that is M3.3).
+# Build: docs/spikes/setup/build-base.sh (passes your user name and uid).
+FROM registry.fedoraproject.org/fedora:44
+
+# GUI programs and what they need on Wayland: GPU (mesa), sound (pipewire client
+# tools), fonts. Podman + fuse-overlayfs for nested containers (M2.5).
+# procps-ng/smem for memory measurements (M2.6).
+RUN dnf -y install --setopt=install_weak_deps=False \
+        firefox foot nautilus xdg-utils \
+        mesa-dri-drivers mesa-vulkan-drivers libglvnd-egl glx-utils egl-utils \
+        pipewire-utils pulseaudio-utils \
+        dejavu-sans-fonts dejavu-sans-mono-fonts google-noto-emoji-fonts \
+        podman podman-compose fuse-overlayfs slirp4netns passt shadow-utils \
+        procps-ng smem which less dbus-tools \
+    && dnf clean all
+
+# The host user exists in the image with the same name and uid, because the
+# container runs with --userns=keep-id and the home is mounted at the host path.
+ARG USER_NAME
+ARG USER_UID
+ARG USER_HOME
+RUN useradd --uid "${USER_UID}" --home-dir "${USER_HOME}" --no-create-home "${USER_NAME}" \
+    # Sub-ids for rootless Podman *inside* the container (M2.5). With keep-id the
+    # container has 65537 ids (0–65536); give the user everything except its own uid.
+    && printf '%s:1:%s\n%s:%s:%s\n' \
+        "${USER_NAME}" "$((USER_UID - 1))" \
+        "${USER_NAME}" "$((USER_UID + 1))" "$((65536 - USER_UID))" \
+        | tee /etc/subuid > /etc/subgid
+
+# Links opened inside the context go to the context's Firefox.
+RUN mkdir -p /etc/xdg \
+    && printf '[Default Applications]\nx-scheme-handler/http=firefox.desktop\nx-scheme-handler/https=firefox.desktop\ntext/html=firefox.desktop\n' \
+        > /etc/xdg/mimeapps.list
+
+# Inner Podman: overlay via fuse-overlayfs (no overlay-on-overlay), no cgroup
+# management inside (the outer container owns the cgroup).
+RUN printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
+        > /etc/containers/storage.conf \
+    && printf '[containers]\ncgroups = "disabled"\n[engine]\ncgroup_manager = "cgroupfs"\nevents_logger = "file"\n' \
+        > /etc/containers/containers.conf
+
+LABEL io.koje.spike=true

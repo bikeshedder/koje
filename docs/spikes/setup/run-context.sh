@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Start a hand-made context container for the M2 spikes (M2.3, M2.5, M2.6).
+#
+#   run-context.sh <name> [wayland-socket]     e.g.  run-context.sh a wayland-0
+#
+# Wayland socket: `wayland-0` is usually GNOME, `wayland-1` a nested Hyprland
+# (check: ls "$XDG_RUNTIME_DIR"). The container runs `sleep infinity`; start
+# programs with:  podman exec -d koje-spike-<name> firefox
+# Remove with:     rm-context.sh <name>
+set -euo pipefail
+
+name=${1:?usage: run-context.sh <name> [wayland-socket]}
+wl=${2:-${WAYLAND_DISPLAY:-wayland-0}}
+run=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR not set}
+uid=$(id -u)
+
+[[ -S "$run/$wl" ]] || { echo "no Wayland socket $run/$wl" >&2; exit 1; }
+
+args=(
+  --name "koje-spike-$name"
+  --hostname "$name"
+  --label io.koje.spike=true
+  --label "io.koje.context=spike-$name"
+  # Same uid inside as on the host; files in mounts keep their owner.
+  --userns=keep-id
+  # SELinux hosts only (no effect on Ubuntu/AppArmor): the Wayland/PipeWire
+  # sockets are not labelled for containers.
+  --security-opt label=disable
+  # Home volume at the host's home path (concept: same paths as on the host).
+  # :U chowns the fresh volume to the user.
+  -v "koje-spike-$name-home:$HOME:U"
+  -e HOME="$HOME" -w "$HOME"
+  # Runtime dir with only the sockets the context may use.
+  --tmpfs "/run/user/$uid:mode=0700,uid=$uid,gid=$(id -g)"
+  -e XDG_RUNTIME_DIR="/run/user/$uid"
+  -v "$run/$wl:/run/user/$uid/$wl"
+  -e WAYLAND_DISPLAY="$wl"
+  -e MOZ_ENABLE_WAYLAND=1 -e GDK_BACKEND=wayland -e QT_QPA_PLATFORM=wayland
+  # GPU
+  --device /dev/dri
+  # Nested Podman (M2.5)
+  --device /dev/fuse
+)
+
+# Sound via PipeWire (and its PulseAudio compatibility socket, if present).
+[[ -S "$run/pipewire-0" ]] && args+=(-v "$run/pipewire-0:/run/user/$uid/pipewire-0")
+[[ -S "$run/pulse/native" ]] && args+=(-v "$run/pulse/native:/run/user/$uid/pulse/native")
+
+# Spike-only escape hatch for M2.5 on Ubuntu: if nested Podman fails with
+# "permission denied" on user namespaces, retry with KOJE_SPIKE_APPARMOR=unconfined
+# and record it in the report (it must not end up in koje unexamined).
+[[ -n "${KOJE_SPIKE_APPARMOR:-}" ]] && args+=(--security-opt "apparmor=$KOJE_SPIKE_APPARMOR")
+
+# Extra folders at the same path, e.g. KOJE_SPIKE_MOUNTS="$HOME/Austausch"
+for m in ${KOJE_SPIKE_MOUNTS:-}; do args+=(-v "$m:$m"); done
+
+# Print the exact command for the report, then run it.
+printf 'podman run -d'; printf ' %q' "${args[@]}" localhost/koje-spike/base:latest sleep infinity; echo
+podman run -d "${args[@]}" localhost/koje-spike/base:latest sleep infinity

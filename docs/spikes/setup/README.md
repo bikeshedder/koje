@@ -1,0 +1,96 @@
+# Spike setup (host)
+
+Material for the M2 spikes. Everything here runs on the **host**, not in the dev
+container. Host: Ubuntu 26.04 with GNOME (Wayland). Reports go to
+`docs/spikes/M2.x-*.md` (skeletons are there already).
+
+| File | Purpose |
+|---|---|
+| `base/Containerfile`, `build-base.sh` | throwaway spike image `localhost/koje-spike/base` (Fedora: Firefox as a real package, not a Snap) |
+| `run-context.sh <name> [socket]` | hand-made context container `koje-spike-<name>` (prints the exact `podman run`) |
+| `rm-context.sh <name>` | remove it and its home volume |
+| `mem.sh <pattern> [container]` | RSS/PSS/shared MiB per process (M2.6) |
+| `cgroup-mem.sh <container>` | cgroup memory of a context (M2.6) |
+| `hyprland-nested.conf` | Hyprland nested in GNOME, ALT as modifier (step 2) |
+
+Everything the scripts create carries the label `io.koje.spike=true` and the
+name prefix `koje-spike-`, so cleanup never touches your other containers:
+
+```sh
+podman ps -a --filter label=io.koje.spike=true
+```
+
+## 0. Prepare (once)
+
+```sh
+sudo apt install podman passt fuse-overlayfs uidmap smem
+podman info --format '{{.Host.Security.Rootless}} {{.Version.Version}}'   # true 5.x
+grep "^$(id -un):" /etc/subuid /etc/subgid       # must show a range, e.g. 100000:65536
+sysctl kernel.apparmor_restrict_unprivileged_userns   # note the value for M2.5
+docs/spikes/setup/build-base.sh
+```
+
+## 1. Under plain GNOME
+
+**M2.3 – first pass** (`M2.3-context-container.md`)
+
+```sh
+docs/spikes/setup/run-context.sh a wayland-0          # copy the printed command into the report
+podman exec -d koje-spike-a foot                      # terminal from the context
+podman exec -d koje-spike-a firefox
+podman exec koje-spike-a pw-cli info 0 | head -5    # PipeWire reachable? Then play a video in Firefox
+podman exec koje-spike-a sh -c 'ls -l /dev/dri; eglinfo -B 2>/dev/null | head -20 || glxinfo -B'
+# In the context's terminal: xdg-open https://example.org  → must open the context's Firefox
+```
+
+Check `about:support` in that Firefox for "Compositing: WebRender" (GPU) and
+"Window Protocol: wayland".
+
+**M2.5 – nested Podman** (`M2.5-nested-podman.md`)
+
+```sh
+podman exec -it koje-spike-a bash
+podman info --format '{{.Store.GraphDriverName}} {{.Host.IDMappings}}'
+podman run --rm docker.io/library/alpine echo hello from a dev container
+```
+
+If that fails on user namespaces, retry once with
+`KOJE_SPIKE_APPARMOR=unconfined docs/spikes/setup/run-context.sh b` and record
+both results. Then a compose project (`podman compose` or `podman-compose`) and a
+dev container that VS Code *inside the context* attaches to.
+
+**M2.6 – memory sharing** (`M2.6-memory-sharing.md`)
+
+```sh
+docs/spikes/setup/run-context.sh a && docs/spikes/setup/run-context.sh b
+podman exec -d koje-spike-a firefox; podman exec -d koje-spike-b firefox
+# open the same pages in both, wait a minute
+docs/spikes/setup/mem.sh firefox koje-spike-a
+docs/spikes/setup/mem.sh firefox koje-spike-b
+docs/spikes/setup/cgroup-mem.sh koje-spike-a
+# inside a: start a nested container that allocates memory, measure cgroup again
+podman exec koje-spike-a podman run -d --name hog docker.io/library/alpine \
+  sh -c 'head -c 500m /dev/zero | tail > /dev/null; sleep 600'
+docs/spikes/setup/cgroup-mem.sh koje-spike-a
+```
+
+For the baseline: run the Fedora image's Firefox twice from *one* container
+(`podman exec -d koje-spike-a firefox -P second --no-remote`) and compare.
+
+## 2. With Hyprland nested in GNOME (later)
+
+```sh
+sudo apt install hyprland foot
+Hyprland -c "$PWD/docs/spikes/setup/hyprland-nested.conf"   # opens as a window
+ls "$XDG_RUNTIME_DIR"                                       # new socket, e.g. wayland-1
+docs/spikes/setup/run-context.sh a wayland-1
+```
+
+Then M2.2, M2.4, M2.8 and M2.3 again against Hyprland.
+
+## Cleanup
+
+```sh
+docs/spikes/setup/rm-context.sh a; docs/spikes/setup/rm-context.sh b
+podman rmi localhost/koje-spike/base:latest
+```
