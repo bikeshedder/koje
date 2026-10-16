@@ -6,8 +6,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.1 Path expansion and mount validation**
   - Done when: `~` and `$HOME` in `mounts` expand against the real home; relative paths are rejected; duplicate mounts rejected; tests.
   - Notes: `mount::MountPath` validates on parse (also rejects `~user`, other `$VARS`, `..`); duplicates need the home, so they are checked in `ContextConfig::expand_mounts(home)` – callers (M1.5 `edit`, M3.2) must call it. Refused targets: ADR 0009, implemented in M1.11.
-- [ ] **M1.2 Global config loading with defaults**
+- [x] **M1.2 Global config loading with defaults**
   - Done when: missing `config.toml` = defaults; `Limits::or` applied when resolving a context's effective limits; tests.
+  - Notes: `GlobalConfig::load`, `ContextConfig::effective_limits` (re-validates soft < hard after merging).
 - [ ] **M1.3 Load and save states**
   - Done when: `State` round-trips the concept example; `State::issues` checked on load (error vs warning decided and documented); writes are atomic (temp file + rename in the same dir); writing `empty` is refused; tests.
 - [ ] **M1.4 `koje new <context>`**

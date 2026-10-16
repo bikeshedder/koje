@@ -115,6 +115,16 @@ impl ContextConfig {
         Self::from_toml(&text, path)
     }
 
+    /// Limits after filling unset values from the global defaults.
+    ///
+    /// Validated again: a context's soft limit may be fine on its own but end up
+    /// above an inherited hard limit.
+    pub fn effective_limits(&self, global: &GlobalConfig) -> Result<Limits> {
+        let limits = self.limits.or(&global.default_limits);
+        limits.validate()?;
+        Ok(limits)
+    }
+
     /// Absolute host paths of all mounts; rejects refused targets (ADR 0009) and
     /// two entries naming the same folder.
     ///
@@ -157,6 +167,18 @@ impl GlobalConfig {
         })?;
         cfg.default_limits.validate()?;
         Ok(cfg)
+    }
+
+    /// Load `config.toml`; a missing file means all defaults.
+    pub fn load(path: &Path) -> Result<Self> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Self::from_toml(&text, path),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(Error::Read {
+                path: path.to_owned(),
+                source: e,
+            }),
+        }
     }
 }
 
@@ -312,5 +334,51 @@ apps = ["mail", "calendar"]
         let cfg = GlobalConfig::from_toml(text, Path::new("config.toml")).unwrap();
         assert_eq!(cfg.zones["DP-1"]["links"].w, 1700);
         assert_eq!(cfg.overlay["mail"].apps, ["mail", "calendar"]);
+    }
+
+    #[test]
+    fn missing_global_config_is_default() {
+        let tmp = std::env::temp_dir().join("koje-test-does-not-exist/config.toml");
+        assert_eq!(GlobalConfig::load(&tmp).unwrap(), GlobalConfig::default());
+    }
+
+    #[test]
+    fn effective_limits_fill_from_global() {
+        let ctx = ContextConfig::from_toml(
+            "name = \"kp\"\nprefix = \"KP\"\ncolor = \"#000000\"\n[limits]\nmemory_soft = \"2G\"\n",
+            Path::new("x"),
+        )
+        .unwrap();
+        let global = GlobalConfig::from_toml(
+            "[default_limits]\nmemory_soft = \"4G\"\nmemory_hard = \"6G\"\n",
+            Path::new("x"),
+        )
+        .unwrap();
+        let limits = ctx.effective_limits(&global).unwrap();
+        assert_eq!(limits.memory_soft, Some(ByteSize(2 << 30)));
+        assert_eq!(limits.memory_hard, Some(ByteSize(6 << 30)));
+        assert_eq!(
+            ctx.effective_limits(&GlobalConfig::default()).unwrap(),
+            ctx.limits
+        );
+    }
+
+    #[test]
+    fn effective_limits_are_validated_after_merging() {
+        // Soft 7G alone is fine, but not below an inherited hard limit of 6G.
+        let ctx = ContextConfig::from_toml(
+            "name = \"kp\"\nprefix = \"KP\"\ncolor = \"#000000\"\n[limits]\nmemory_soft = \"7G\"\n",
+            Path::new("x"),
+        )
+        .unwrap();
+        let global = GlobalConfig::from_toml(
+            "[default_limits]\nmemory_soft = \"4G\"\nmemory_hard = \"6G\"\n",
+            Path::new("x"),
+        )
+        .unwrap();
+        assert!(matches!(
+            ctx.effective_limits(&global),
+            Err(Error::LimitOrder { .. })
+        ));
     }
 }
