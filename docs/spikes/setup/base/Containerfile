@@ -39,10 +39,12 @@ RUN mkdir -p /etc/xdg \
         > /etc/xdg/mimeapps.list
 
 # Inner Podman: overlay via fuse-overlayfs (no overlay-on-overlay), no cgroup
-# management inside (the outer container owns the cgroup).
+# management inside (the outer container owns the cgroup), no default sysctls
+# (/proc/sys is read-only in the context: "open /proc/sys/net/ipv4/ping_group_range:
+# Read-only file system"; podman/stable does the same).
 RUN printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
         > /etc/containers/storage.conf \
-    && printf '[containers]\ncgroups = "disabled"\n[engine]\ncgroup_manager = "cgroupfs"\nevents_logger = "file"\n' \
+    && printf '[containers]\ncgroups = "disabled"\ndefault_sysctls = []\n[engine]\ncgroup_manager = "cgroupfs"\nevents_logger = "file"\n' \
         > /etc/containers/containers.conf
 
 LABEL io.koje.spike=true
