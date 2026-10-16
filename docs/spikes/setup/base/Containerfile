@@ -27,6 +27,11 @@ RUN useradd --uid "${USER_UID}" --home-dir "${USER_HOME}" --no-create-home "${US
         "${USER_NAME}" "$((USER_UID + 1))" "$((65536 - USER_UID))" \
         | tee /etc/subuid > /etc/subgid
 
+# newuidmap/newgidmap come with file capabilities, which do not survive in
+# rootless image storage; nested Podman then fails with "write to uid_map failed:
+# Operation not permitted". Podman's own podman/stable image uses setuid instead.
+RUN chmod 4755 /usr/bin/newuidmap /usr/bin/newgidmap
+
 # Links opened inside the context go to the context's Firefox.
 RUN mkdir -p /etc/xdg \
     && printf '[Default Applications]\nx-scheme-handler/http=firefox.desktop\nx-scheme-handler/https=firefox.desktop\ntext/html=firefox.desktop\n' \

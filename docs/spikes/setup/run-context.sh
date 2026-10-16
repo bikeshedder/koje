@@ -31,12 +31,13 @@ args=(
   -v "koje-spike-$name-home:$HOME:U"
   -e HOME="$HOME" -w "$HOME"
   # Runtime dir with only the sockets the context may use.
-  --tmpfs "/run/user/$uid:mode=0700,uid=$uid,gid=$(id -g)"
+  # U=true chowns it to the container user (podman's --tmpfs has no uid=/gid=).
+  --mount "type=tmpfs,destination=/run/user/$uid,tmpfs-mode=0700,U=true"
   -e XDG_RUNTIME_DIR="/run/user/$uid"
   -v "$run/$wl:/run/user/$uid/$wl"
   -e WAYLAND_DISPLAY="$wl"
   -e MOZ_ENABLE_WAYLAND=1 -e GDK_BACKEND=wayland -e QT_QPA_PLATFORM=wayland
-  # GPU
+  # GPU (Mesa drivers in the image: AMD/Intel). NVIDIA: see KOJE_SPIKE_GPU below.
   --device /dev/dri
   # Nested Podman (M2.5)
   --device /dev/fuse
@@ -45,6 +46,10 @@ args=(
 # Sound via PipeWire (and its PulseAudio compatibility socket, if present).
 [[ -S "$run/pipewire-0" ]] && args+=(-v "$run/pipewire-0:/run/user/$uid/pipewire-0")
 [[ -S "$run/pulse/native" ]] && args+=(-v "$run/pulse/native:/run/user/$uid/pulse/native")
+
+# NVIDIA's proprietary driver needs its host libraries inside the container,
+# injected via CDI (nvidia-container-toolkit): KOJE_SPIKE_GPU=nvidia
+[[ "${KOJE_SPIKE_GPU:-}" == nvidia ]] && args+=(--device nvidia.com/gpu=all)
 
 # Spike-only escape hatch for M2.5 on Ubuntu: if nested Podman fails with
 # "permission denied" on user namespaces, retry with KOJE_SPIKE_APPARMOR=unconfined

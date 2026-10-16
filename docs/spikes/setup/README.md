@@ -30,6 +30,9 @@ sysctl kernel.apparmor_restrict_unprivileged_userns   # note the value for M2.5
 docs/spikes/setup/build-base.sh
 ```
 
+After changing `base/Containerfile`, rebuild and recreate:
+`build-base.sh && rm-context.sh a && run-context.sh a wayland-0`.
+
 ## 1. Under plain GNOME
 
 **M2.3 – first pass** (`M2.3-context-container.md`)
@@ -45,6 +48,21 @@ podman exec koje-spike-a sh -c 'ls -l /dev/dri; eglinfo -B 2>/dev/null | head -2
 
 Check `about:support` in that Firefox for "Compositing: WebRender" (GPU) and
 "Window Protocol: wayland".
+
+**GPU with NVIDIA.** Mesa in the image only drives AMD/Intel, e.g. the Ryzen's
+iGPU. To use an NVIDIA card with the proprietary driver:
+
+```sh
+# which card drives the monitor? (0x10de = NVIDIA, 0x1002 = AMD)
+for c in /sys/class/drm/card?; do echo "$c $(cat $c/device/vendor)"; done
+grep -l '^connected' /sys/class/drm/card*-*/status
+# CDI for Podman (nvidia-container-toolkit from NVIDIA's apt repository)
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml && nvidia-ctk cdi list
+docs/spikes/setup/rm-context.sh a
+KOJE_SPIKE_GPU=nvidia docs/spikes/setup/run-context.sh a wayland-0
+podman exec koje-spike-a nvidia-smi
+podman exec koje-spike-a sh -c 'eglinfo -B 2>/dev/null | grep -i renderer'
+```
 
 **M2.5 – nested Podman** (`M2.5-nested-podman.md`)
 
