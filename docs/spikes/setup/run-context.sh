@@ -58,6 +58,11 @@ args=(
 # and record it in the report (it must not end up in koje unexamined).
 [[ -n "${KOJE_SPIKE_APPARMOR:-}" ]] && args+=(--security-opt "apparmor=$KOJE_SPIKE_APPARMOR")
 
+# M2.5: nested containers cannot mount a fresh /proc while Podman masks parts of
+# the context's /proc. KOJE_SPIKE_UNMASK=1 unmasks it (alternative: inner
+# containers share the context's PID namespace, `pidns = "host"`).
+[[ -n "${KOJE_SPIKE_UNMASK:-}" ]] && args+=(--security-opt unmask=ALL)
+
 # Extra folders at the same path, e.g. KOJE_SPIKE_MOUNTS="$HOME/Austausch"
 for m in ${KOJE_SPIKE_MOUNTS:-}; do args+=(-v "$m:$m"); done
 
