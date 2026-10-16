@@ -11,6 +11,7 @@
 pub mod color;
 pub mod config;
 pub mod error;
+pub mod fsutil;
 pub mod layout;
 pub mod memory;
 pub mod mount;

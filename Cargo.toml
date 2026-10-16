@@ -17,9 +17,10 @@ koje-core = { path = "crates/koje-core" }
 anyhow = "1"
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
 directories = "6"
+indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-toml = "1"
+toml = { version = "1", features = ["preserve_order"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

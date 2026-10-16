@@ -114,6 +114,15 @@ impl StateName {
     }
 }
 
+impl LayoutName {
+    /// Name of the single layout a new state starts with (ADR 0011).
+    pub const INITIAL: &'static str = "main";
+
+    pub fn initial() -> Self {
+        Self(Self::INITIAL.to_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -45,6 +45,26 @@ pub enum Error {
         source: std::io::Error,
     },
 
+    #[error("failed to write {path}: {source}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to serialize {path}: {source}")]
+    Serialize {
+        path: PathBuf,
+        #[source]
+        source: toml::ser::Error,
+    },
+
+    #[error("inconsistent state {path}: {issue}")]
+    InvalidState {
+        path: PathBuf,
+        issue: crate::state::StateIssue,
+    },
+
     #[error("failed to parse {path}: {source}")]
     Parse {
         path: PathBuf,

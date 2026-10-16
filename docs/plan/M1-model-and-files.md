@@ -9,8 +9,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.2 Global config loading with defaults**
   - Done when: missing `config.toml` = defaults; `Limits::or` applied when resolving a context's effective limits; tests.
   - Notes: `GlobalConfig::load`, `ContextConfig::effective_limits` (re-validates soft < hard after merging).
-- [ ] **M1.3 Load and save states**
+- [x] **M1.3 Load and save states**
   - Done when: `State` round-trips the concept example; `State::issues` checked on load (error vs warning decided and documented); writes are atomic (temp file + rename in the same dir); writing `empty` is refused; tests.
+  - Notes: ADR 0010 (repair dangling, error on duplicates) and ADR 0011 (layouts in file order via `IndexMap` + `toml/preserve_order`; initial layout `main`). `fsutil::write_atomic` also fsyncs; reuse it for every koje file.
 - [ ] **M1.4 `koje new <context>`**
   - Done when: creates `context.toml` with name, prefix (default: first letters, uppercase), color (default: next unused color from a fixed palette), default image; refuses existing names; CLI test with temp XDG dirs.
   - Notes: palette and prefix rule are small decisions → ADR.
