@@ -247,7 +247,7 @@ impl From<MountPath> for String {
 
 impl fmt::Display for MountPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.raw)
+        f.pad(&self.raw)
     }
 }
 

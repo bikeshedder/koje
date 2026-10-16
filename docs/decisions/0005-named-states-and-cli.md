@@ -17,7 +17,8 @@ Several flag designs were discussed (`--clean`, `--no-restore`, `--from`, `--sav
 - `koje down <ctx> [-s NAME]` writes exactly that one state. `--no-save` writes nothing
   and changes nothing. `-s` and `--no-save` are mutually exclusive.
 - `koje save <ctx> [-s NAME]` saves without shutting down.
-- Deleting happens only via `koje state rm`. Copy/rename via `state cp|mv`.
+- Deleting happens only via `koje state rm`. Copy/rename via `state cp|mv`
+  (details: ADR 0013).
 
 ## Consequences
 

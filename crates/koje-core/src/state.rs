@@ -19,8 +19,7 @@ use crate::config::StateRoles;
 use crate::error::{Error, Result};
 use crate::fsutil;
 use crate::layout::Layout;
-use crate::name::{ContextName, LayoutName, StateName, WindowId};
-use crate::paths::Paths;
+use crate::name::{LayoutName, StateName, WindowId};
 
 /// Where a window's program runs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -239,24 +238,6 @@ pub fn resolve_load(
     Resolved::Empty { fell_back: true }
 }
 
-/// Read a stored state of a context; `None` if it does not exist.
-/// `empty` is virtual and never read from disk.
-pub fn read(paths: &Paths, ctx: &ContextName, name: &StateName) -> Result<Option<Loaded>> {
-    if name.is_empty_state() {
-        return Ok(Some(Loaded {
-            state: State::new(LayoutName::initial()),
-            repaired: Vec::new(),
-        }));
-    }
-    State::load(&paths.state_file(ctx, name))
-}
-
-/// Write a state of a context atomically; `empty` is refused.
-pub fn write(paths: &Paths, ctx: &ContextName, name: &StateName, state: &State) -> Result<()> {
-    ensure_writable(name)?;
-    state.save(&paths.state_file(ctx, name))
-}
-
 /// Fail if `name` may not be written (`empty` is read-only).
 pub fn ensure_writable(name: &StateName) -> Result<()> {
     if name.is_empty_state() {
@@ -310,15 +291,6 @@ editor  = { monitor = "DP-1", x = 3170, y = 0, w = 1950, h = 2160 }
         assert!(st.issues().is_empty(), "{:?}", st.issues());
     }
 
-    fn ctx() -> ContextName {
-        ContextName::new("kp").unwrap()
-    }
-
-    fn temp_paths(tmp: &tempfile::TempDir) -> Paths {
-        let r = tmp.path();
-        Paths::with_roots(r.join("c"), r.join("d"), r.join("s"))
-    }
-
     #[test]
     fn round_trips_concept_example() {
         let st = State::from_toml(EXAMPLE, Path::new("x")).unwrap();
@@ -335,40 +307,6 @@ editor  = { monitor = "DP-1", x = 3170, y = 0, w = 1950, h = 2160 }
         let st = State::from_toml(&text, Path::new("x")).unwrap();
         let names: Vec<_> = st.layout.keys().map(LayoutName::as_str).collect();
         assert_eq!(names, ["zeta", "review"]);
-    }
-
-    #[test]
-    fn save_and_read_through_paths() {
-        let tmp = tempfile::tempdir().unwrap();
-        let paths = temp_paths(&tmp);
-        let st = State::from_toml(EXAMPLE, Path::new("x")).unwrap();
-        assert_eq!(read(&paths, &ctx(), &s("default")).unwrap(), None);
-        write(&paths, &ctx(), &s("default"), &st).unwrap();
-        let loaded = read(&paths, &ctx(), &s("default")).unwrap().unwrap();
-        assert_eq!(loaded.state, st);
-        assert_eq!(loaded.repaired, []);
-    }
-
-    #[test]
-    fn writing_empty_is_refused() {
-        let tmp = tempfile::tempdir().unwrap();
-        let paths = temp_paths(&tmp);
-        let st = State::new(LayoutName::initial());
-        assert!(matches!(
-            write(&paths, &ctx(), &s("empty"), &st),
-            Err(Error::ReservedState(_))
-        ));
-        assert!(!paths.states_dir(&ctx()).exists());
-    }
-
-    #[test]
-    fn empty_is_virtual() {
-        let tmp = tempfile::tempdir().unwrap();
-        let loaded = read(&temp_paths(&tmp), &ctx(), &s("empty"))
-            .unwrap()
-            .unwrap();
-        assert_eq!(loaded.state.windows, []);
-        assert_eq!(loaded.state.issues(), []);
     }
 
     #[test]

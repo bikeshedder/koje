@@ -78,7 +78,8 @@ macro_rules! name_type {
 
         impl fmt::Display for $ty {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(&self.0)
+                // `pad` honours width and alignment, e.g. `{:<24}` in listings.
+                f.pad(&self.0)
             }
         }
     };
@@ -126,6 +127,12 @@ impl LayoutName {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_honours_width() {
+        let n = ContextName::new("kp").unwrap();
+        assert_eq!(format!("[{n:<4}]"), "[kp  ]");
+    }
 
     #[test]
     fn accepts_valid_names() {

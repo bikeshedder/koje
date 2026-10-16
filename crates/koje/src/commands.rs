@@ -6,10 +6,11 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 use koje_core::color::Color;
 use koje_core::context;
-use koje_core::name::ContextName;
+use koje_core::name::{ContextName, StateName};
 use koje_core::paths::Paths;
+use koje_core::states::{self, Role, Summary};
 
-use crate::cli::{Command, Ctx};
+use crate::cli::{Command, Ctx, StateCmd};
 use crate::prompt::confirm;
 
 pub fn run(command: &Command) -> Result<()> {
@@ -21,7 +22,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Edit(ctx) => edit(&paths, ctx),
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
-        Command::State(_) => todo_in("M1"),
+        Command::State(cmd) => state(&paths, cmd),
 
         Command::Up { .. }
         | Command::Down { .. }
@@ -153,6 +154,107 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
     Ok(())
 }
 
+/// `koje state …`
+fn state(paths: &Paths, cmd: &StateCmd) -> Result<()> {
+    let ctx = ContextName::new(match cmd {
+        StateCmd::List(ctx) => &ctx.context,
+        StateCmd::Cp { context, .. }
+        | StateCmd::Mv { context, .. }
+        | StateCmd::Rm { context, .. } => context,
+    })?;
+    let roles = context::load(paths, &ctx)?.states;
+    match cmd {
+        StateCmd::List(_) => state_list(paths, &ctx, &roles),
+        StateCmd::Cp { from, to, .. } => {
+            let (from, to) = (StateName::new(from)?, StateName::new(to)?);
+            states::copy(paths, &ctx, &from, &to)?;
+            println!("copied state {from} to {to}");
+            Ok(())
+        }
+        StateCmd::Mv { from, to, .. } => {
+            let (from, to) = (StateName::new(from)?, StateName::new(to)?);
+            states::rename(paths, &ctx, &from, &to)?;
+            println!("renamed state {from} to {to}");
+            if let Some(role) = Role::of(&from, &roles) {
+                println!(
+                    "note: the `{}` role still names {from}; rename it in {} if wanted",
+                    role.as_str(),
+                    paths.context_config(&ctx).display()
+                );
+            }
+            Ok(())
+        }
+        StateCmd::Rm { state, .. } => {
+            let state = StateName::new(state)?;
+            states::remove(paths, &ctx, &state)?;
+            println!("removed state {state}");
+            match Role::of(&state, &roles) {
+                Some(Role::Default) => println!(
+                    "note: {state} is the `default` role; `koje up {ctx}` now loads {} until the next save",
+                    roles.fresh
+                ),
+                Some(Role::Fresh) => println!(
+                    "note: {state} is the `fresh` role; a missing state now falls back to `empty`"
+                ),
+                None => {}
+            }
+            Ok(())
+        }
+    }
+}
+
+fn state_list(
+    paths: &Paths,
+    ctx: &ContextName,
+    roles: &koje_core::config::StateRoles,
+) -> Result<()> {
+    let now = std::time::SystemTime::now();
+    println!(
+        "{:<24} {:>7} {:>7}  {:<12} ROLE",
+        "STATE", "WINDOWS", "LAYOUTS", "MODIFIED"
+    );
+    for row in states::list(paths, ctx, roles)? {
+        let (windows, layouts, problem) = match &row.summary {
+            Some(Summary::Ok { windows, layouts }) => {
+                (windows.to_string(), layouts.to_string(), None)
+            }
+            Some(Summary::Invalid(e)) => ("?".into(), "?".into(), Some(e.as_str())),
+            None => ("-".into(), "-".into(), None),
+        };
+        let modified = row.modified.map_or_else(|| "-".to_owned(), |t| age(now, t));
+        let role = match (row.role, &row.summary) {
+            _ if row.name.is_empty_state() => "reserved".to_owned(),
+            (Some(r), None) => format!("{} (not saved yet)", r.as_str()),
+            (Some(r), Some(_)) => r.as_str().to_owned(),
+            (None, _) => String::new(),
+        };
+        println!(
+            "{:<24} {windows:>7} {layouts:>7}  {modified:<12} {role}",
+            row.name
+        );
+        if let Some(problem) = problem {
+            for line in problem.lines() {
+                println!("    {line}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Coarse relative time for listings: `just now`, `5 min ago`, `3 h ago`, `2 days ago`.
+fn age(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
+    let secs = now.duration_since(then).map_or(0, |d| d.as_secs());
+    match secs {
+        0..60 => "just now".to_owned(),
+        60..3600 => format!("{} min ago", secs / 60),
+        3600..86_400 => format!("{} h ago", secs / 3600),
+        _ => match secs / 86_400 {
+            1 => "1 day ago".to_owned(),
+            days => format!("{days} days ago"),
+        },
+    }
+}
+
 /// `koje list`: contexts found in the config directory.
 fn list(paths: &Paths) -> Result<()> {
     let configs = context::list(paths)?;
@@ -168,4 +270,23 @@ fn list(paths: &Paths) -> Result<()> {
         println!("{:<24} {:<6} {}", cfg.name, cfg.prefix, cfg.color);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn age_is_coarse() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let ago = |s| age(now, now - Duration::from_secs(s));
+        assert_eq!(ago(5), "just now");
+        assert_eq!(ago(300), "5 min ago");
+        assert_eq!(ago(3 * 3600 + 5), "3 h ago");
+        assert_eq!(ago(86_400 + 1), "1 day ago");
+        assert_eq!(ago(9 * 86_400), "9 days ago");
+        // Clock skew: a file from the future is "just now".
+        assert_eq!(age(now, now + Duration::from_secs(60)), "just now");
+    }
 }

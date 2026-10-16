@@ -48,6 +48,18 @@ pub enum Error {
         found: crate::name::ContextName,
     },
 
+    #[error("context {context} has no state {state}")]
+    UnknownState {
+        context: crate::name::ContextName,
+        state: crate::name::StateName,
+    },
+
+    #[error("context {context} already has a state {state} (remove it first with `koje state rm`)")]
+    StateExists {
+        context: crate::name::ContextName,
+        state: crate::name::StateName,
+    },
+
     #[error("could not determine the home directory")]
     NoHomeDir,
 

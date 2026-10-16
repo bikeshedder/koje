@@ -60,7 +60,7 @@ impl From<Color> for String {
 
 impl fmt::Display for Color {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
+        f.pad(&format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b))
     }
 }
 
@@ -74,6 +74,7 @@ mod tests {
         assert_eq!((c.r, c.g, c.b), (0x2e, 0x7d, 0x5b));
         assert_eq!(c.to_string(), "#2E7D5B");
         assert_eq!(c.to_hyprland(), "rgb(2e7d5b)");
+        assert_eq!(format!("{c:<8}|"), "#2E7D5B |");
         assert_eq!("#2e7d5b".parse::<Color>().unwrap(), c);
     }
 

@@ -221,6 +221,49 @@ fn rm_asks_unless_yes() {
 }
 
 #[test]
+fn state_commands_follow_adr_0013() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let listed = stdout(&koje(tmp.path(), &["state", "list", "kp"]));
+    assert!(listed.contains("default (not saved yet)"), "{listed}");
+    assert!(listed.contains("reserved"), "{listed}");
+
+    stdout(&koje(
+        tmp.path(),
+        &["state", "cp", "kp", "empty", "default"],
+    ));
+    stdout(&koje(
+        tmp.path(),
+        &["state", "cp", "kp", "default", "workshop"],
+    ));
+    let listed = stdout(&koje(tmp.path(), &["state", "list", "kp"]));
+    assert!(listed.contains("workshop"), "{listed}");
+    assert!(listed.contains("just now"), "{listed}");
+
+    // Never overwrite, never touch `empty`.
+    for args in [
+        &["state", "cp", "kp", "default", "workshop"][..],
+        &["state", "mv", "kp", "default", "workshop"],
+        &["state", "rm", "kp", "empty"],
+        &["state", "rm", "kp", "missing"],
+        &["state", "list", "nope"],
+    ] {
+        assert!(!koje(tmp.path(), args).status.success(), "{args:?}");
+    }
+
+    let out = stdout(&koje(tmp.path(), &["state", "mv", "kp", "default", "old"]));
+    assert!(out.contains("`default` role still names default"), "{out}");
+    let out = stdout(&koje(tmp.path(), &["state", "rm", "kp", "old"]));
+    assert!(!out.contains("note"), "{out}");
+    stdout(&koje(
+        tmp.path(),
+        &["state", "cp", "kp", "workshop", "default"],
+    ));
+    let out = stdout(&koje(tmp.path(), &["state", "rm", "kp", "default"]));
+    assert!(out.contains("now loads fresh"), "{out}");
+}
+
+#[test]
 fn unimplemented_commands_name_their_milestone() {
     let tmp = tempfile::tempdir().unwrap();
     let out = koje(tmp.path(), &["up", "kp"]);

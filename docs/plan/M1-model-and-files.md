@@ -18,8 +18,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.5 `koje edit <context>` and `koje rm <context>`**
   - Done when: `edit` opens `$VISUAL`/`$EDITOR` and re-validates after save (reopen on error); `rm` asks for confirmation unless `--yes`, removes config + states + recovery file. (Container removal joins in M3.)
   - Notes: `edit` works on a draft next to `context.toml` (original replaced atomically only when `context::validate` passes: syntax, name = directory, ADR 0009 mounts); fallback editor `vi`, run via `sh -c` like git. `rm` deletes the three per-context dirs; no input on stdin = no.
-- [ ] **M1.6 `koje state list|cp|mv|rm`**
+- [x] **M1.6 `koje state list|cp|mv|rm`**
   - Done when: list shows name, window/layout counts, modified time and marks role states; cp/mv/rm follow ADR 0005 (`empty` reserved, roles cannot be removed while configured? → decide); CLI tests.
+  - Notes: ADR 0013. New `states` module (file ops incl. `read`/`write` from M1.3). Fixed `Display` of names/colors ignoring width (`f.pad`). Running contexts are not checked yet – revisit when `kojed` owns states (M5).
 - [ ] **M1.7 `koje list` with more detail**
   - Done when: shows prefix, color swatch (truecolor when on a TTY), number of states; machine-readable `--json`.
 - [ ] **M1.8 Layout model operations**
