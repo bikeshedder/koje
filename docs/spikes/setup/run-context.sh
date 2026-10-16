@@ -39,8 +39,10 @@ args=(
   -e MOZ_ENABLE_WAYLAND=1 -e GDK_BACKEND=wayland -e QT_QPA_PLATFORM=wayland
   # GPU (Mesa drivers in the image: AMD/Intel). NVIDIA: see KOJE_SPIKE_GPU below.
   --device /dev/dri
-  # Nested Podman (M2.5)
+  # Nested Podman (M2.5): fuse-overlayfs for storage, tun for pasta networking
+  # of the inner containers (without it: "Failed to open() /dev/net/tun").
   --device /dev/fuse
+  --device /dev/net/tun
 )
 
 # Sound via PipeWire (and its PulseAudio compatibility socket, if present).
