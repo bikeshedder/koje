@@ -13,3 +13,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0006 | [Crash recovery via a separate recovery file](0006-crash-recovery-file.md) | Accepted |
 | 0007 | [Terminology: context, no project object](0007-terminology-context.md) | Accepted |
 | 0008 | [Crate structure: pure core with ports](0008-crate-structure.md) | Accepted |
+| 0009 | [Refused mount targets](0009-refused-mount-targets.md) | Accepted |

@@ -79,7 +79,9 @@ browser profile per project. Put common programs into the base image.
 - **Files between contexts:** clipboard text/images always work. Drag & drop of
   files passes paths, so koje mounts folders at the same path as on the host. A
   shared exchange folder (e.g. `~/Austausch`) is a deliberate hole. Context A →
-  context B fails by design.
+  context B fails by design. Mounts that would hide the context's home, expose
+  koje's own files or host sockets, or replace system folders are refused unless
+  marked `unsafe` (ADR 0009).
 
 ## Layouts
 
