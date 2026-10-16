@@ -16,7 +16,7 @@ use crate::prompt::confirm;
 pub fn run(command: &Command) -> Result<()> {
     let paths = Paths::from_env()?;
     match command {
-        Command::List => list(&paths),
+        Command::List { json } => list(&paths, *json),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
         Command::Edit(ctx) => edit(&paths, ctx),
@@ -255,21 +255,100 @@ fn age(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
     }
 }
 
-/// `koje list`: contexts found in the config directory.
-fn list(paths: &Paths) -> Result<()> {
-    let configs = context::list(paths)?;
-    if configs.is_empty() {
+/// One row of `koje list --json`. Field names are a public interface for
+/// scripts and bar modules; only add fields.
+#[derive(Debug, serde::Serialize)]
+struct ListRow {
+    name: String,
+    #[serde(flatten)]
+    config: Option<ListConfig>,
+    /// Number of stored states (without the virtual `empty`).
+    states: usize,
+    /// Why `context.toml` could not be loaded, if it could not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ListConfig {
+    prefix: String,
+    color: String,
+    image: String,
+    mounts: Vec<String>,
+}
+
+/// `koje list`: contexts found in the config directory. A context whose
+/// `context.toml` is broken is listed with its error instead of failing the list.
+fn list(paths: &Paths, json: bool) -> Result<()> {
+    let mut rows = Vec::new();
+    for name in context::names(paths)? {
+        let states = states::stored_names(paths, &name)?.len();
+        let (config, error) = match context::load(paths, &name) {
+            Ok(cfg) => (
+                Some(ListConfig {
+                    prefix: cfg.prefix,
+                    color: cfg.color.to_string(),
+                    image: cfg.image,
+                    mounts: cfg.mounts.iter().map(|m| m.path.to_string()).collect(),
+                }),
+                None,
+            ),
+            Err(e) => (None, Some(e.to_string())),
+        };
+        rows.push(ListRow {
+            name: name.to_string(),
+            config,
+            states,
+            error,
+        });
+    }
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+        return Ok(());
+    }
+    if rows.is_empty() {
         println!(
             "no contexts yet – create one with `koje new <context>` ({})",
             paths.contexts_dir().display()
         );
         return Ok(());
     }
-    for cfg in configs {
-        // Status column arrives with the container runtime in M3.
-        println!("{:<24} {:<6} {}", cfg.name, cfg.prefix, cfg.color);
+    let swatches = use_color();
+    // Status column arrives with the container runtime in M3.
+    println!("{:<24} {:<6} {:<10} STATES", "CONTEXT", "PREFIX", "COLOR");
+    for row in rows {
+        match (&row.config, &row.error) {
+            (Some(cfg), _) => {
+                let swatch = cfg
+                    .color
+                    .parse::<Color>()
+                    .ok()
+                    .filter(|_| swatches)
+                    .map_or_else(String::new, |c| {
+                        format!("\x1b[48;2;{};{};{}m  \x1b[0m ", c.r, c.g, c.b)
+                    });
+                let width = if swatches { 7 } else { 10 };
+                println!(
+                    "{:<24} {:<6} {swatch}{:<width$} {}",
+                    row.name, cfg.prefix, cfg.color, row.states
+                );
+            }
+            (None, error) => {
+                println!("{:<24} {:<6} {:<10} {}", row.name, "?", "?", row.states);
+                for line in error.as_deref().unwrap_or_default().lines() {
+                    println!("    {line}");
+                }
+            }
+        }
     }
     Ok(())
+}
+
+/// Color swatches only on a terminal and unless `NO_COLOR` is set (no-color.org).
+fn use_color() -> bool {
+    use std::io::IsTerminal as _;
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
 }
 
 #[cfg(test)]

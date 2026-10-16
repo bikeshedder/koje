@@ -128,7 +128,7 @@ pub fn list(paths: &Paths, ctx: &ContextName, roles: &StateRoles) -> Result<Vec<
 
 /// Names of the state files of a context, sorted. Files that are not
 /// `<valid-name>.toml` are ignored.
-fn stored_names(paths: &Paths, ctx: &ContextName) -> Result<Vec<StateName>> {
+pub fn stored_names(paths: &Paths, ctx: &ContextName) -> Result<Vec<StateName>> {
     let dir = paths.states_dir(ctx);
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,

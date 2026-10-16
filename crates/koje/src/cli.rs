@@ -147,7 +147,11 @@ pub enum Command {
         yes: bool,
     },
     /// List contexts.
-    List,
+    List {
+        /// Machine-readable output (JSON array).
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -249,6 +253,14 @@ mod tests {
                 cmd: Some(LayoutCmd::Next(_)),
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn list_takes_json() {
+        assert!(matches!(
+            parse(&["list", "--json"]).unwrap().command,
+            Command::List { json: true }
         ));
     }
 

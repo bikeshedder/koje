@@ -63,6 +63,8 @@ fn list_without_contexts() {
     let out = koje(tmp.path(), &["list"]);
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("no contexts yet"));
+    let json = stdout(&koje(tmp.path(), &["list", "--json"]));
+    assert_eq!(json.trim(), "[]");
 }
 
 #[test]
@@ -261,6 +263,41 @@ fn state_commands_follow_adr_0013() {
     ));
     let out = stdout(&koje(tmp.path(), &["state", "rm", "kp", "default"]));
     assert!(out.contains("now loads fresh"), "{out}");
+}
+
+#[test]
+fn list_shows_details_and_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["state", "cp", "kp", "empty", "default"],
+    ));
+    let broken = config_of(tmp.path(), "zz");
+    std::fs::create_dir_all(broken.parent().unwrap()).unwrap();
+    std::fs::write(&broken, "name = 1\n").unwrap();
+
+    let text = stdout(&koje(tmp.path(), &["list"]));
+    assert!(text.contains("STATES"), "{text}");
+    // Not a terminal: no escape codes.
+    assert!(!text.contains('\x1b'), "{text:?}");
+    let kp = text.lines().find(|l| l.starts_with("kp ")).unwrap();
+    assert!(
+        kp.contains("#2E7D5B") && kp.trim_end().ends_with('1'),
+        "{kp}"
+    );
+    assert!(text.contains("zz "), "{text}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(&koje(tmp.path(), &["list", "--json"]))).unwrap();
+    assert_eq!(json[0]["name"], "kp");
+    assert_eq!(json[0]["prefix"], "KP");
+    assert_eq!(json[0]["color"], "#2E7D5B");
+    assert_eq!(json[0]["states"], 1);
+    assert_eq!(json[0]["mounts"], serde_json::json!([]));
+    assert!(json[0].get("error").is_none());
+    assert_eq!(json[1]["name"], "zz");
+    assert!(json[1]["error"].is_string());
 }
 
 #[test]

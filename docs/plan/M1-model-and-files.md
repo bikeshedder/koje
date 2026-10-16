@@ -21,8 +21,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.6 `koje state list|cp|mv|rm`**
   - Done when: list shows name, window/layout counts, modified time and marks role states; cp/mv/rm follow ADR 0005 (`empty` reserved, roles cannot be removed while configured? → decide); CLI tests.
   - Notes: ADR 0013. New `states` module (file ops incl. `read`/`write` from M1.3). Fixed `Display` of names/colors ignoring width (`f.pad`). Running contexts are not checked yet – revisit when `kojed` owns states (M5).
-- [ ] **M1.7 `koje list` with more detail**
+- [x] **M1.7 `koje list` with more detail**
   - Done when: shows prefix, color swatch (truecolor when on a TTY), number of states; machine-readable `--json`.
+  - Notes: swatch only on a TTY and without `NO_COLOR`. A broken `context.toml` is listed with its error instead of failing. JSON fields (`name`, `prefix`, `color`, `image`, `mounts`, `states`, `error`) are an interface: only add; `status` joins in M3.
 - [ ] **M1.8 Layout model operations**
   - Done when: pure functions for `layout new [--copy]`, `mv`, `rm` (cannot remove active layout), `autosave on|off`, next/prev order, "window closed → remove from all layouts", "new window → join active layout"; unit tests.
 - [ ] **M1.9 State switch planning**

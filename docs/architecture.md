@@ -137,7 +137,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
 | `koje shell <context> [--dev]` | shell in context or dev container |
-| `koje new \| edit \| rm <context>`, `koje list` | manage contexts |
+| `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
 
 **States:** `default` (read by `up`, written by `down` without `-s`), `fresh`
 (curated start), `empty` (reserved, virtual, read-only), any other name. Missing
