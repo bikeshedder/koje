@@ -15,6 +15,9 @@ kojed continuously writes the current state (debounced, atomic temp+rename) to
 `~/.local/state/koje/<ctx>/recovery.toml`. A clean `down` deletes it. If `up` finds
 one, it asks; `--recover`/`--no-recover` decide without asking.
 
+The file has the format of a state file (no extra fields). Its modification time
+is when that state was current ("restore the state from 15:42?").
+
 ## Consequences
 
 + No setting needed; state semantics unchanged.

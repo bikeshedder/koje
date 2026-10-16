@@ -30,8 +30,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.9 State switch planning**
   - Done when: pure function computing keep/close/start sets when switching states in a running context (concept "Zustand wechseln"); unit tests.
   - Notes: `state::plan_state_switch`; matches windows by id (refine in M5.10). Added `koje up --no-save` (concept had it, CLI did not); docs + ADR 0005 synced. Same id with a different launch spec counts as "keep" for now.
-- [ ] **M1.10 Recovery file model**
+- [x] **M1.10 Recovery file model**
   - Done when: write/read/delete helpers, atomic; "recovery present" detection; unit tests. (Writing it continuously is M5.)
+  - Notes: `recovery` module; state-file format, time = mtime (ADR 0006 clarified). `recovery::decide` maps presence + `--recover`/`--no-recover` to None/Ask/Restore/Discard for `up` (M3.4/M5).
 - [x] **M1.11 Refuse dangerous mount targets** (ADR 0009)
   - Done when: `mounts` accepts string and `{ path, unsafe }` table form (round-trips both); the three rule groups of ADR 0009 are refused unless `unsafe = true`; protected paths come from `Paths`/XDG, not hard-coded home paths; tests per rule.
   - Notes: `Paths::host_dirs()` collects home + protected dirs; `ContextConfig::expand_mounts(&HostDirs)`. `mount::Mount` has a hand-written `Deserialize` so path errors keep their reason.

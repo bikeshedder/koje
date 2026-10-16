@@ -20,6 +20,7 @@ pub mod mount;
 pub mod name;
 pub mod paths;
 pub mod ports;
+pub mod recovery;
 pub mod size;
 pub mod state;
 pub mod states;
