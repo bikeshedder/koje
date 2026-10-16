@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88" # let-chains (edition 2024)
 authors = ["Michael P. Jung"]
-repository = "https://github.com/OWNER/koje"
+repository = "https://github.com/bikeshedder/koje"
 # License is still an open question (docs/open-questions.md).
 publish = false
 

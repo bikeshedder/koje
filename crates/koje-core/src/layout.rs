@@ -128,7 +128,7 @@ mod tests {
         let plan = plan_switch(&running, &visible, &review);
         assert_eq!(plan.stash, vec![id("term")]);
         assert_eq!(plan.place.len(), 2);
-        assert!(plan.missing.is_empty());
+        assert_eq!(plan.missing, Vec::<WindowId>::new());
     }
 
     #[test]
@@ -140,7 +140,7 @@ mod tests {
             windows: [(id("spec"), at(0)), (id("editor"), at(500))].into(),
         };
         let plan = plan_switch(&running, &visible, &docs);
-        assert!(plan.stash.is_empty());
+        assert_eq!(plan.stash, Vec::<WindowId>::new());
         assert!(plan.place.iter().any(|(w, _)| *w == id("spec")));
     }
 
