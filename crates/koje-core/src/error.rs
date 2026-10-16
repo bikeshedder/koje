@@ -25,6 +25,9 @@ pub enum Error {
     #[error("invalid mount {value:?}: {reason}")]
     InvalidMount { value: String, reason: &'static str },
 
+    #[error("refused mount {value:?}: {reason} (mark it `unsafe = true` to allow)")]
+    RefusedMount { value: String, reason: String },
+
     #[error("mounts {first:?} and {second:?} both name {path}")]
     DuplicateMount {
         path: PathBuf,

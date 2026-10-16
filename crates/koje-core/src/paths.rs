@@ -11,14 +11,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
+use crate::mount::HostDirs;
 use crate::name::{ContextName, StateName};
-
-/// The user's real home directory (`$HOME`), used to expand `~` in mounts.
-pub fn home_dir() -> Result<PathBuf> {
-    directories::BaseDirs::new()
-        .map(|dirs| dirs.home_dir().to_path_buf())
-        .ok_or(Error::NoHomeDir)
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
@@ -48,6 +42,23 @@ impl Paths {
             data,
             state,
         }
+    }
+
+    /// The host folders mounts are checked against (ADR 0009): the real home,
+    /// koje's own roots, the host's container storage and `$XDG_RUNTIME_DIR`.
+    pub fn host_dirs(&self) -> Result<HostDirs> {
+        let dirs = directories::BaseDirs::new().ok_or(Error::NoHomeDir)?;
+        let mut protected = vec![
+            self.config.clone(),
+            self.data.clone(),
+            self.state.clone(),
+            dirs.data_dir().join("containers"),
+        ];
+        protected.extend(dirs.runtime_dir().map(Path::to_path_buf));
+        Ok(HostDirs {
+            home: dirs.home_dir().to_path_buf(),
+            protected,
+        })
     }
 
     pub fn global_config(&self) -> PathBuf {

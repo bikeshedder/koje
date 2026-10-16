@@ -30,6 +30,8 @@ is refused when its path
    (so also `~/.config`, `~/.local`, `/run/user/<uid>`);
 3. **equals or lies inside** a system folder: `/usr`, `/etc`, `/bin`, `/sbin`,
    `/lib`, `/lib32`, `/lib64`, `/libx32`, `/proc`, `/sys`, `/dev`, `/run`, `/var`, `/boot`.
+   Paths inside the home folder are exempt, so a home in `/var/home` (Fedora
+   Atomic) works.
 
 Folders below home (`~/src/kp`, `~/Austausch`) and outside it (`/srv`, `/opt`,
 `/mnt`, `/media`, …) are allowed. Nested mounts are allowed.

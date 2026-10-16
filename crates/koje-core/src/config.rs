@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::layout::Rect;
-use crate::mount::{self, MountPath};
+use crate::mount::{self, HostDirs, Mount};
 use crate::name::{ContextName, StateName};
 use crate::size::ByteSize;
 
@@ -30,7 +30,7 @@ pub struct ContextConfig {
     /// Host folders bound into the context under the same path.
     /// See [`ContextConfig::expand_mounts`].
     #[serde(default)]
-    pub mounts: Vec<MountPath>,
+    pub mounts: Vec<Mount>,
     #[serde(default)]
     pub limits: Limits,
     #[serde(default)]
@@ -115,13 +115,13 @@ impl ContextConfig {
         Self::from_toml(&text, path)
     }
 
-    /// Absolute host paths of all mounts; rejects two entries naming the same folder.
+    /// Absolute host paths of all mounts; rejects refused targets (ADR 0009) and
+    /// two entries naming the same folder.
     ///
-    /// `home` is the user's real home (see [`crate::paths::home_dir`]). Each entry
-    /// is already validated on parse; duplicates can only be detected after
-    /// expansion (`~/a` and `/home/me/a`).
-    pub fn expand_mounts(&self, home: &Path) -> Result<Vec<PathBuf>> {
-        mount::expand_all(&self.mounts, home)
+    /// Each entry is already validated on parse; these rules need the host's
+    /// folders (see [`crate::paths::Paths::host_dirs`]).
+    pub fn expand_mounts(&self, host: &HostDirs) -> Result<Vec<PathBuf>> {
+        mount::expand_all(&self.mounts, host)
     }
 }
 
@@ -182,6 +182,13 @@ default = "default"
 fresh   = "fresh"
 "##;
 
+    fn host() -> HostDirs {
+        HostDirs {
+            home: "/home/mj".into(),
+            protected: vec!["/home/mj/.config/koje".into()],
+        }
+    }
+
     #[test]
     fn parses_concept_example() {
         let cfg = ContextConfig::from_toml(EXAMPLE, Path::new("context.toml")).unwrap();
@@ -189,7 +196,7 @@ fresh   = "fresh"
         assert_eq!(cfg.color.to_string(), "#2E7D5B");
         assert_eq!(cfg.limits.memory_hard, Some(ByteSize(8 << 30)));
         assert_eq!(
-            cfg.expand_mounts(Path::new("/home/mj")).unwrap(),
+            cfg.expand_mounts(&host()).unwrap(),
             [
                 PathBuf::from("/home/mj/src/kundenportal"),
                 PathBuf::from("/home/mj/Austausch")
@@ -208,7 +215,7 @@ fresh   = "fresh"
         let text = EXAMPLE.replace("\"~/Austausch\"", "\"$HOME/src/kundenportal\"");
         let cfg = ContextConfig::from_toml(&text, Path::new("x")).unwrap();
         assert!(matches!(
-            cfg.expand_mounts(Path::new("/home/mj")),
+            cfg.expand_mounts(&host()),
             Err(Error::DuplicateMount { .. })
         ));
     }
@@ -222,6 +229,46 @@ fresh   = "fresh"
         .unwrap();
         assert_eq!(cfg.image, "koje/base:latest");
         assert_eq!(cfg.states, StateRoles::default());
+    }
+
+    #[test]
+    fn mounts_round_trip_both_forms() {
+        let text = EXAMPLE.replace(
+            "\"~/Austausch\"]",
+            "\"~/Austausch\", { path = \"~/.config\", unsafe = true }]",
+        );
+        let cfg = ContextConfig::from_toml(&text, Path::new("x")).unwrap();
+        assert!(!cfg.mounts[0].allow_unsafe);
+        assert!(cfg.mounts[2].allow_unsafe);
+        assert_eq!(cfg.expand_mounts(&host()).unwrap().len(), 3);
+        let written = toml::to_string(&cfg).unwrap();
+        assert!(written.contains("\"~/Austausch\""), "{written}");
+        assert_eq!(
+            ContextConfig::from_toml(&written, Path::new("x")).unwrap(),
+            cfg
+        );
+    }
+
+    #[test]
+    fn mount_table_errors_keep_their_reason() {
+        let bad = EXAMPLE.replace("\"~/Austausch\"]", "{ path = \"rel\" }]");
+        let err = ContextConfig::from_toml(&bad, Path::new("x")).unwrap_err();
+        assert!(err.to_string().contains("relative"), "{err}");
+        let unknown = EXAMPLE.replace("\"~/Austausch\"]", "{ path = \"~/a\", rw = 1 }]");
+        assert!(ContextConfig::from_toml(&unknown, Path::new("x")).is_err());
+        let string = EXAMPLE.replace("\"~/Austausch\"]", "\"Austausch\"]");
+        let err = ContextConfig::from_toml(&string, Path::new("x")).unwrap_err();
+        assert!(err.to_string().contains("relative"), "{err}");
+    }
+
+    #[test]
+    fn refuses_protected_mount() {
+        let text = EXAMPLE.replace("\"~/Austausch\"]", "\"~/.config\"]");
+        let cfg = ContextConfig::from_toml(&text, Path::new("x")).unwrap();
+        assert!(matches!(
+            cfg.expand_mounts(&host()),
+            Err(Error::RefusedMount { .. })
+        ));
     }
 
     #[test]
