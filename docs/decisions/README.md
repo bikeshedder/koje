@@ -16,3 +16,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0009 | [Refused mount targets](0009-refused-mount-targets.md) | Accepted |
 | 0010 | [State consistency on load](0010-state-consistency-on-load.md) | Accepted |
 | 0011 | [Layout order and the initial layout](0011-layout-order.md) | Accepted |
+| 0012 | [Defaults for new contexts](0012-new-context-defaults.md) | Accepted |

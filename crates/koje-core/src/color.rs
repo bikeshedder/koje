@@ -17,6 +17,10 @@ pub struct Color {
 }
 
 impl Color {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+
     /// Hyprland's color notation, e.g. `rgb(2e7d5b)`.
     pub fn to_hyprland(self) -> String {
         format!("rgb({:02x}{:02x}{:02x})", self.r, self.g, self.b)

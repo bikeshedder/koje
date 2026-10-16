@@ -12,9 +12,9 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.3 Load and save states**
   - Done when: `State` round-trips the concept example; `State::issues` checked on load (error vs warning decided and documented); writes are atomic (temp file + rename in the same dir); writing `empty` is refused; tests.
   - Notes: ADR 0010 (repair dangling, error on duplicates) and ADR 0011 (layouts in file order via `IndexMap` + `toml/preserve_order`; initial layout `main`). `fsutil::write_atomic` also fsyncs; reuse it for every koje file.
-- [ ] **M1.4 `koje new <context>`**
+- [x] **M1.4 `koje new <context>`**
   - Done when: creates `context.toml` with name, prefix (default: first letters, uppercase), color (default: next unused color from a fixed palette), default image; refuses existing names; CLI test with temp XDG dirs.
-  - Notes: palette and prefix rule are small decisions → ADR.
+  - Notes: ADR 0012. New `context` module (list/load/create); `context::load` also checks that `name` matches the directory.
 - [ ] **M1.5 `koje edit <context>` and `koje rm <context>`**
   - Done when: `edit` opens `$VISUAL`/`$EDITOR` and re-validates after save (reopen on error); `rm` asks for confirmation unless `--yes`, removes config + states + recovery file. (Container removal joins in M3.)
 - [ ] **M1.6 `koje state list|cp|mv|rm`**

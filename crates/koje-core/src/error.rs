@@ -35,6 +35,19 @@ pub enum Error {
         second: String,
     },
 
+    #[error("context {0} does not exist")]
+    UnknownContext(crate::name::ContextName),
+
+    #[error("context {0} already exists")]
+    ContextExists(crate::name::ContextName),
+
+    #[error("{path} names context {found:?}, but its directory is {expected:?}")]
+    ContextNameMismatch {
+        path: PathBuf,
+        expected: crate::name::ContextName,
+        found: crate::name::ContextName,
+    },
+
     #[error("could not determine the home directory")]
     NoHomeDir,
 

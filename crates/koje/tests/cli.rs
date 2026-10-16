@@ -47,6 +47,52 @@ fn list_shows_configured_contexts() {
     assert!(stdout.contains("#2E7D5B"));
 }
 
+fn stdout(out: &Output) -> String {
+    assert!(
+        out.status.success(),
+        "koje failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn new_creates_context_with_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = stdout(&koje(tmp.path(), &["new", "kunden-portal"]));
+    assert!(out.contains("KP"), "{out}");
+    assert!(out.contains("#2E7D5B"), "{out}");
+    let file = tmp
+        .path()
+        .join("config/koje/contexts/kunden-portal/context.toml");
+    let text = std::fs::read_to_string(file).unwrap();
+    assert!(text.contains("image  = \"koje/base:latest\""), "{text}");
+
+    // The second context gets the next palette color.
+    let out = stdout(&koje(tmp.path(), &["new", "shop", "--prefix", "SH"]));
+    assert!(out.contains("SH, #1E88E5"), "{out}");
+    let listed = stdout(&koje(tmp.path(), &["list"]));
+    assert!(
+        listed.contains("kunden-portal") && listed.contains("shop"),
+        "{listed}"
+    );
+}
+
+#[test]
+fn new_refuses_existing_and_invalid_input() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp", "--color", "#123456"]));
+    for args in [
+        &["new", "kp"][..],
+        &["new", "Bad Name"],
+        &["new", "other", "--color", "red"],
+    ] {
+        let out = koje(tmp.path(), args);
+        assert!(!out.status.success(), "{args:?}");
+        assert!(String::from_utf8_lossy(&out.stderr).starts_with("koje: "));
+    }
+}
+
 #[test]
 fn unimplemented_commands_name_their_milestone() {
     let tmp = tempfile::tempdir().unwrap();

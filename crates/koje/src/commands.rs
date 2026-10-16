@@ -1,19 +1,21 @@
 //! Command handlers. Each unimplemented command names the milestone that
 //! delivers it, so `koje <cmd>` doubles as a progress indicator.
 
-use anyhow::{Context as _, Result, bail};
-use koje_core::config::ContextConfig;
+use anyhow::{Result, bail};
+use koje_core::color::Color;
+use koje_core::context;
+use koje_core::name::ContextName;
 use koje_core::paths::Paths;
 
-use crate::cli::Command;
+use crate::cli::{Command, Ctx};
 
 pub fn run(command: &Command) -> Result<()> {
+    let paths = Paths::from_env()?;
     match command {
-        Command::List => list(),
+        Command::List => list(&paths),
+        Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
-        Command::New { .. } | Command::Edit(_) | Command::Rm { .. } | Command::State(_) => {
-            todo_in("M1")
-        }
+        Command::Edit(_) | Command::Rm { .. } | Command::State(_) => todo_in("M1"),
 
         Command::Up { .. }
         | Command::Down { .. }
@@ -41,28 +43,35 @@ fn todo_in(milestone: &str) -> Result<()> {
     bail!("not implemented yet – planned for milestone {milestone} (see docs/plan/)")
 }
 
+fn context_name(ctx: &Ctx) -> Result<ContextName> {
+    Ok(ContextName::new(&ctx.context)?)
+}
+
+/// `koje new`: write a fresh `context.toml`.
+fn new(paths: &Paths, ctx: &Ctx, color: Option<&str>, prefix: Option<String>) -> Result<()> {
+    let name = context_name(ctx)?;
+    let color = color.map(str::parse::<Color>).transpose()?;
+    let cfg = context::create(paths, &name, prefix, color)?;
+    println!(
+        "created context {} ({}, {}) in {}",
+        cfg.name,
+        cfg.prefix,
+        cfg.color,
+        paths.context_config(&name).display()
+    );
+    Ok(())
+}
+
 /// `koje list`: contexts found in the config directory.
-fn list() -> Result<()> {
-    let paths = Paths::from_env()?;
-    let dir = paths.contexts_dir();
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            println!("no contexts yet ({} does not exist)", dir.display());
-            return Ok(());
-        }
-        Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
-    };
-
-    let mut configs = Vec::new();
-    for entry in entries {
-        let path = entry?.path().join("context.toml");
-        if path.is_file() {
-            configs.push(ContextConfig::load(&path)?);
-        }
+fn list(paths: &Paths) -> Result<()> {
+    let configs = context::list(paths)?;
+    if configs.is_empty() {
+        println!(
+            "no contexts yet – create one with `koje new <context>` ({})",
+            paths.contexts_dir().display()
+        );
+        return Ok(());
     }
-    configs.sort_by(|a, b| a.name.cmp(&b.name));
-
     for cfg in configs {
         // Status column arrives with the container runtime in M3.
         println!("{:<24} {:<6} {}", cfg.name, cfg.prefix, cfg.color);

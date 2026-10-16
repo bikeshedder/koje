@@ -10,6 +10,7 @@
 
 pub mod color;
 pub mod config;
+pub mod context;
 pub mod error;
 pub mod fsutil;
 pub mod layout;
