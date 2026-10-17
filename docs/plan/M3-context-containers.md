@@ -14,5 +14,6 @@ yet. Break down further using the M2.3–M2.5 reports.
 - [ ] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
 - [ ] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)
 - [ ] **M3.11 Stale sockets** after a host PipeWire/compositor restart (ADR 0015): detect and restart or remount
+  - Notes: seen in M2.4 – after restarting the nested Hyprland, a running context kept the old `wayland-1` socket; mounting the socket's directory (as for the host bus proxy) would avoid it.
 - [ ] **M3.12 NVIDIA CDI detection** (ADR 0016): find the CDI spec and the host's GBM backend; hint when missing or outdated
 - [ ] **M3.13 Apply access changes to a running context** (ADR 0017): on `koje edit`/config change ask "now (recreate, restore windows) or at next `up`"
