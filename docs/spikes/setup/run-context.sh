@@ -68,7 +68,14 @@ args=(
 
 # NVIDIA's proprietary driver needs its host libraries inside the container,
 # injected via CDI (nvidia-container-toolkit): KOJE_SPIKE_GPU=nvidia
-[[ "${KOJE_SPIKE_GPU:-}" == nvidia ]] && args+=(--device nvidia.com/gpu=all)
+# The CDI spec from nvidia-ctk lacks NVIDIA's GBM backend; mount it where the
+# image's (Fedora) libgbm looks for backends. Only that file: the host's gbm/
+# directory also holds the host's Mesa backend, which does not match the image.
+nv_gbm=/usr/lib/x86_64-linux-gnu/gbm/nvidia-drm_gbm.so
+if [[ "${KOJE_SPIKE_GPU:-}" == nvidia ]]; then
+  args+=(--device nvidia.com/gpu=all)
+  [[ -e "$nv_gbm" ]] && args+=(-v "$(readlink -f "$nv_gbm"):/usr/lib64/gbm/nvidia-drm_gbm.so:ro")
+fi
 
 # Spike-only escape hatch for M2.5 on Ubuntu: if nested Podman fails with
 # "permission denied" on user namespaces, retry with KOJE_SPIKE_APPARMOR=unconfined
