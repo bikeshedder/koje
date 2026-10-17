@@ -67,15 +67,38 @@ podman exec koje-spike-a sh -c 'eglinfo -B 2>/dev/null | grep -i renderer'
 **M2.5 – nested Podman** (`M2.5-nested-podman.md`)
 
 ```sh
-podman exec -it koje-spike-a bash
-podman info --format '{{.Store.GraphDriverName}} {{.Host.IDMappings}}'
-podman run --rm docker.io/library/alpine echo hello from a dev container
+# 1. A dev container (works since the inner containers.conf, see report)
+podman exec -it koje-spike-a podman run --rm docker.io/library/alpine \
+  sh -c 'echo hello; ip addr; wget -qO- https://example.org | head -c 100'
+podman exec koje-spike-a podman info --format '{{.Store.GraphDriverName}} {{.Host.IDMappings}}'
+
+# 2. Compose: two services on their own network (repo mounted at the same path)
+docs/spikes/setup/rm-context.sh a
+KOJE_SPIKE_MOUNTS="$PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-0
+time podman exec -it koje-spike-a podman-compose -f "$PWD/docs/spikes/setup/compose/compose.yaml" \
+  up --abort-on-container-exit        # expect: <title>Welcome to nginx!</title>
+
+# 3. Startup time and disk usage of an inner container
+podman exec koje-spike-a sh -c 'time podman run --rm docker.io/library/alpine true'
+podman exec koje-spike-a du -sh ~/.local/share/containers
+
+# 4. Shared read-only image store: context a fills it, context b only reads it
+mkdir -p ~/koje-spike-images
+docs/spikes/setup/rm-context.sh a
+KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images $PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-0
+podman exec koje-spike-a podman --root "$HOME/koje-spike-images" pull docker.io/library/alpine
+KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images:ro $PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh b wayland-0
+podman exec koje-spike-b sh -c "mkdir -p ~/.config/containers && sed 's|SHARED_STORE|$HOME/koje-spike-images|' \
+  $PWD/docs/spikes/setup/storage-shared.conf > ~/.config/containers/storage.conf"
+podman exec koje-spike-b podman images          # alpine listed, marked R/O
+podman exec koje-spike-b podman run --rm docker.io/library/alpine echo from the shared store
+podman exec koje-spike-b du -sh ~/.local/share/containers   # should stay small
 ```
 
-If that fails on user namespaces, retry once with
-`KOJE_SPIKE_APPARMOR=unconfined docs/spikes/setup/run-context.sh b` and record
-both results. Then a compose project (`podman compose` or `podman-compose`) and a
-dev container that VS Code *inside the context* attaches to.
+Then a dev container that VS Code *inside the context* attaches to (install VS
+Code or VSCodium in the context, Dev Containers extension, `dev.containers.dockerPath`
+= `podman`). Cleanup of step 4: `rm-context.sh b`, `rm -rf ~/koje-spike-images`
+(if `rm` is refused because of sub-uid owned files: `podman unshare rm -rf ~/koje-spike-images`).
 
 **M2.6 – memory sharing** (`M2.6-memory-sharing.md`)
 

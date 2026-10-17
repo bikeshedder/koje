@@ -1,0 +1,9 @@
+# M2.5: two services on their own network inside a context.
+# Run inside the context:  podman-compose -f <this file> up --abort-on-container-exit
+services:
+  web:
+    image: docker.io/library/nginx:alpine
+  client:
+    image: docker.io/library/alpine
+    depends_on: [web]
+    command: sh -c 'sleep 2; wget -qO- http://web | grep -o "<title>.*</title>"'

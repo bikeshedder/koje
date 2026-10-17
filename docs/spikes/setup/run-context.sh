@@ -19,6 +19,9 @@ uid=$(id -u)
 args=(
   --name "koje-spike-$name"
   --hostname "$name"
+  # A real PID 1 (catatonit): forwards SIGTERM and reaps orphans. Without it,
+  # `sleep infinity` ignores SIGTERM and every stop waits 10 s for SIGKILL.
+  --init
   --label io.koje.spike=true
   --label "io.koje.context=spike-$name"
   # Same uid inside as on the host; files in mounts keep their owner.
@@ -64,7 +67,13 @@ args=(
 [[ -n "${KOJE_SPIKE_UNMASK:-}" ]] && args+=(--security-opt unmask=ALL)
 
 # Extra folders at the same path, e.g. KOJE_SPIKE_MOUNTS="$HOME/Austausch"
-for m in ${KOJE_SPIKE_MOUNTS:-}; do args+=(-v "$m:$m"); done
+# A `:ro` suffix mounts read-only: KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images:ro"
+for m in ${KOJE_SPIKE_MOUNTS:-}; do
+  case "$m" in
+    *:ro) args+=(-v "${m%:ro}:${m%:ro}:ro") ;;
+    *) args+=(-v "$m:$m") ;;
+  esac
+done
 
 # Print the exact command for the report, then run it.
 printf 'podman run -d'; printf ' %q' "${args[@]}" localhost/koje-spike/base:latest sleep infinity; echo
