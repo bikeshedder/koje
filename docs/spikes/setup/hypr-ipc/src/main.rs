@@ -66,12 +66,13 @@ fn main() -> Result<()> {
         "clients" => {
             println!("version: {}", request("j/version")?.lines().find(|l| l.contains("\"tag\"")).unwrap_or("?").trim());
             for c in clients()? {
+                let pair = |v: &serde_json::Value| format!("{},{}", v[0], v[1]);
                 println!(
-                    "{}  pid {:>7}  ws {:<12} at {:?} size {:?}  {} – {}",
+                    "{}  pid {:>7}  ws {:<12} at {:<10} size {:<10} {} – {}",
                     c["address"].as_str().unwrap_or("?"),
                     c["pid"],
                     c["workspace"]["name"].as_str().unwrap_or("?"),
-                    c["at"], c["size"],
+                    pair(&c["at"]), pair(&c["size"]),
                     c["class"].as_str().unwrap_or(""),
                     c["title"].as_str().unwrap_or(""),
                 );
