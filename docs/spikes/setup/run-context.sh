@@ -61,10 +61,9 @@ args=(
 # and record it in the report (it must not end up in koje unexamined).
 [[ -n "${KOJE_SPIKE_APPARMOR:-}" ]] && args+=(--security-opt "apparmor=$KOJE_SPIKE_APPARMOR")
 
-# M2.5: nested containers cannot mount a fresh /proc while Podman masks parts of
-# the context's /proc. KOJE_SPIKE_UNMASK=1 unmasks it (alternative: inner
-# containers share the context's PID namespace, `pidns = "host"`).
-[[ -n "${KOJE_SPIKE_UNMASK:-}" ]] && args+=(--security-opt unmask=ALL)
+# M2.5: paths of /proc to unmask in the context, e.g. KOJE_SPIKE_UNMASK=/proc/sys
+# (compose bridge networks: netavark writes per-netns sysctls) or ALL.
+[[ -n "${KOJE_SPIKE_UNMASK:-}" ]] && args+=(--security-opt "unmask=$KOJE_SPIKE_UNMASK")
 
 # Extra folders at the same path, e.g. KOJE_SPIKE_MOUNTS="$HOME/Austausch"
 # A `:ro` suffix mounts read-only: KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images:ro"

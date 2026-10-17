@@ -74,7 +74,7 @@ podman exec koje-spike-a podman info --format '{{.Store.GraphDriverName}} {{.Hos
 
 # 2. Compose: two services on their own network (repo mounted at the same path)
 docs/spikes/setup/rm-context.sh a
-KOJE_SPIKE_MOUNTS="$PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-0
+KOJE_SPIKE_UNMASK=/proc/sys KOJE_SPIKE_MOUNTS="$PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-0
 time podman exec -it koje-spike-a podman-compose -f "$PWD/docs/spikes/setup/compose/compose.yaml" \
   up --abort-on-container-exit        # expect: <title>Welcome to nginx!</title>
 
