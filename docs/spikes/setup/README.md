@@ -80,7 +80,7 @@ time podman exec -it koje-spike-a podman-compose -f "$PWD/docs/spikes/setup/comp
 
 # 3. Startup time and disk usage of an inner container
 podman exec koje-spike-a sh -c 'time podman run --rm docker.io/library/alpine true'
-podman exec koje-spike-a du -sh ~/.local/share/containers
+podman exec koje-spike-a podman unshare du -sh ~/.local/share/containers
 
 # 4. Shared read-only image store: context a fills it, context b only reads it
 mkdir -p ~/koje-spike-images
@@ -92,7 +92,7 @@ podman exec koje-spike-b sh -c "mkdir -p ~/.config/containers && sed 's|SHARED_S
   $PWD/docs/spikes/setup/storage-shared.conf > ~/.config/containers/storage.conf"
 podman exec koje-spike-b podman images          # alpine listed, marked R/O
 podman exec koje-spike-b podman run --rm docker.io/library/alpine echo from the shared store
-podman exec koje-spike-b du -sh ~/.local/share/containers   # should stay small
+podman exec koje-spike-b podman unshare du -sh ~/.local/share/containers   # should stay small
 ```
 
 Then a dev container that VS Code *inside the context* attaches to (install VS
