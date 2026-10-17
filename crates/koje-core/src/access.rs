@@ -1,25 +1,78 @@
 //! Access profiles: which host resources a context gets
-//! (`docs/decisions/0017-access-profiles.md`).
+//! (`docs/decisions/0017-access-profiles.md`, host interfaces: ADR 0019).
 //!
 //! `[access]` in `config.toml` sets the default, `[access]` in `context.toml`
 //! adjusts it: a profile sets all switches, single switches override it.
 
 use serde::{Deserialize, Serialize};
 
-/// The host resources a context gets, after resolving profiles and switches.
-#[allow(clippy::struct_excessive_bools)] // five independent switches, one per resource (ADR 0017)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct Access {
+/// Declares the switches once and generates [`Access`] (the result),
+/// [`AccessConfig`] (as written in the files) and the override step.
+macro_rules! switches {
+    ($($(#[doc = $doc:literal])* $name:ident),* $(,)?) => {
+        /// The host resources a context gets, after resolving profiles and switches.
+        #[allow(clippy::struct_excessive_bools)] // independent switches, one per resource
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+        pub struct Access {
+            $($(#[doc = $doc])* pub $name: bool,)*
+        }
+
+        impl Access {
+            /// Every switch on.
+            pub const ALL: Self = Self { $($name: true,)* };
+            /// Every switch off.
+            pub const NONE: Self = Self { $($name: false,)* };
+
+            /// `(name, on)` for every switch, in declaration order (as in the files).
+            pub fn switches(&self) -> Vec<(&'static str, bool)> {
+                vec![$((stringify!($name), self.$name),)*]
+            }
+        }
+
+        /// `[access]` as written in `config.toml` or `context.toml`.
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        pub struct AccessConfig {
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            pub profile: Option<Profile>,
+            $(
+                #[serde(default, skip_serializing_if = "Option::is_none")]
+                pub $name: Option<bool>,
+            )*
+        }
+
+        impl AccessConfig {
+            /// Override the switches of `base` that are set here.
+            fn apply_switches(&self, base: Access) -> Access {
+                Access { $($name: self.$name.unwrap_or(base.$name),)* }
+            }
+        }
+    };
+}
+
+switches! {
     /// `/dev/dri` and NVIDIA via CDI (ADR 0016).
-    pub gpu: bool,
+    gpu,
     /// `PipeWire` and `PulseAudio` sockets (playback and microphone).
-    pub sound: bool,
+    sound,
     /// The compositor's Wayland socket; without it the context has no GUI.
-    pub wayland: bool,
+    wayland,
     /// Devices and `/proc/sys` for nested Podman (ADR 0014).
-    pub nested: bool,
+    nested,
     /// An own network; without it `--network none`.
-    pub network: bool,
+    network,
+    /// Desktop notifications on the host (ADR 0019).
+    notifications,
+    /// The host's file chooser portal.
+    file_chooser,
+    /// The host's appearance settings, read-only (dark mode, fonts).
+    settings,
+    /// May prevent screen lock and suspend.
+    inhibit,
+    /// Screen sharing through the host's portal (it asks each time).
+    screencast,
+    /// The host's print dialog.
+    print,
 }
 
 /// Named sets of switches.
@@ -29,62 +82,35 @@ pub enum Profile {
     /// Everything (the default).
     #[default]
     Full,
-    /// Desktop programs without the GPU.
+    /// Everything but the GPU.
     Desktop,
-    /// No GUI, sound or GPU: shells and dev containers.
+    /// No GUI, sound or GPU: shells and dev containers; notifications stay.
     Headless,
     /// No host resources at all: offline and without GUI.
     Isolated,
 }
 
 impl Profile {
+    /// The profile table of ADR 0017 / ADR 0019.
     pub const fn access(self) -> Access {
-        let (gpu, sound, wayland, nested, network) = match self {
-            Self::Full => (true, true, true, true, true),
-            Self::Desktop => (false, true, true, true, true),
-            Self::Headless => (false, false, false, true, true),
-            Self::Isolated => (false, false, false, false, false),
-        };
-        Access {
-            gpu,
-            sound,
-            wayland,
-            nested,
-            network,
+        match self {
+            Self::Full => Access::ALL,
+            Self::Desktop => Access {
+                gpu: false,
+                ..Access::ALL
+            },
+            Self::Headless => Access {
+                nested: true,
+                network: true,
+                notifications: true,
+                ..Access::NONE
+            },
+            Self::Isolated => Access::NONE,
         }
     }
-}
-
-/// `[access]` as written in `config.toml` or `context.toml`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AccessConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile: Option<Profile>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gpu: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sound: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wayland: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nested: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<bool>,
 }
 
 impl AccessConfig {
-    /// Override the switches of `base` that are set here.
-    fn apply_switches(&self, base: Access) -> Access {
-        Access {
-            gpu: self.gpu.unwrap_or(base.gpu),
-            sound: self.sound.unwrap_or(base.sound),
-            wayland: self.wayland.unwrap_or(base.wayland),
-            nested: self.nested.unwrap_or(base.nested),
-            network: self.network.unwrap_or(base.network),
-        }
-    }
-
     /// This config on its own: its profile (default `full`), then its switches.
     pub fn standalone(&self) -> Access {
         self.apply_switches(self.profile.unwrap_or_default().access())
@@ -110,26 +136,46 @@ mod tests {
         toml::from_str(text).unwrap()
     }
 
-    const FULL: Access = Profile::Full.access();
+    /// The switches that are on, by name.
+    fn on(a: Access) -> Vec<&'static str> {
+        a.switches()
+            .into_iter()
+            .filter(|(_, v)| *v)
+            .map(|(n, _)| n)
+            .collect()
+    }
 
     #[test]
     fn nothing_configured_means_full() {
         assert_eq!(
             resolve(&AccessConfig::default(), &AccessConfig::default()),
-            FULL
+            Access::ALL
         );
     }
 
     #[test]
     fn profile_table_matches_adr() {
-        let row = |p: Profile| {
-            let a = p.access();
-            [a.gpu, a.sound, a.wayland, a.nested, a.network]
-        };
-        assert_eq!(row(Profile::Full), [true; 5]);
-        assert_eq!(row(Profile::Desktop), [false, true, true, true, true]);
-        assert_eq!(row(Profile::Headless), [false, false, false, true, true]);
-        assert_eq!(row(Profile::Isolated), [false; 5]);
+        assert_eq!(on(Profile::Full.access()).len(), 11);
+        assert_eq!(
+            on(Profile::Desktop.access()),
+            [
+                "sound",
+                "wayland",
+                "nested",
+                "network",
+                "notifications",
+                "file_chooser",
+                "settings",
+                "inhibit",
+                "screencast",
+                "print"
+            ]
+        );
+        assert_eq!(
+            on(Profile::Headless.access()),
+            ["nested", "network", "notifications"]
+        );
+        assert_eq!(on(Profile::Isolated.access()), Vec::<&str>::new());
     }
 
     #[test]
@@ -152,14 +198,21 @@ mod tests {
     }
 
     #[test]
+    fn every_switch_is_a_toml_key() {
+        for (name, _) in Access::ALL.switches() {
+            let cfg = parse(&format!("{name} = false"));
+            assert!(!on(cfg.standalone()).contains(&name), "{name}");
+            assert_eq!(on(cfg.standalone()).len(), 10, "{name}");
+        }
+    }
+
+    #[test]
     fn context_switches_override_global_result() {
         let global = parse("profile = \"desktop\"\nnetwork = false");
-        let context = parse("sound = false");
+        let context = parse("sound = false\nscreencast = false");
         let a = resolve(&global, &context);
-        assert_eq!(
-            [a.gpu, a.sound, a.wayland, a.nested, a.network],
-            [false, false, true, true, false]
-        );
+        assert!(!a.gpu && !a.sound && !a.network && !a.screencast);
+        assert!(a.wayland && a.nested && a.file_chooser && a.print);
     }
 
     #[test]
@@ -169,8 +222,11 @@ mod tests {
         let context = parse("profile = \"full\"\nnetwork = false");
         let a = resolve(&global, &context);
         assert_eq!(
-            [a.gpu, a.sound, a.wayland, a.nested, a.network],
-            [true, true, true, true, false]
+            a,
+            Access {
+                network: false,
+                ..Access::ALL
+            }
         );
     }
 
@@ -183,7 +239,10 @@ mod tests {
 
     #[test]
     fn unset_switches_are_not_written() {
-        let cfg = parse("sound = false");
-        assert_eq!(toml::to_string(&cfg).unwrap().trim(), "sound = false");
+        let cfg = parse("file_chooser = false");
+        assert_eq!(
+            toml::to_string(&cfg).unwrap().trim(),
+            "file_chooser = false"
+        );
     }
 }

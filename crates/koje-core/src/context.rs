@@ -67,7 +67,8 @@ mounts = []
 
 # [access]                # host resources, ADR 0017 (default from config.toml)
 # profile = "full"        # full | desktop | headless | isolated
-# gpu     = false         # override single switches: gpu, sound, wayland, nested, network
+# gpu     = false         # override single switches (gpu, sound, wayland, nested, network,
+#                         # notifications, file_chooser, settings, inhibit, screencast, print)
 
 # [states]                # rename the roles
 # default = "default"
