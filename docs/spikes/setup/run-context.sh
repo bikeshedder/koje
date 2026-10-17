@@ -58,7 +58,13 @@ args=(
 
 # Sound via PipeWire (and its PulseAudio compatibility socket, if present).
 [[ -S "$run/pipewire-0" ]] && args+=(-v "$run/pipewire-0:/run/user/$uid/pipewire-0")
-[[ -S "$run/pulse/native" ]] && args+=(-v "$run/pulse/native:/run/user/$uid/pulse/native")
+# The PulseAudio socket goes to its own path: under /run/user/<uid>/pulse/ the
+# mount point directory would belong to root, and libpulse refuses it ("Failed
+# to create secure directory"). PULSE_SERVER points clients (Firefox) at it.
+[[ -S "$run/pulse/native" ]] && args+=(
+  -v "$run/pulse/native:/run/user/$uid/pulse-native"
+  -e PULSE_SERVER="unix:/run/user/$uid/pulse-native"
+)
 
 # NVIDIA's proprietary driver needs its host libraries inside the container,
 # injected via CDI (nvidia-container-toolkit): KOJE_SPIKE_GPU=nvidia
