@@ -14,6 +14,8 @@ container. Host: Ubuntu 26.04 with GNOME (Wayland). Reports go to
 | `lib-pss.sh <pattern> <container> <lib>` | Rss/Pss of one library's mappings (M2.6, cross-context sharing) |
 | `hyprland-nested.conf` | Hyprland nested in GNOME, ALT as modifier (step 2) |
 | `color-contexts.sh` | colors windows by context in the nested Hyprland (A red, B blue) – kojed in miniature |
+| `hyprland-session.conf` | starter config for a real Hyprland session (M2.1, M2.9), Super as modifier |
+| `wl-secure-socket <path> <context>` | Wayland socket via `security-context-v1` for one context (M2.9, Rust, build in the dev container) |
 | `host-bus-proxy.sh <name>` | filtered view of the host's session bus for a context (M2.4) |
 | `portal-check.py inhibit <s> \| watch-settings` | portal clients that stay connected (M2.11, runs in the context) |
 | `bus-forward.py <name> <address>` | forwards one D-Bus name from the context bus to the host proxy (M2.4, runs in the context) |
@@ -271,6 +273,62 @@ podman exec -d koje-spike-a foot; podman exec -d koje-spike-b foot
 **M2.8 – pausing** (later, same setup): `podman pause koje-spike-a`, wait a minute
 (does Hyprland show "not responding"?), `podman unpause koje-spike-a`; then the
 same with the windows moved to `special:stash` (ALT+H) first.
+
+## 3. Real Hyprland session (M2.1, M2.9)
+
+**Set up once** (GNOME stays available as a session at the login screen):
+
+```sh
+sudo apt install hyprland hyprland-guiutils hyprlock hypridle waybar mako-notifier fuzzel \
+  foot grim slurp wl-clipboard xdg-desktop-portal-hyprland xdg-desktop-portal-gtk policykit-1-gnome
+mkdir -p ~/.config/hypr
+[ -e ~/.config/hypr/hyprland.conf ] || printf 'source = %s\n\n# your own additions below\n' \
+  "$PWD/docs/spikes/setup/hyprland-session.conf" > ~/.config/hypr/hyprland.conf
+docs/spikes/setup/build-base.sh                                  # image now has grim
+# dev container:
+cargo build --release --manifest-path docs/spikes/setup/hypr-ipc/Cargo.toml
+cargo build --release --manifest-path docs/spikes/setup/wl-secure-socket/Cargo.toml
+```
+
+Log out, choose **Hyprland** at the login screen. Super+Return terminal,
+Super+D launcher, Super+Escape lock, Super+Shift+E leave. Missing packages or
+config errors (shown at the top of the screen): note them in the M2.1 report.
+
+**M2.1 – daily use** (`M2.1-hyprland-daily.md`): use it for a week; note what
+works, what annoys. Plus the three checks collected during the nested spikes:
+
+```sh
+docs/spikes/setup/run-context.sh a wayland-1      # the session's socket: ls $XDG_RUNTIME_DIR | grep wayland
+podman exec -d koje-spike-a nautilus "$HOME"      # GTK 4 without GSK_RENDERER=gl: black?
+podman exec -d koje-spike-a foot
+podman pause koje-spike-a; sleep 60; podman unpause koje-spike-a   # "not responding" dialog now?
+```
+
+**M2.9 – screen capture** (`M2.9-screen-capture.md`):
+
+```sh
+# baseline: host and context can both take a screenshot
+grim /tmp/host.png && echo host ok
+podman exec koje-spike-a grim /tmp/ctx.png && echo context ok
+
+# 1. what path does Hyprland see for a context program?
+podman exec -d koje-spike-a sleep 300
+ls -l /proc/$(pgrep -n -f "sleep 300")/exe       # host view of the context's binary
+
+# 2. permission rules: uncomment the M2.9 block in hyprland-session.conf, `hyprctl reload`,
+#    then repeat the baseline – which grim is denied?
+
+# 3. security context: a context-only Wayland socket
+docs/spikes/setup/wl-secure-socket/target/release/wl-secure-socket "$XDG_RUNTIME_DIR/koje-a-wayland" a &
+docs/spikes/setup/rm-context.sh a
+docs/spikes/setup/run-context.sh a "$XDG_RUNTIME_DIR/koje-a-wayland"
+podman exec -d koje-spike-a foot                 # still opens a window?
+podman exec koje-spike-a grim /tmp/ctx.png       # screencopy denied for sandboxed clients?
+```
+
+Then screen sharing through the portal from that context (M2.10 setup: proxy,
+forwarders, Firefox gum_test) – the portal (`xdg-desktop-portal-hyprland`) must
+still be able to capture.
 
 ## Cleanup
 

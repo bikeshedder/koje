@@ -1,0 +1,15 @@
+# M2.9 throwaway: create a Wayland socket through security-context-v1, so the
+# compositor knows every client on it as "sandboxed by koje, context <name>".
+# Build in the dev container:
+#   cargo build --release --manifest-path docs/spikes/setup/wl-secure-socket/Cargo.toml
+[package]
+name = "wl-secure-socket"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+
+[workspace]

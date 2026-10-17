@@ -14,7 +14,9 @@ wl=${2:-${WAYLAND_DISPLAY:-wayland-0}}
 run=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR not set}
 uid=$(id -u)
 
-[[ -S "$run/$wl" ]] || { echo "no Wayland socket $run/$wl" >&2; exit 1; }
+# The socket may also be an absolute path, e.g. one from wl-secure-socket (M2.9).
+if [[ "$wl" == /* ]]; then wl_path=$wl; wl=$(basename "$wl"); else wl_path=$run/$wl; fi
+[[ -S "$wl_path" ]] || { echo "no Wayland socket $wl_path" >&2; exit 1; }
 
 args=(
   --name "koje-spike-$name"
@@ -41,7 +43,7 @@ args=(
   # its running instance over D-Bus on Wayland; without it, xdg-open starts a
   # second Firefox ("already running, but not responding").
   -e DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus"
-  -v "$run/$wl:/run/user/$uid/$wl"
+  -v "$wl_path:/run/user/$uid/$wl"
   -e WAYLAND_DISPLAY="$wl"
   -e MOZ_ENABLE_WAYLAND=1 -e GDK_BACKEND=wayland -e QT_QPA_PLATFORM=wayland
   # libwebrtc (Firefox screen sharing) decides Wayland vs. X11 by this variable;
