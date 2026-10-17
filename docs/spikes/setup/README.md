@@ -85,9 +85,9 @@ podman exec koje-spike-a du -sh ~/.local/share/containers
 # 4. Shared read-only image store: context a fills it, context b only reads it
 mkdir -p ~/koje-spike-images
 docs/spikes/setup/rm-context.sh a
-KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images $PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-0
+KOJE_SPIKE_UNMASK=/proc/sys KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images $PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-0
 podman exec koje-spike-a podman --root "$HOME/koje-spike-images" pull docker.io/library/alpine
-KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images:ro $PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh b wayland-0
+KOJE_SPIKE_UNMASK=/proc/sys KOJE_SPIKE_MOUNTS="$HOME/koje-spike-images:ro $PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh b wayland-0
 podman exec koje-spike-b sh -c "mkdir -p ~/.config/containers && sed 's|SHARED_STORE|$HOME/koje-spike-images|' \
   $PWD/docs/spikes/setup/storage-shared.conf > ~/.config/containers/storage.conf"
 podman exec koje-spike-b podman images          # alpine listed, marked R/O
