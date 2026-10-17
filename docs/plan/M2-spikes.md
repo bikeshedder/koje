@@ -18,9 +18,10 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
   - Record: the exact `podman run` flags → becomes the spec for M3.
 - [ ] **M2.4 Filtered D-Bus** *(host)*
   - Done when: `xdg-dbus-proxy` (or equivalent) inside the setup from M2.3 allows notifications and the file chooser portal but blocks `OpenURI` on the host. Decide which other interfaces to allow (screen sharing for video calls, secrets).
-- [ ] **M2.5 Nested Podman** *(host)*
+- [x] **M2.5 Nested Podman** *(host)*
   - Done when: inside the context container, rootless Podman runs a compose project and a dev container (VS Code inside the context attaches to it). Shared read-only image store via `additionalimagestores` tried.
   - Record: required flags (`/dev/fuse`, sub-UIDs, storage driver), startup time, disk usage.
+  - Notes: [report](../spikes/M2.5-nested-podman.md), ADR 0014. Needs `unmask=/proc/sys`, `/dev/net/tun`, file caps on `newuidmap`. Electron apps also need a bigger `/dev/shm` (M2.3).
 - [ ] **M2.6 Memory sharing between contexts** *(host)*
   - Done when: two contexts from the same base image run the same browser; compare PSS/shared pages (`smem` or `/proc/*/smaps_rollup`) with the browser run twice on the host. Also: does the cgroup memory of a context include nested containers?
 - [ ] **M2.7 Files between contexts** *(host)*

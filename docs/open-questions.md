@@ -5,8 +5,8 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 
 ## Containers and isolation
 
-- **Nested Podman setup** – which settings does rootless Podman-in-Podman need in the base image (sub-UIDs/GIDs, `/dev/fuse`, storage driver)? How stable is it day to day? *(M2.5)*
-- **Shared image store** – can the inner Podman use a read-only `additionalimagestores`, and how is it updated? *(M2.5)*
+- **Nested Podman stability** – the setup is settled (ADR 0014); how stable is it in day-to-day use over weeks?
+- **Shared image store** – a read-only `additionalimagestores` works (M2.5). Open: who fills and updates it, and what happens to running contexts during an update?
 - **D-Bus filter** – settled: notifications and file chooser yes, host `OpenURI` no. Open: screen sharing, calendar, secrets/keyring. *(M2.4)*
 - **Same paths** – does koje reliably mount home volume and folders at the host path, and does dragging files into overlay apps work? *(M2.7)*
 - **Context `global`** – is it acceptable that overlay apps run unisolated and see all mounted folders?

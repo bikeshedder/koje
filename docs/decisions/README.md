@@ -18,3 +18,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0011 | [Layout order and the initial layout](0011-layout-order.md) | Accepted |
 | 0012 | [Defaults for new contexts](0012-new-context-defaults.md) | Accepted |
 | 0013 | [State file operations and role states](0013-state-file-operations.md) | Accepted |
+| 0014 | [Nested Podman in context containers](0014-nested-podman-in-contexts.md) | Accepted |
