@@ -38,13 +38,17 @@ RUN mkdir -p /etc/xdg \
     && printf '[Default Applications]\nx-scheme-handler/http=firefox.desktop\nx-scheme-handler/https=firefox.desktop\ntext/html=firefox.desktop\n' \
         > /etc/xdg/mimeapps.list
 
-# Inner Podman: overlay via fuse-overlayfs (no overlay-on-overlay), no cgroup
-# management inside (the outer container owns the cgroup), no default sysctls
-# (/proc/sys is read-only in the context: "open /proc/sys/net/ipv4/ping_group_range:
-# Read-only file system"; podman/stable does the same).
+# Inner Podman, modelled on quay.io/podman/stable (works on the host):
+# - storage: overlay via fuse-overlayfs (no overlay-on-overlay)
+# - cgroups disabled: the context owns the cgroup
+# - default_sysctls = []: /proc/sys is read-only in the context
+#   ("open /proc/sys/net/ipv4/ping_group_range: Read-only file system")
+# - /proc bind-mounted: a fresh proc mount is refused while the context's /proc
+#   is partly masked ("mount `proc` to `proc`: Operation not permitted")
+# - utsns = "host": "sethostname: Operation not permitted" otherwise
+# Networking stays private per inner container (pasta, /dev/net/tun).
+COPY containers.conf /etc/containers/containers.conf
 RUN printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
-        > /etc/containers/storage.conf \
-    && printf '[containers]\ncgroups = "disabled"\ndefault_sysctls = []\n[engine]\ncgroup_manager = "cgroupfs"\nevents_logger = "file"\n' \
-        > /etc/containers/containers.conf
+        > /etc/containers/storage.conf
 
 LABEL io.koje.spike=true
