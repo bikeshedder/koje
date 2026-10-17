@@ -131,16 +131,42 @@ docs/spikes/setup/cgroup-mem.sh koje-spike-a
 For the baseline: run the Fedora image's Firefox twice from *one* container
 (`podman exec -d koje-spike-a firefox -P second --no-remote`) and compare.
 
-## 2. With Hyprland nested in GNOME (later)
+## 2. With Hyprland nested in GNOME
 
 ```sh
 sudo apt install hyprland foot
 Hyprland -c "$PWD/docs/spikes/setup/hyprland-nested.conf"   # opens as a window
-ls "$XDG_RUNTIME_DIR"                                       # new socket, e.g. wayland-1
-docs/spikes/setup/run-context.sh a wayland-1
+ls "$XDG_RUNTIME_DIR"                                       # its socket, e.g. wayland-1
+ls "$XDG_RUNTIME_DIR/hypr/"                                 # its IPC instance
 ```
 
-Then M2.2, M2.4, M2.8 and M2.3 again against Hyprland.
+If Hyprland rejects lines of the config (the syntax changes between releases),
+it shows the errors at the top of its window: note them in the M2.2 report.
+
+**M2.2 – IPC from Rust** (`M2.2-hyprland-ipc.md`). Build in the dev container,
+run on the host:
+
+```sh
+# dev container
+cargo build --release --manifest-path docs/spikes/setup/hypr-ipc/Cargo.toml
+# host (with the nested Hyprland running)
+ipc=docs/spikes/setup/hypr-ipc/target/release/hypr-ipc
+docs/spikes/setup/run-context.sh a wayland-1                 # a context on Hyprland
+podman exec -d koje-spike-a foot; podman exec -d koje-spike-a firefox
+$ipc clients                                                 # note addresses and pids
+$ipc events &                                                # then open/close/move windows
+$ipc move <address> 100 100 900 600
+$ipc color <address> 2e7d5b
+$ipc bench 5                                                 # open ≥ 5 windows first
+kill %1
+```
+
+To check the pid: `grep libpod /proc/<pid>/cgroup` should name the context's
+container.
+
+**M2.8 – pausing** (later, same setup): `podman pause koje-spike-a`, wait a minute
+(does Hyprland show "not responding"?), `podman unpause koje-spike-a`; then the
+same with the windows moved to `special:stash` (ALT+H) first.
 
 ## Cleanup
 

@@ -1,0 +1,13 @@
+# M2.2 throwaway: talk to Hyprland's command and event sockets. Not part of the
+# koje workspace (own [workspace] table). Build in the dev container:
+#   cargo build --release --manifest-path docs/spikes/setup/hypr-ipc/Cargo.toml
+[package]
+name = "hypr-ipc"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[workspace]
