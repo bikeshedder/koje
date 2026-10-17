@@ -1,0 +1,10 @@
+// M2.5: minimal dev container, opened by VS Code running *inside* a context.
+{
+  "name": "koje-spike-devcontainer",
+  "image": "mcr.microsoft.com/devcontainers/base:debian",
+  // Rootless Podman inside the context: keep the user's uid in the dev container
+  // so files in the workspace keep their owner.
+  "runArgs": ["--userns=keep-id"],
+  "containerUser": "vscode",
+  "remoteUser": "vscode"
+}

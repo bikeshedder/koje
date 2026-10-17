@@ -95,9 +95,21 @@ podman exec koje-spike-b podman run --rm docker.io/library/alpine echo from the 
 podman exec koje-spike-b podman unshare du -sh ~/.local/share/containers   # should stay small
 ```
 
-Then a dev container that VS Code *inside the context* attaches to (install VS
-Code or VSCodium in the context, Dev Containers extension, `dev.containers.dockerPath`
-= `podman`). Cleanup of step 4: `rm-context.sh b`, `rm -rf ~/koje-spike-images`
+Then a dev container that VS Code *inside the context* attaches to:
+
+```sh
+# install VS Code into the running context (lost when the context is recreated)
+podman exec -u 0 koje-spike-b sh -c 'rpm --import https://packages.microsoft.com/keys/microsoft.asc &&
+  printf "[code]\nname=VS Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc\n" \
+  > /etc/yum.repos.d/vscode.repo && dnf -y install code'
+podman exec -d koje-spike-b code --ozone-platform=wayland "$PWD/docs/spikes/setup/devcontainer-test"
+```
+
+In that VS Code: install the *Dev Containers* extension, set
+`"dev.containers.dockerPath": "podman"` in the user settings, then
+*Dev Containers: Reopen in Container*. Record time to first open, and whether a
+file created in the dev container's terminal is owned by you (`ls -ln` in the
+context). Cleanup of step 4: `rm-context.sh b`, `rm -rf ~/koje-spike-images`
 (if `rm` is refused because of sub-uid owned files: `podman unshare rm -rf ~/koje-spike-images`).
 
 **M2.6 – memory sharing** (`M2.6-memory-sharing.md`)
