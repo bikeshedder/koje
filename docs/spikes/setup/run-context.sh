@@ -44,6 +44,11 @@ args=(
   -v "$run/$wl:/run/user/$uid/$wl"
   -e WAYLAND_DISPLAY="$wl"
   -e MOZ_ENABLE_WAYLAND=1 -e GDK_BACKEND=wayland -e QT_QPA_PLATFORM=wayland
+  # libwebrtc (Firefox screen sharing) decides Wayland vs. X11 by this variable;
+  # without it only tabs can be shared.
+  -e XDG_SESSION_TYPE=wayland
+  # GTK uses portals (host file chooser) only when sandboxed or told to (M2.10).
+  -e GTK_USE_PORTAL=1
   # Chromium/Electron (VS Code, Chrome) pass frames and IPC through /dev/shm;
   # Podman's 64 MB default crashes their renderers ("reason: 'crashed', code 4").
   # A limit, not reserved memory. Override: KOJE_SPIKE_SHM=2g
