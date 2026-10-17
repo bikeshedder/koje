@@ -22,8 +22,9 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
   - Done when: inside the context container, rootless Podman runs a compose project and a dev container (VS Code inside the context attaches to it). Shared read-only image store via `additionalimagestores` tried.
   - Record: required flags (`/dev/fuse`, sub-UIDs, storage driver), startup time, disk usage.
   - Notes: [report](../spikes/M2.5-nested-podman.md), ADR 0014. Needs `unmask=/proc/sys`, `/dev/net/tun`, file caps on `newuidmap`. Electron apps also need a bigger `/dev/shm` (M2.3).
-- [ ] **M2.6 Memory sharing between contexts** *(host)*
+- [x] **M2.6 Memory sharing between contexts** *(host)*
   - Done when: two contexts from the same base image run the same browser; compare PSS/shared pages (`smem` or `/proc/*/smaps_rollup`) with the browser run twice on the host. Also: does the cgroup memory of a context include nested containers?
+  - Notes: [report](../spikes/M2.6-memory-sharing.md). Libraries shared across contexts (libxul Pss 116 → 67 MiB); nested containers counted; page cache charged first-touch. Measured per library instead of against the host's Firefox (a Snap on Ubuntu).
 - [ ] **M2.7 Files between contexts** *(host)*
   - Done when: drag a file from a context's file manager into a mail client in `global`; check same-path mounts and the exchange folder; note which apps pass paths vs content.
 - [ ] **M2.8 Pausing a context with windows** *(host)*

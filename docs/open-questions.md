@@ -11,15 +11,13 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 - **Same paths** – does koje reliably mount home volume and folders at the host path, and does dragging files into overlay apps work? *(M2.7)*
 - **Context `global`** – is it acceptable that overlay apps run unisolated and see all mounted folders?
 - **Hyprland permissions** – how to deny screen capture to context programs without breaking wanted screen sharing (video calls)? *(M2.9)*
-- **Base image** – one image for all contexts, or a base plus per-context additions? Who builds it, how is it updated?
+- **Base image** – one image for all contexts, or a base plus per-context additions? Who builds it, how is it updated? (M2.6: contexts share the pages of common image layers – keep layers common.)
 
 ## Memory
 
-- **Shared libraries** – do two contexts with the same base image really share library pages? *(M2.6)*
 - **Default limits** – fixed values or a share of RAM? *(M6.6)*
 - **Hard limit** – how long may an orderly shutdown take before a hard stop? Distance to `memory.max` (currently 10 %)?
 - **Swap** – limit swap per context, and does it count towards the limit?
-- **Nested containers** – does the context's cgroup include its dev containers' memory? *(M2.6)*
 
 ## Desktop and layouts
 
