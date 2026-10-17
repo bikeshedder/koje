@@ -13,9 +13,10 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 - [ ] **M2.2 Hyprland IPC from Rust** *(host)*
   - Done when: a small throwaway program lists clients (`j/clients`), moves a window, sets a per-window border color, and prints `openwindow`/`closewindow` events from socket2. Measure: time to move 5 windows in one batch.
   - Notes: decides the shape of the `Compositor` port and whether batching (`[[BATCH]]`) is enough for fast layout switches.
-- [ ] **M2.3 Base image and a hand-made context container** *(host)*
+- [x] **M2.3 Base image and a hand-made context container** *(host)*
   - Done when: `podman run` with Wayland socket, PipeWire, `/dev/dri`, home volume, label `io.koje.context=<name>` shows a browser and a terminal on the desktop with sound and GPU; link clicked in the terminal opens in the container's browser.
   - Record: the exact `podman run` flags → becomes the spec for M3.
+  - Notes: [report](../spikes/M2.3-context-container.md), ADR 0015 (runtime env), ADR 0016 (GPU). Done under GNOME; the Hyprland column is filled during M2.2.
 - [ ] **M2.4 Filtered D-Bus** *(host)*
   - Done when: `xdg-dbus-proxy` (or equivalent) inside the setup from M2.3 allows notifications and the file chooser portal but blocks `OpenURI` on the host. Decide which other interfaces to allow (screen sharing for video calls, secrets).
 - [x] **M2.5 Nested Podman** *(host)*

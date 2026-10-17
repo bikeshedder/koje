@@ -19,3 +19,5 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0012 | [Defaults for new contexts](0012-new-context-defaults.md) | Accepted |
 | 0013 | [State file operations and role states](0013-state-file-operations.md) | Accepted |
 | 0014 | [Nested Podman in context containers](0014-nested-podman-in-contexts.md) | Accepted |
+| 0015 | [Runtime environment of a context container](0015-context-runtime-environment.md) | Accepted |
+| 0016 | [GPU access in context containers](0016-gpu-access.md) | Accepted |
