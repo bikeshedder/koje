@@ -1,6 +1,6 @@
 # 0016. GPU access in context containers
 
-- Status: Accepted
+- Status: Accepted (amended by ADR 0017: `gpu` switch)
 - Date: 2026-10-17
 - Source: spike [M2.3](../spikes/M2.3-context-container.md); host with an NVIDIA
   RTX 5090 (driving the monitor) and an AMD iGPU
@@ -14,8 +14,9 @@ the iGPU or to software rendering.
 
 ## Decision
 
-- **All GPUs are passed** to a context; programs choose (Firefox picked the GPU
-  that drives the monitor by itself).
+- **All GPUs are passed** to a context when its access allows the GPU (ADR 0017,
+  default on); programs choose (Firefox picked the GPU that drives the monitor
+  by itself).
 - **Mesa (AMD/Intel):** `--device /dev/dri`.
 - **NVIDIA:** if a CDI spec for NVIDIA exists on the host (`nvidia-ctk cdi list`
   shows `nvidia.com/gpu=all`), koje adds `--device nvidia.com/gpu=all`. CDI injects

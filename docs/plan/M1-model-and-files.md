@@ -36,3 +36,5 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.11 Refuse dangerous mount targets** (ADR 0009)
   - Done when: `mounts` accepts string and `{ path, unsafe }` table form (round-trips both); the three rule groups of ADR 0009 are refused unless `unsafe = true`; protected paths come from `Paths`/XDG, not hard-coded home paths; tests per rule.
   - Notes: `Paths::host_dirs()` collects home + protected dirs; `ContextConfig::expand_mounts(&HostDirs)`. `mount::Mount` has a hand-written `Deserialize` so path errors keep their reason.
+- [ ] **M1.12 Access profiles in config** (ADR 0017)
+  - Done when: `[access]` in `config.toml` and `context.toml` parses (profile + switches, `deny_unknown_fields`); `ContextConfig::effective_access(&GlobalConfig)` follows the resolution rule; profile table as data; `koje new` template mentions it; tests per rule.

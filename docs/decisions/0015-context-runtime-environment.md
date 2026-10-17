@@ -1,6 +1,6 @@
 # 0015. Runtime environment of a context container
 
-- Status: Accepted
+- Status: Accepted (amended by ADR 0017: Wayland and sound sockets depend on the access profile)
 - Date: 2026-10-17
 - Source: spike [M2.3](../spikes/M2.3-context-container.md) on Ubuntu 26.04 / GNOME
 

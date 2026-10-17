@@ -21,3 +21,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0014 | [Nested Podman in context containers](0014-nested-podman-in-contexts.md) | Accepted |
 | 0015 | [Runtime environment of a context container](0015-context-runtime-environment.md) | Accepted |
 | 0016 | [GPU access in context containers](0016-gpu-access.md) | Accepted |
+| 0017 | [Access profiles: configurable host access per context](0017-access-profiles.md) | Accepted |

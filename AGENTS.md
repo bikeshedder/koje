@@ -26,6 +26,7 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 | layout | Named arrangement of a context's running windows. Part of a state. |
 | stash | Hidden special workspace holding running windows not in the active layout. |
 | overlay | Hyprland special workspace for cross-context apps (mail, chat) in context `global`. |
+| access profile | Which host resources a context gets (`gpu`, `sound`, `wayland`, `nested`, `network`): a profile (`full`, `desktop`, `headless`, `none`) plus overrides. ADR 0017. |
 | integration | Optional description of how koje launches/remembers a program. Programs work without one. |
 | koje / kojed | The CLI / the background service. Never use "koje" for a context. |
 

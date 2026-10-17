@@ -82,6 +82,9 @@ browser profile per project. Put common programs into the base image.
   context B fails by design. Mounts that would hide the context's home, expose
   koje's own files or host sockets, or replace system folders are refused unless
   marked `unsafe` (ADR 0009).
+- **Access profiles:** each context gets GPU, sound, Wayland, nested containers and
+  network according to its access profile (`full`, `desktop`, `headless`, `none`
+  plus overrides; default from `config.toml`, ADR 0017).
 
 ## Layouts
 
