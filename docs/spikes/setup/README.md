@@ -182,8 +182,10 @@ docs/spikes/setup/host-bus-proxy.sh a
 # terminal 2 (host)
 docs/spikes/setup/rm-context.sh a
 KOJE_SPIKE_HOSTBUS=1 KOJE_SPIKE_MOUNTS="$PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-1
-fwd="python3 $PWD/docs/spikes/setup/bus-forward.py"
-podman exec -d koje-spike-a sh -c "$fwd org.freedesktop.Notifications \$KOJE_HOST_BUS > /tmp/fwd-notify.log 2>&1"
+# the image's own xdg-desktop-portal may be activated on the context bus: stop it
+podman exec koje-spike-a pkill -f xdg-desktop-portal
+podman exec -d koje-spike-a sh -c "python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.Notifications \"\$KOJE_HOST_BUS\" > /tmp/fwd-notify.log 2>&1"
+podman exec -d koje-spike-a sh -c "python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.portal.Desktop \"\$KOJE_HOST_BUS\" > /tmp/fwd-portal.log 2>&1"
 
 # 1. notification from the context → host desktop
 podman exec koje-spike-a notify-send koje "hello from context a"
@@ -193,7 +195,6 @@ podman exec koje-spike-a sh -c 'gdbus call --address "$KOJE_HOST_BUS" -d org.fre
   -o /org/freedesktop/portal/desktop -m org.freedesktop.portal.OpenURI.OpenURI "" https://example.org {}'
 
 # 3. file chooser portal through the forwarder
-podman exec -d koje-spike-a sh -c "$fwd org.freedesktop.portal.Desktop \$KOJE_HOST_BUS > /tmp/fwd-portal.log 2>&1"
 podman exec koje-spike-a gdbus call --session -d org.freedesktop.portal.Desktop \
   -o /org/freedesktop/portal/desktop -m org.freedesktop.portal.FileChooser.OpenFile "" "koje test" {}
 podman exec koje-spike-a cat /tmp/fwd-notify.log /tmp/fwd-portal.log
