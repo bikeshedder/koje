@@ -29,7 +29,7 @@ switches; single **switches** override it.
 | `full` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `desktop` | – | ✓ | ✓ | ✓ | ✓ |
 | `headless` | – | – | – | ✓ | ✓ |
-| `none` | – | – | – | – | – |
+| `isolated` | – | – | – | – | – |
 
 ```toml
 # config.toml – default for all contexts (itself defaulting to "full")
@@ -57,7 +57,7 @@ the profile; `wayland = false` only drops the compositor socket.
 ## Consequences
 
 + One line restricts a context; the default stays "everything works".
-+ `none` gives an offline, desktop-less context – isolated from host devices,
++ `isolated` gives an offline, desktop-less context – isolated from host devices,
   but still sharing the kernel and the folders in `mounts`.
 - `sound` cannot separate playback from the microphone yet; that needs
   PipeWire's permission handling (open question).

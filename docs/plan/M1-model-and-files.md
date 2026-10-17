@@ -38,4 +38,4 @@ container or Hyprland. Pure Rust, testable in the dev container.
   - Notes: `Paths::host_dirs()` collects home + protected dirs; `ContextConfig::expand_mounts(&HostDirs)`. `mount::Mount` has a hand-written `Deserialize` so path errors keep their reason.
 - [x] **M1.12 Access profiles in config** (ADR 0017)
   - Done when: `[access]` in `config.toml` and `context.toml` parses (profile + switches, `deny_unknown_fields`); `ContextConfig::effective_access(&GlobalConfig)` follows the resolution rule; profile table as data; `koje new` template mentions it; tests per rule.
-  - Notes: `access` module (`Profile::access()` is the table, `access::resolve` the rule). Profile `none` is `Profile::NoAccess` in Rust. Not shown in `koje list` yet.
+  - Notes: `access` module (`Profile::access()` is the table, `access::resolve` the rule). Not shown in `koje list` yet.

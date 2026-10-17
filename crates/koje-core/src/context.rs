@@ -66,7 +66,7 @@ mounts = []
 # memory_hard = "8G"      # orderly shutdown
 
 # [access]                # host resources, ADR 0017 (default from config.toml)
-# profile = "full"        # full | desktop | headless | none
+# profile = "full"        # full | desktop | headless | isolated
 # gpu     = false         # override single switches: gpu, sound, wayland, nested, network
 
 # [states]                # rename the roles

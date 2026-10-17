@@ -34,8 +34,7 @@ pub enum Profile {
     /// No GUI, sound or GPU: shells and dev containers.
     Headless,
     /// No host resources at all: offline and without GUI.
-    #[serde(rename = "none")]
-    NoAccess,
+    Isolated,
 }
 
 impl Profile {
@@ -44,7 +43,7 @@ impl Profile {
             Self::Full => (true, true, true, true, true),
             Self::Desktop => (false, true, true, true, true),
             Self::Headless => (false, false, false, true, true),
-            Self::NoAccess => (false, false, false, false, false),
+            Self::Isolated => (false, false, false, false, false),
         };
         Access {
             gpu,
@@ -130,7 +129,7 @@ mod tests {
         assert_eq!(row(Profile::Full), [true; 5]);
         assert_eq!(row(Profile::Desktop), [false, true, true, true, true]);
         assert_eq!(row(Profile::Headless), [false, false, false, true, true]);
-        assert_eq!(row(Profile::NoAccess), [false; 5]);
+        assert_eq!(row(Profile::Isolated), [false; 5]);
     }
 
     #[test]
@@ -139,7 +138,7 @@ mod tests {
             ("full", Profile::Full),
             ("desktop", Profile::Desktop),
             ("headless", Profile::Headless),
-            ("none", Profile::NoAccess),
+            ("isolated", Profile::Isolated),
         ] {
             let cfg = parse(&format!("profile = \"{name}\""));
             assert_eq!(cfg.profile, Some(profile));
