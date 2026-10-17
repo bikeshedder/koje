@@ -13,6 +13,7 @@ container. Host: Ubuntu 26.04 with GNOME (Wayland). Reports go to
 | `cgroup-mem.sh <container>` | cgroup memory of a context (M2.6) |
 | `lib-pss.sh <pattern> <container> <lib>` | Rss/Pss of one library's mappings (M2.6, cross-context sharing) |
 | `hyprland-nested.conf` | Hyprland nested in GNOME, ALT as modifier (step 2) |
+| `color-contexts.sh` | colors windows by context in the nested Hyprland (A red, B blue) – kojed in miniature |
 | `host-bus-proxy.sh <name>` | filtered view of the host's session bus for a context (M2.4) |
 | `bus-forward.py <name> <address>` | forwards one D-Bus name from the context bus to the host proxy (M2.4, runs in the context) |
 
