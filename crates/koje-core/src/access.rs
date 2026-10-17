@@ -71,7 +71,7 @@ switches! {
     inhibit,
     /// Screen sharing through the host's portal (it asks each time).
     screencast,
-    /// The host's print dialog.
+    /// The host's printers: CUPS socket and print portal (ADR 0019).
     print,
 }
 
