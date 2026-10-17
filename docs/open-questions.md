@@ -7,11 +7,13 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 
 - **Nested Podman stability** – the setup is settled (ADR 0014); how stable is it in day-to-day use over weeks?
 - **Shared image store** – a read-only `additionalimagestores` works (M2.5). Open: who fills and updates it, and what happens to running contexts during an update?
-- **D-Bus filter** – settled: notifications and file chooser yes, host `OpenURI` no. Open: screen sharing, calendar, secrets/keyring. *(M2.4)*
+- **D-Bus filter** – settled in ADR 0019 (forwarder + filtered proxy; notifications, file chooser, settings, inhibit, screen sharing, print). Open: calendar/contacts.
 - **Same paths** – does koje reliably mount home volume and folders at the host path, and does dragging files into overlay apps work? *(M2.7)*
 - **Context `global`** – is it acceptable that overlay apps run unisolated and see all mounted folders?
 - **Sound without microphone** – can PipeWire's permissions give a context playback but not capture (ADR 0017 has one `sound` switch for both)?
 - **Limited Wayland** – does Hyprland support `security-context-v1`, so a context can get a Wayland socket without screen capture or clipboard-manager protocols? *(M2.9)*
+- **Sharing secrets between contexts** – each context has its own keyring (ADR 0019). How could selected secrets be shared with another context on purpose?
+- **Files outside mounts from the file chooser** – the host portal returns host paths; mount the document portal into contexts?
 - **Hyprland permissions** – how to deny screen capture to context programs without breaking wanted screen sharing (video calls)? *(M2.9)*
 - **Base image** – one image for all contexts, or a base plus per-context additions? Who builds it, how is it updated? (M2.6: contexts share the pages of common image layers – keep layers common.)
 

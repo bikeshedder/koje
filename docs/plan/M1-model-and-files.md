@@ -39,3 +39,5 @@ container or Hyprland. Pure Rust, testable in the dev container.
 - [x] **M1.12 Access profiles in config** (ADR 0017)
   - Done when: `[access]` in `config.toml` and `context.toml` parses (profile + switches, `deny_unknown_fields`); `ContextConfig::effective_access(&GlobalConfig)` follows the resolution rule; profile table as data; `koje new` template mentions it; tests per rule.
   - Notes: `access` module (`Profile::access()` is the table, `access::resolve` the rule). Not shown in `koje list` yet.
+- [ ] **M1.13 Host interface switches** (ADR 0019)
+  - Done when: `notifications`, `file_chooser`, `settings`, `inhibit`, `screencast`, `print` in `[access]` and in the profile table; tests.

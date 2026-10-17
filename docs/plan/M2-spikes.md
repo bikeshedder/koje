@@ -19,8 +19,9 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
   - Done when: `podman run` with Wayland socket, PipeWire, `/dev/dri`, home volume, label `io.koje.context=<name>` shows a browser and a terminal on the desktop with sound and GPU; link clicked in the terminal opens in the container's browser.
   - Record: the exact `podman run` flags → becomes the spec for M3.
   - Notes: [report](../spikes/M2.3-context-container.md), ADR 0015 (runtime env), ADR 0016 (GPU). Done under GNOME; the Hyprland column is filled during M2.2.
-- [~] **M2.4 Filtered D-Bus** *(host)*
+- [x] **M2.4 Filtered D-Bus** *(host)*
   - Done when: `xdg-dbus-proxy` (or equivalent) inside the setup from M2.3 allows notifications and the file chooser portal but blocks `OpenURI` on the host. Decide which other interfaces to allow (screen sharing for video calls, secrets).
+  - Notes: [report](../spikes/M2.4-filtered-dbus.md), ADR 0019. Own bus + forwarder + `xdg-dbus-proxy`; notifications and file chooser work, `OpenURI` denied.
 - [x] **M2.5 Nested Podman** *(host)*
   - Done when: inside the context container, rootless Podman runs a compose project and a dev container (VS Code inside the context attaches to it). Shared read-only image store via `additionalimagestores` tried.
   - Record: required flags (`/dev/fuse`, sub-UIDs, storage driver), startup time, disk usage.
@@ -35,3 +36,5 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
   - Notes: [report](../spikes/M2.8-pausing.md). Frozen, no dialog (without `hyprland-guiutils`), input queued and delivered on unpause. Recheck the dialog in M2.1.
 - [ ] **M2.9 Screen capture permissions** *(host)*
   - Done when: Hyprland permission rules deny screencopy to context programs while a video call in `global` (or an allowed context) can still share the screen.
+- [ ] **M2.10 More host interfaces through the forwarder** *(host)*
+  - Done when: settings (`SettingChanged`), inhibit, screen sharing (PipeWire fd passing through the forwarder, a video call in a context shares a window) and print work through proxy + forwarder; Firefox uses the portal file chooser.

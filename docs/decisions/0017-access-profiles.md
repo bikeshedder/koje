@@ -1,6 +1,6 @@
 # 0017. Access profiles: configurable host access per context
 
-- Status: Accepted
+- Status: Accepted (extended by ADR 0019: host interface switches)
 - Date: 2026-10-17
 - Source: discussion after spike M2.3; amends ADR 0015 and ADR 0016
 
@@ -23,13 +23,19 @@ switches; single **switches** override it.
 | `wayland` | compositor socket | no GUI: shell, terminal, dev containers only |
 | `nested` | `/dev/fuse`, `/dev/net/tun`, `unmask=/proc/sys` (ADR 0014) | no dev containers |
 | `network` | own network (pasta) | `--network none` |
+| `notifications` | desktop notifications on the host (ADR 0019) | none |
+| `file_chooser` | the host's file chooser portal | none |
+| `settings` | the host's appearance settings, read-only (dark mode, fonts) | apps use their defaults |
+| `inhibit` | may prevent screen lock/suspend | – |
+| `screencast` | screen sharing through the host's portal (asks each time) | – |
+| `print` | the host's print dialog | – |
 
-| Profile | gpu | sound | wayland | nested | network |
-|---|---|---|---|---|---|
-| `full` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `desktop` | – | ✓ | ✓ | ✓ | ✓ |
-| `headless` | – | – | – | ✓ | ✓ |
-| `isolated` | – | – | – | – | – |
+| Profile | gpu | sound | wayland | nested | network | notifications | file_chooser, settings, inhibit, screencast, print |
+|---|---|---|---|---|---|---|---|
+| `full` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `desktop` | – | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `headless` | – | – | – | ✓ | ✓ | ✓ | – |
+| `isolated` | – | – | – | – | – | – | – |
 
 ```toml
 # config.toml – default for all contexts (itself defaulting to "full")
