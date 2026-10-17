@@ -11,6 +11,7 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
   - Done when: all windows floating, Super+LMB/MMB move/resize, edge snapping, two special workspaces (`mail`, `chat`) toggle by key; one week of daily use noted in the report.
   - Record: Hyprland version, config snippets that worked, anything that annoyed.
   - Also: with `hyprland-guiutils` installed, does a paused context trigger "not responding" (M2.8)?
+  - Also: GTK 4 apps from a context (Nautilus) – black window with the Vulkan and cairo renderers in the nested Hyprland, fine with `GSK_RENDERER=gl` (M2.7). Same in a real session? If yes, set `GSK_RENDERER=gl` in contexts.
 - [x] **M2.2 Hyprland IPC from Rust** *(host)*
   - Done when: a small throwaway program lists clients (`j/clients`), moves a window, sets a per-window border color, and prints `openwindow`/`closewindow` events from socket2. Measure: time to move 5 windows in one batch.
   - Notes: decides the shape of the `Compositor` port and whether batching (`[[BATCH]]`) is enough for fast layout switches.
