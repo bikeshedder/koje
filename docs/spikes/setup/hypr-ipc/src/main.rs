@@ -4,6 +4,7 @@
 //!   hypr-ipc events                        print socket2 events (Ctrl+C to stop)
 //!   hypr-ipc move <addr> <x> <y> <w> <h>   move + resize one window in one batch
 //!   hypr-ipc color <addr> <rrggbb>         per-window border color (tries known syntaxes)
+//!   hypr-ipc tagcolor <addr> <tag> <rrggbb> rule per tag + tag the window
 //!   hypr-ipc bench [n]                     move n windows: one batch vs. n×2 calls
 //!   hypr-ipc raw <request>                 send a raw request, print the reply
 //!
@@ -90,11 +91,23 @@ fn main() -> Result<()> {
         }
         "color" => {
             let (addr, rgb) = (arg(1)?, arg(2)?);
-            // The syntax changed between Hyprland releases; record which one works.
+            // Property names changed between Hyprland releases (0.53: snake_case
+            // rule properties); record which request works.
             for cmd in [
+                format!("dispatch setprop address:{addr} border_color rgb({rgb})"),
+                format!("dispatch setprop address:{addr} active_border_color rgb({rgb})"),
                 format!("dispatch setprop address:{addr} activebordercolor rgb({rgb})"),
                 format!("dispatch setprop address:{addr} bordercolor rgb({rgb})"),
-                format!("setprop address:{addr} activebordercolor rgb({rgb}) lock"),
+            ] {
+                println!("{cmd}\n  -> {}", request(&cmd)?.trim());
+            }
+        }
+        "tagcolor" => {
+            // koje-style: one rule per context matching a tag, then tag the window.
+            let (addr, tag, rgb) = (arg(1)?, arg(2)?, arg(3)?);
+            for cmd in [
+                format!("keyword windowrule match:tag {tag}, border_color rgb({rgb})"),
+                format!("dispatch tagwindow +{tag} address:{addr}"),
             ] {
                 println!("{cmd}\n  -> {}", request(&cmd)?.trim());
             }
