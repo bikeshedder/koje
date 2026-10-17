@@ -28,7 +28,7 @@ switches; single **switches** override it.
 | `settings` | the host's appearance settings, read-only (dark mode, fonts) | apps use their defaults |
 | `inhibit` | may prevent screen lock/suspend | – |
 | `screencast` | screen sharing through the host's portal (asks each time) | – |
-| `print` | the host's print dialog | – |
+| `print` | the host's CUPS socket and print portal (ADR 0019) | no printers |
 
 | Profile | gpu | sound | wayland | nested | network | notifications | file_chooser, settings, inhibit, screencast, print |
 |---|---|---|---|---|---|---|---|

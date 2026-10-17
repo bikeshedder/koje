@@ -188,7 +188,9 @@ docs/spikes/setup/rm-context.sh a
 KOJE_SPIKE_HOSTBUS=1 KOJE_SPIKE_MOUNTS="$PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-1
 # the image's own xdg-desktop-portal may be activated on the context bus: stop it
 podman exec koje-spike-a pkill -f xdg-desktop-portal
-# in a loop: a forwarder exits when the proxy restarts and comes back
+# in a loop: a forwarder exits when the proxy restarts and comes back.
+# To restart forwarders: `podman exec koje-spike-a pkill -x python3` – not
+# `pkill -f bus-forward.py`, which also kills the loops (same command line).
 podman exec -d koje-spike-a sh -c "while :; do python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.Notifications \"\$KOJE_HOST_BUS\"; sleep 1; done >> /tmp/fwd-notify.log 2>&1"
 podman exec -d koje-spike-a sh -c "while :; do python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.portal.Desktop \"\$KOJE_HOST_BUS\"; sleep 1; done >> /tmp/fwd-portal.log 2>&1"
 

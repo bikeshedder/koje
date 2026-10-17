@@ -27,6 +27,10 @@ the host (e.g. Firefox remoting) and links could cross contexts.
   `notifications`, `file_chooser`, `settings` (read-only), `inhibit`,
   `screencast`, `print`. Everything else is denied, in particular `OpenURI`,
   other portals and other services.
+- **Printing:** the `print` switch gives the context the host's CUPS socket
+  (`/run/cups/cups.sock`) in addition to the print portal. Most programs
+  (Firefox, GTK's own dialog) talk to CUPS directly and do not use the portal
+  (M2.10). Managing printers still needs the host's admin rights.
 - **Secrets stay in the context:** each context runs its own keyring on its own
   bus; `org.freedesktop.secrets` is never forwarded to the host.
 
@@ -37,7 +41,11 @@ the host (e.g. Firefox remoting) and links could cross contexts.
 + The allowed set follows the access profile; no extra configuration.
 - The host's portal sees the proxy as an unsandboxed host program: the file
   chooser returns host paths, usable in the context only inside its mounts.
-- Screen sharing passes PipeWire file descriptors; the forwarder must carry fds
-  (not tested in M2.4: M2.10).
+- Screen sharing passes PipeWire file descriptors; the forwarder must carry fds.
+- Portal clients predict request/session paths from their own bus name; the
+  forwarder needs one host connection per client and translates that path
+  segment (M2.10). The per-client connection also releases a client's inhibits
+  and sessions when it exits.
+- With `print`, a context can see and cancel the user's print jobs.
 - Sharing selected secrets between contexts is wanted but undesigned (open
   question).
