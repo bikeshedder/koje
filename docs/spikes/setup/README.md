@@ -135,7 +135,9 @@ For the baseline: run the Fedora image's Firefox twice from *one* container
 
 ```sh
 sudo apt install hyprland foot
-Hyprland -c "$PWD/docs/spikes/setup/hyprland-nested.conf"   # opens as a window
+# XDG_CURRENT_DESKTOP: otherwise inherited from GNOME ("managed externally" notice).
+# "started without start-hyprland" and "hyprland-guiutils" notices are harmless here.
+XDG_CURRENT_DESKTOP=Hyprland Hyprland -c "$PWD/docs/spikes/setup/hyprland-nested.conf"   # opens as a window
 ls "$XDG_RUNTIME_DIR"                                       # its socket, e.g. wayland-1
 ls "$XDG_RUNTIME_DIR/hypr/"                                 # its IPC instance
 ```
