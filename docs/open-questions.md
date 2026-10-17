@@ -8,7 +8,6 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 - **Nested Podman stability** – the setup is settled (ADR 0014); how stable is it in day-to-day use over weeks?
 - **Shared image store** – a read-only `additionalimagestores` works (M2.5). Open: who fills and updates it, and what happens to running contexts during an update?
 - **D-Bus filter** – settled in ADR 0019 (forwarder + filtered proxy; notifications, file chooser, settings, inhibit, screen sharing, print). Open: calendar/contacts.
-- **Same paths** – does koje reliably mount home volume and folders at the host path, and does dragging files into overlay apps work? *(M2.7)*
 - **Context `global`** – is it acceptable that overlay apps run unisolated and see all mounted folders?
 - **Sound without microphone** – can PipeWire's permissions give a context playback but not capture (ADR 0017 has one `sound` switch for both)?
 - **Limited Wayland** – does Hyprland support `security-context-v1`, so a context can get a Wayland socket without screen capture or clipboard-manager protocols? *(M2.9)*

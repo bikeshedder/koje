@@ -30,8 +30,9 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 - [x] **M2.6 Memory sharing between contexts** *(host)*
   - Done when: two contexts from the same base image run the same browser; compare PSS/shared pages (`smem` or `/proc/*/smaps_rollup`) with the browser run twice on the host. Also: does the cgroup memory of a context include nested containers?
   - Notes: [report](../spikes/M2.6-memory-sharing.md). Libraries shared across contexts (libxul Pss 116 → 67 MiB); nested containers counted; page cache charged first-touch. Measured per library instead of against the host's Firefox (a Snap on Ubuntu).
-- [~] **M2.7 Files between contexts** *(host)*
+- [x] **M2.7 Files between contexts** *(host)*
   - Done when: drag a file from a context's file manager into a mail client in `global`; check same-path mounts and the exchange folder; note which apps pass paths vs content.
+  - Notes: [report](../spikes/M2.7-files-between-contexts.md). DnD passes paths: works via the shared folder, fails otherwise; clipboard works. Retest dragging into `global` once it exists (M3.10).
 - [x] **M2.8 Pausing a context with windows** *(host)*
   - Done when: `podman pause` a context with visible windows; observe Hyprland behavior (ANR dialog?), resume; same with windows moved to a special workspace first.
   - Notes: [report](../spikes/M2.8-pausing.md). Frozen, no dialog (without `hyprland-guiutils`), input queued and delivered on unpause. Recheck the dialog in M2.1.
