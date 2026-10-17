@@ -25,6 +25,9 @@ and `sleep infinity` as PID 1 delayed every stop by 10 s.
   main process (`dbus-daemon --session --nofork`, under `--init`), with
   `DBUS_SESSION_BUS_ADDRESS` set. Programs of one context find each other over it
   (Firefox remoting, `xdg-open`). What may reach the host's session bus is M2.4.
+- **Session variables:** `XDG_SESSION_TYPE=wayland` (libwebrtc screen sharing
+  decides by it) and `GTK_USE_PORTAL=1` (GTK uses the host's file chooser
+  through the forwarder, ADR 0019) – set when the context has `wayland`.
 - **`/dev/shm`:** `--shm-size 1g` (a limit, not reserved memory).
 - **PID 1:** `--init`.
 

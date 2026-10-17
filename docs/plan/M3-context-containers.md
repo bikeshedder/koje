@@ -18,3 +18,4 @@ yet. Break down further using the M2.3–M2.5 reports.
 - [ ] **M3.12 NVIDIA CDI detection** (ADR 0016): find the CDI spec and the host's GBM backend; hint when missing or outdated
 - [ ] **M3.13 Apply access changes to a running context** (ADR 0017): on `koje edit`/config change ask "now (recreate, restore windows) or at next `up`"
 - [ ] **M3.14 Host interfaces per context** (ADR 0019): start `xdg-dbus-proxy` with filters from the effective access; forwarder in the context (Rust) started before anything activates the image's portal; own keyring per context
+  - Notes: forwarder design from M2.10 – one host connection per client, translate request/session path segments in paths and bodies, no blocking work in GDBus-style filters, reconnect when the proxy restarts. Proxy filter as in `docs/spikes/setup/host-bus-proxy.sh`. Mount the CUPS socket for `print`.
