@@ -8,7 +8,8 @@
 # run-context.sh mounts (KOJE_SPIKE_HOSTBUS=1); restarting the proxy then does
 # not leave a stale socket in the context.
 #
-# Allowed: notifications; the file chooser portal and its Request objects.
+# Allowed (ADR 0019): notifications; the portals FileChooser, Settings
+# (read-only), Inhibit, ScreenCast, Print with their Request/Session objects.
 # Everything else – OpenURI, other portals, other services – is denied.
 set -euo pipefail
 name=${1:?usage: host-bus-proxy.sh <name>}
@@ -22,5 +23,12 @@ exec xdg-dbus-proxy "${DBUS_SESSION_BUS_ADDRESS:?}" "$dir/bus" --filter --log \
   --talk=org.freedesktop.Notifications \
   --call="$portal=org.freedesktop.portal.FileChooser.*@$desktop" \
   --call="$portal=org.freedesktop.DBus.Properties.Get@$desktop" \
+  --call="$portal=org.freedesktop.portal.Settings.Read*@$desktop" \
+  --broadcast="$portal=org.freedesktop.portal.Settings.SettingChanged@$desktop" \
+  --call="$portal=org.freedesktop.portal.Inhibit.*@$desktop" \
+  --call="$portal=org.freedesktop.portal.ScreenCast.*@$desktop" \
+  --call="$portal=org.freedesktop.portal.Print.*@$desktop" \
   --call="$portal=org.freedesktop.portal.Request.*@$desktop/request/*" \
-  --broadcast="$portal=org.freedesktop.portal.Request.Response@$desktop/request/*"
+  --broadcast="$portal=org.freedesktop.portal.Request.Response@$desktop/request/*" \
+  --call="$portal=org.freedesktop.portal.Session.*@$desktop/session/*" \
+  --broadcast="$portal=org.freedesktop.portal.Session.Closed@$desktop/session/*"

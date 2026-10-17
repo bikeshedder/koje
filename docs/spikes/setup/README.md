@@ -204,6 +204,61 @@ For 3, a file dialog should open on the host; pick a file. In the context's
 Firefox, `widget.use-xdg-desktop-portal.file-picker = 1` in `about:config` makes
 File → Open use the portal too.
 
+**M2.10 – more host interfaces** (`M2.10-host-interfaces.md`). Same setup as
+M2.4 (proxy for `a` running in its own terminal, restart it after pulling, both
+forwarders started in the context). Calls straight from the context bus:
+
+```sh
+call() { podman exec koje-spike-a gdbus call --session -d org.freedesktop.portal.Desktop \
+  -o /org/freedesktop/portal/desktop -m "$@"; }
+
+# settings: dark mode etc. (0 = default, 1 = dark, 2 = light)
+call org.freedesktop.portal.Settings.ReadOne org.freedesktop.appearance color-scheme
+# toggle dark mode in GNOME Settings now and look for "signal …SettingChanged" in the log:
+podman exec koje-spike-a cat /tmp/fwd-portal.log | tail -3
+
+# inhibit: flags 4 = suspend, 8 = idle; check on the host while it is held
+call org.freedesktop.portal.Inhibit.Inhibit "" 12 "@a{sv} {'reason': <'koje test'>, 'handle_token': <'inh1'>}"
+busctl --user call org.gnome.SessionManager /org/gnome/SessionManager org.gnome.SessionManager GetInhibitors
+
+# print: the host's print dialog should open
+call org.freedesktop.portal.Print.PreparePrint "" "koje test" "@a{sv} {}" "@a{sv} {}" "@a{sv} {'handle_token': <'pr1'>}"
+```
+
+Screen sharing (fd passing through the forwarder): start Firefox in the context
+*after* the forwarders, open
+`https://mozilla.github.io/webrtc-landing/gum_test.html`, choose *Screen*, pick a
+window in the host's dialog. The preview should show it.
+
+```sh
+podman exec -d koje-spike-a firefox
+podman exec koje-spike-a cat /tmp/fwd-portal.log | grep -E "ScreenCast|OpenPipeWire"
+```
+
+File chooser in Firefox: `about:config` → `widget.use-xdg-desktop-portal.file-picker = 1`,
+then *File → Open File*: the host's dialog should open.
+
+**M2.7 – files between contexts** (`M2.7-files-between-contexts.md`). Two
+contexts with a shared exchange folder at the same path:
+
+```sh
+mkdir -p ~/Austausch && echo "shared" > ~/Austausch/shared.txt
+docs/spikes/setup/rm-context.sh a; docs/spikes/setup/rm-context.sh b
+KOJE_SPIKE_MOUNTS="$HOME/Austausch" docs/spikes/setup/run-context.sh a wayland-1
+KOJE_SPIKE_MOUNTS="$HOME/Austausch" docs/spikes/setup/run-context.sh b wayland-1
+podman exec koje-spike-a sh -c 'echo "only in a" > ~/only-in-a.txt'
+podman exec -d koje-spike-a nautilus "$HOME"
+podman exec -d koje-spike-b firefox
+podman exec -d koje-spike-a foot; podman exec -d koje-spike-b foot
+```
+
+1. Drag `Austausch/shared.txt` from a's Nautilus onto b's Firefox (tab bar) → opens?
+2. Drag `only-in-a.txt` the same way → expected: fails ("file not found").
+3. Drag a file onto b's `foot` → what is pasted (path)?
+4. Clipboard: select text in a's `foot`, Ctrl+Shift+C; paste in b's `foot` with
+   Ctrl+Shift+V. Same with an image copied in a's Firefox (right click → *Copy Image*)
+   pasted into b's Firefox (e.g. a new mail/web editor).
+
 **M2.8 – pausing** (later, same setup): `podman pause koje-spike-a`, wait a minute
 (does Hyprland show "not responding"?), `podman unpause koje-spike-a`; then the
 same with the windows moved to `special:stash` (ALT+H) first.
