@@ -10,9 +10,10 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 - [ ] **M2.1 Hyprland daily setup** *(host)*
   - Done when: all windows floating, Super+LMB/MMB move/resize, edge snapping, two special workspaces (`mail`, `chat`) toggle by key; one week of daily use noted in the report.
   - Record: Hyprland version, config snippets that worked, anything that annoyed.
-- [~] **M2.2 Hyprland IPC from Rust** *(host)*
+- [x] **M2.2 Hyprland IPC from Rust** *(host)*
   - Done when: a small throwaway program lists clients (`j/clients`), moves a window, sets a per-window border color, and prints `openwindow`/`closewindow` events from socket2. Measure: time to move 5 windows in one batch.
   - Notes: decides the shape of the `Compositor` port and whether batching (`[[BATCH]]`) is enough for fast layout switches.
+  - Result: [report](../spikes/M2.2-hyprland-ipc.md), ADR 0018. Batch 0.1 ms; pid → cgroup works; no geometry events for floating windows.
 - [x] **M2.3 Base image and a hand-made context container** *(host)*
   - Done when: `podman run` with Wayland socket, PipeWire, `/dev/dri`, home volume, label `io.koje.context=<name>` shows a browser and a terminal on the desktop with sound and GPU; link clicked in the terminal opens in the container's browser.
   - Record: the exact `podman run` flags → becomes the spec for M3.

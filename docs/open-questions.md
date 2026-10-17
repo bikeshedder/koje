@@ -28,7 +28,7 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 - **Pinned windows** – part of the active layout or floating above all?
 - **Matching windows of the same program** – how to map several windows of one program reliably on restore and state switch? *(M5.10)*
 - **Paused contexts** – can Hyprland's "not responding" dialog be suppressed for frozen windows? *(M2.8)*
-- **Layout switch speed** – is a batched move fluid enough, which animation fits? *(M2.2)*
+- **Layout switch animation** – batched moves are fast (M2.2: 0.1 ms for 10 commands); which animation looks right? *(M5.5)*
 - **Hyprland versions** – how does koje cope with config/IPC changes between releases?
 
 ## Tool and UI

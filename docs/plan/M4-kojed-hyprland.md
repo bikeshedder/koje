@@ -4,9 +4,11 @@ Goal: a running service that knows every window's context and colors it.
 
 - [ ] **M4.1 Decide service model** (async runtime or threads) and client API (D-Bus vs Unix socket) → ADRs
 - [ ] **M4.2 Hyprland adapter implementing `Compositor`** (command socket, batching)
+  - Notes: port shape and request syntax per M2.2 report (0.53 syntax); all request strings in one place.
 - [ ] **M4.3 Event stream** from socket2 with reconnect
 - [ ] **M4.4 Window → context mapping** (PID → cgroup → container label), cached
 - [ ] **M4.5 Border colors per context** (active/inactive), reapplied on reconnect
+  - Notes: ADR 0018 – tag rule per context, re-add on `configreloaded`; check how to replace a rule on color change.
 - [ ] **M4.6 One workspace per context per monitor**; `koje focus <context>`
 - [ ] **M4.7 systemd user unit for kojed**; `koje` talks to kojed, clear error when it is not running
 - [ ] **M4.8 Ignored integration tests against a live Hyprland**

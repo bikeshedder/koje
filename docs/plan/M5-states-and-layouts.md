@@ -9,6 +9,7 @@ Goal: koje remembers and restores the work environment.
 - [ ] **M5.5 Layout switching** using `plan_switch`; stash as special workspace; focus handling
 - [ ] **M5.6 `stash` / `unstash`**; new/closed windows update layouts
 - [ ] **M5.7 Autosave** of geometry changes into the active layout (debounced)
+  - Notes: M2.2 – no event for moving/resizing floating windows; re-read `j/clients` on focus changes / debounced and diff.
 - [ ] **M5.8 Crash recovery**: continuous recovery file; `up` prompt, `--recover`/`--no-recover`
 - [ ] **M5.9 State switching in a running context** (uses M1.9)
 - [ ] **M5.10 Matching several windows of the same program** (open question → spike/ADR)
