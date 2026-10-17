@@ -8,6 +8,7 @@
 //! **state** is a named snapshot of a context's windows and layouts; a
 //! **layout** is a named arrangement of a context's windows.
 
+pub mod access;
 pub mod color;
 pub mod config;
 pub mod context;

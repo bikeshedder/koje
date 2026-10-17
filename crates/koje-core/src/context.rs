@@ -65,6 +65,10 @@ mounts = []
 # memory_soft = "6G"      # warn at 90 % and 100 %
 # memory_hard = "8G"      # orderly shutdown
 
+# [access]                # host resources, ADR 0017 (default from config.toml)
+# profile = "full"        # full | desktop | headless | none
+# gpu     = false         # override single switches: gpu, sound, wayland, nested, network
+
 # [states]                # rename the roles
 # default = "default"
 # fresh   = "fresh"
@@ -250,6 +254,17 @@ mod tests {
         assert_eq!(cfg.color, PALETTE[1]);
         assert_eq!(cfg.image, "koje/base:latest");
         assert_eq!(cfg.mounts, []);
+        assert_eq!(cfg.access, crate::access::AccessConfig::default());
+        // The commented [access] example is valid once uncommented.
+        let uncommented = text
+            .replace("# [access]", "[access]")
+            .replace("# profile = \"full\"", "profile = \"full\"")
+            .replace("# gpu     = false", "gpu     = false")
+            .replace("# [states]", "[states]")
+            .replace("# default = \"default\"", "default = \"default\"")
+            .replace("# fresh   = \"fresh\"", "fresh   = \"fresh\"");
+        let cfg = ContextConfig::from_toml(&uncommented, std::path::Path::new("x")).unwrap();
+        assert_eq!(cfg.access.profile, Some(crate::access::Profile::Full));
     }
 
     #[test]

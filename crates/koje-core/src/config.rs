@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::access::{self, Access, AccessConfig};
 use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::layout::Rect;
@@ -35,6 +36,9 @@ pub struct ContextConfig {
     pub limits: Limits,
     #[serde(default)]
     pub states: StateRoles,
+    /// Host resources for this context (ADR 0017); unset values come from `config.toml`.
+    #[serde(default)]
+    pub access: AccessConfig,
 }
 
 fn default_image() -> String {
@@ -115,6 +119,11 @@ impl ContextConfig {
         Self::from_toml(&text, path)
     }
 
+    /// Host resources after resolving the global and the context's `[access]`.
+    pub fn effective_access(&self, global: &GlobalConfig) -> Access {
+        access::resolve(&global.access, &self.access)
+    }
+
     /// Limits after filling unset values from the global defaults.
     ///
     /// Validated again: a context's soft limit may be fine on its own but end up
@@ -141,6 +150,9 @@ impl ContextConfig {
 pub struct GlobalConfig {
     #[serde(default)]
     pub default_limits: Limits,
+    /// Default host resources for all contexts (ADR 0017).
+    #[serde(default)]
+    pub access: AccessConfig,
     /// Snap zones per monitor connector name (e.g. `DP-1`), then per zone name.
     #[serde(default)]
     pub zones: BTreeMap<String, BTreeMap<String, Rect>>,
@@ -380,5 +392,20 @@ apps = ["mail", "calendar"]
             ctx.effective_limits(&global),
             Err(Error::LimitOrder { .. })
         ));
+    }
+
+    #[test]
+    fn access_from_both_files() {
+        let global =
+            GlobalConfig::from_toml("[access]\nprofile = \"desktop\"\n", Path::new("x")).unwrap();
+        let text = format!("{EXAMPLE}\n[access]\nsound = false\n");
+        let ctx = ContextConfig::from_toml(&text, Path::new("x")).unwrap();
+        let a = ctx.effective_access(&global);
+        assert!(!a.gpu && !a.sound && a.wayland && a.network);
+        let plain = ContextConfig::from_toml(EXAMPLE, Path::new("x")).unwrap();
+        assert_eq!(
+            plain.effective_access(&GlobalConfig::default()),
+            crate::access::Profile::Full.access()
+        );
     }
 }
