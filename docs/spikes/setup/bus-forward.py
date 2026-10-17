@@ -39,6 +39,14 @@ def main() -> None:
     def log(*parts: object) -> None:
         print(*parts, flush=True)
 
+    # No reconnect in the prototype: exit when the proxy goes away, so a loop
+    # around this script (see README) starts a fresh forwarder.
+    def on_closed(_conn, remote_peer_vanished: bool, error) -> None:
+        log("host connection closed", "(proxy gone)" if remote_peer_vanished else "", error.message if error else "")
+        sys.exit(1)
+
+    host.connect("closed", on_closed)
+
     # --- context → host: method calls --------------------------------------
     def reply_to(call: Gio.DBusMessage, reply: Gio.DBusMessage) -> None:
         out = reply.copy()

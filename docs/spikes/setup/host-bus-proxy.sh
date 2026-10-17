@@ -10,6 +10,9 @@
 #
 # Allowed (ADR 0019): notifications; the portals FileChooser, Settings
 # (read-only), Inhibit, ScreenCast, Print with their Request/Session objects.
+# Reading properties and introspection of the portal object are allowed:
+# GDBusProxy-based clients (Firefox/libwebrtc) read all properties at once and
+# treat a denied GetAll as "portal missing". Wildcards: only `Interface.*`.
 # Everything else – OpenURI, other portals, other services – is denied.
 set -euo pipefail
 name=${1:?usage: host-bus-proxy.sh <name>}
@@ -23,7 +26,9 @@ exec xdg-dbus-proxy "${DBUS_SESSION_BUS_ADDRESS:?}" "$dir/bus" --filter --log \
   --talk=org.freedesktop.Notifications \
   --call="$portal=org.freedesktop.portal.FileChooser.*@$desktop" \
   --call="$portal=org.freedesktop.DBus.Properties.Get@$desktop" \
-  --call="$portal=org.freedesktop.portal.Settings.Read*@$desktop" \
+  --call="$portal=org.freedesktop.DBus.Properties.GetAll@$desktop" \
+  --call="$portal=org.freedesktop.DBus.Introspectable.Introspect@$desktop" \
+  --call="$portal=org.freedesktop.portal.Settings.*@$desktop" \
   --broadcast="$portal=org.freedesktop.portal.Settings.SettingChanged@$desktop" \
   --call="$portal=org.freedesktop.portal.Inhibit.*@$desktop" \
   --call="$portal=org.freedesktop.portal.ScreenCast.*@$desktop" \

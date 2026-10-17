@@ -144,6 +144,10 @@ ls "$XDG_RUNTIME_DIR"                                       # its socket, e.g. w
 ls "$XDG_RUNTIME_DIR/hypr/"                                 # its IPC instance
 ```
 
+Nested limits: the keyboard layout comes from the config (`input:kb_layout`),
+and the clipboard is not shared with GNOME (`wl-paste | WAYLAND_DISPLAY=wayland-1 wl-copy`
+copies GNOME's clipboard into the nested Hyprland). A real session has neither problem.
+
 If Hyprland rejects lines of the config (the syntax changes between releases),
 it shows the errors at the top of its window: note them in the M2.2 report.
 
@@ -184,8 +188,9 @@ docs/spikes/setup/rm-context.sh a
 KOJE_SPIKE_HOSTBUS=1 KOJE_SPIKE_MOUNTS="$PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-1
 # the image's own xdg-desktop-portal may be activated on the context bus: stop it
 podman exec koje-spike-a pkill -f xdg-desktop-portal
-podman exec -d koje-spike-a sh -c "python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.Notifications \"\$KOJE_HOST_BUS\" > /tmp/fwd-notify.log 2>&1"
-podman exec -d koje-spike-a sh -c "python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.portal.Desktop \"\$KOJE_HOST_BUS\" > /tmp/fwd-portal.log 2>&1"
+# in a loop: a forwarder exits when the proxy restarts and comes back
+podman exec -d koje-spike-a sh -c "while :; do python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.Notifications \"\$KOJE_HOST_BUS\"; sleep 1; done >> /tmp/fwd-notify.log 2>&1"
+podman exec -d koje-spike-a sh -c "while :; do python3 $PWD/docs/spikes/setup/bus-forward.py org.freedesktop.portal.Desktop \"\$KOJE_HOST_BUS\"; sleep 1; done >> /tmp/fwd-portal.log 2>&1"
 
 # 1. notification from the context → host desktop
 podman exec koje-spike-a notify-send koje "hello from context a"
@@ -218,7 +223,7 @@ call org.freedesktop.portal.Settings.ReadOne org.freedesktop.appearance color-sc
 podman exec koje-spike-a cat /tmp/fwd-portal.log | tail -3
 
 # inhibit: flags 4 = suspend, 8 = idle; check on the host while it is held
-call org.freedesktop.portal.Inhibit.Inhibit "" 12 "@a{sv} {'reason': <'koje test'>, 'handle_token': <'inh1'>}"
+call org.freedesktop.portal.Inhibit.Inhibit "" "uint32 12" "@a{sv} {'reason': <'koje test'>, 'handle_token': <'inh1'>}"
 busctl --user call org.gnome.SessionManager /org/gnome/SessionManager org.gnome.SessionManager GetInhibitors
 
 # print: the host's print dialog should open
