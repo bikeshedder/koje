@@ -41,5 +41,6 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 - [x] **M2.10 More host interfaces through the forwarder** *(host)*
   - Done when: settings (`SettingChanged`), inhibit, screen sharing (PipeWire fd passing through the forwarder, a video call in a context shares a window) and print work through proxy + forwarder; Firefox uses the portal file chooser.
   - Notes: [report](../spikes/M2.10-host-interfaces.md). Settings, inhibit, screen sharing work; forwarder needs one host connection per client + path translation; contexts need `XDG_SESSION_TYPE`, `GTK_USE_PORTAL`. Printing → CUPS.
-- [~] **M2.11 Remaining host interface checks** *(host)*
+- [x] **M2.11 Remaining host interface checks** *(host)*
   - Done when: Firefox in a context prints to a host printer through the mounted CUPS socket (`/run/cups/cups.sock`); `SettingChanged` reaches the context when dark mode changes; an inhibit disappears from the host's inhibitor list when the calling program exits.
+  - Notes: [report](../spikes/M2.11-host-interface-checks.md). CUPS printing, `SettingChanged`, inhibit release all work.
