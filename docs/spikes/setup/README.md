@@ -11,6 +11,7 @@ container. Host: Ubuntu 26.04 with GNOME (Wayland). Reports go to
 | `rm-context.sh <name>` | remove it and its home volume |
 | `mem.sh <pattern> [container]` | RSS/PSS/shared MiB per process (M2.6) |
 | `cgroup-mem.sh <container>` | cgroup memory of a context (M2.6) |
+| `lib-pss.sh <pattern> <container> <lib>` | Rss/Pss of one library's mappings (M2.6, cross-context sharing) |
 | `hyprland-nested.conf` | Hyprland nested in GNOME, ALT as modifier (step 2) |
 
 Everything the scripts create carries the label `io.koje.spike=true` and the
