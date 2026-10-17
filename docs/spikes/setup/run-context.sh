@@ -4,7 +4,7 @@
 #   run-context.sh <name> [wayland-socket]     e.g.  run-context.sh a wayland-0
 #
 # Wayland socket: `wayland-0` is usually GNOME, `wayland-1` a nested Hyprland
-# (check: ls "$XDG_RUNTIME_DIR"). The container runs `sleep infinity`; start
+# (check: ls "$XDG_RUNTIME_DIR"). The container runs a D-Bus session bus; start
 # programs with:  podman exec -d koje-spike-<name> firefox
 # Remove with:     rm-context.sh <name>
 set -euo pipefail
@@ -37,6 +37,10 @@ args=(
   # U=true chowns it to the container user (podman's --tmpfs has no uid=/gid=).
   --mount "type=tmpfs,destination=/run/user/$uid,tmpfs-mode=0700,U=true"
   -e XDG_RUNTIME_DIR="/run/user/$uid"
+  # The context's own D-Bus session bus (main process, see below). Firefox finds
+  # its running instance over D-Bus on Wayland; without it, xdg-open starts a
+  # second Firefox ("already running, but not responding").
+  -e DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus"
   -v "$run/$wl:/run/user/$uid/$wl"
   -e WAYLAND_DISPLAY="$wl"
   -e MOZ_ENABLE_WAYLAND=1 -e GDK_BACKEND=wayland -e QT_QPA_PLATFORM=wayland
@@ -78,6 +82,9 @@ for m in ${KOJE_SPIKE_MOUNTS:-}; do
   esac
 done
 
+# Main process: the context's session bus (it keeps the container running).
+cmd=(dbus-daemon --session --nofork --nopidfile --address="unix:path=/run/user/$uid/bus")
+
 # Print the exact command for the report, then run it.
-printf 'podman run -d'; printf ' %q' "${args[@]}" localhost/koje-spike/base:latest sleep infinity; echo
-podman run -d "${args[@]}" localhost/koje-spike/base:latest sleep infinity
+printf 'podman run -d'; printf ' %q' "${args[@]}" localhost/koje-spike/base:latest "${cmd[@]}"; echo
+podman run -d "${args[@]}" localhost/koje-spike/base:latest "${cmd[@]}"
