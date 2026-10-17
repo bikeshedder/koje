@@ -9,11 +9,15 @@ set -euo pipefail
 pattern=${1:?usage: mem.sh <pattern> [container]}
 container=${2:-}
 
-pids=$(pgrep -f -- "$pattern" || true)
+# pgrep -f also matches this script (the pattern is in its command line): drop it.
+pids=$(for p in $(pgrep -f -- "$pattern" || true); do
+  if [[ "$(cat "/proc/$p/comm" 2>/dev/null)" != mem.sh ]]; then echo "$p"; fi
+done)
 if [[ -n "$container" ]]; then
   # Keep only PIDs in the container's cgroup.
   cg=$(podman inspect -f '{{.State.CgroupPath}}' "$container")
-  pids=$(for p in $pids; do grep -q -- "$cg" "/proc/$p/cgroup" 2>/dev/null && echo "$p"; done)
+  # `if`, not `&&`: a non-matching last PID must not fail the substitution (set -e).
+  pids=$(for p in $pids; do if grep -qF -- "$cg" "/proc/$p/cgroup" 2>/dev/null; then echo "$p"; fi; done)
 fi
 
 printf '%8s %10s %10s %12s  %s\n' PID RSS_MiB PSS_MiB SHARED_MiB CMD
@@ -24,4 +28,4 @@ for p in $pids; do
     /^Shared_Clean:/ {sh+=$2} /^Shared_Dirty:/ {sh+=$2}
     END {printf "%8s %10.1f %10.1f %12.1f  %s\n", pid, rss/1024, pss/1024, sh/1024, cmd}
   ' "/proc/$p/smaps_rollup"
-done | tee /dev/stderr | awk '{r+=$2; p+=$3; s+=$4} END {printf "%8s %10.1f %10.1f %12.1f\n", "TOTAL", r, p, s}'
+done | awk '{print; r+=$2; p+=$3; s+=$4} END {printf "%8s %10.1f %10.1f %12.1f\n", "TOTAL", r, p, s}'
