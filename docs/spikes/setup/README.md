@@ -15,6 +15,7 @@ container. Host: Ubuntu 26.04 with GNOME (Wayland). Reports go to
 | `hyprland-nested.conf` | Hyprland nested in GNOME, ALT as modifier (step 2) |
 | `color-contexts.sh` | colors windows by context in the nested Hyprland (A red, B blue) – kojed in miniature |
 | `host-bus-proxy.sh <name>` | filtered view of the host's session bus for a context (M2.4) |
+| `portal-check.py inhibit <s> \| watch-settings` | portal clients that stay connected (M2.11, runs in the context) |
 | `bus-forward.py <name> <address>` | forwards one D-Bus name from the context bus to the host proxy (M2.4, runs in the context) |
 
 Everything the scripts create carries the label `io.koje.spike=true` and the

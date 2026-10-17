@@ -90,6 +90,11 @@ if [[ -n "${KOJE_SPIKE_HOSTBUS:-}" ]]; then
   args+=(-v "$hostbus:/run/user/$uid/koje-host" -e KOJE_HOST_BUS="unix:path=/run/user/$uid/koje-host/bus")
 fi
 
+# M2.11: the host's CUPS socket at the same path (`print` switch, ADR 0019).
+if [[ -n "${KOJE_SPIKE_CUPS:-}" && -S /run/cups/cups.sock ]]; then
+  args+=(-v /run/cups/cups.sock:/run/cups/cups.sock -e CUPS_SERVER=/run/cups/cups.sock)
+fi
+
 # Spike-only escape hatch for M2.5 on Ubuntu: if nested Podman fails with
 # "permission denied" on user namespaces, retry with KOJE_SPIKE_APPARMOR=unconfined
 # and record it in the report (it must not end up in koje unexamined).
