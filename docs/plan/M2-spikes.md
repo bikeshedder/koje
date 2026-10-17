@@ -10,6 +10,7 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 - [ ] **M2.1 Hyprland daily setup** *(host)*
   - Done when: all windows floating, Super+LMB/MMB move/resize, edge snapping, two special workspaces (`mail`, `chat`) toggle by key; one week of daily use noted in the report.
   - Record: Hyprland version, config snippets that worked, anything that annoyed.
+  - Also: with `hyprland-guiutils` installed, does a paused context trigger "not responding" (M2.8)?
 - [x] **M2.2 Hyprland IPC from Rust** *(host)*
   - Done when: a small throwaway program lists clients (`j/clients`), moves a window, sets a per-window border color, and prints `openwindow`/`closewindow` events from socket2. Measure: time to move 5 windows in one batch.
   - Notes: decides the shape of the `Compositor` port and whether batching (`[[BATCH]]`) is enough for fast layout switches.
@@ -29,7 +30,8 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
   - Notes: [report](../spikes/M2.6-memory-sharing.md). Libraries shared across contexts (libxul Pss 116 → 67 MiB); nested containers counted; page cache charged first-touch. Measured per library instead of against the host's Firefox (a Snap on Ubuntu).
 - [ ] **M2.7 Files between contexts** *(host)*
   - Done when: drag a file from a context's file manager into a mail client in `global`; check same-path mounts and the exchange folder; note which apps pass paths vs content.
-- [ ] **M2.8 Pausing a context with windows** *(host)*
+- [x] **M2.8 Pausing a context with windows** *(host)*
   - Done when: `podman pause` a context with visible windows; observe Hyprland behavior (ANR dialog?), resume; same with windows moved to a special workspace first.
+  - Notes: [report](../spikes/M2.8-pausing.md). Frozen, no dialog (without `hyprland-guiutils`), input queued and delivered on unpause. Recheck the dialog in M2.1.
 - [ ] **M2.9 Screen capture permissions** *(host)*
   - Done when: Hyprland permission rules deny screencopy to context programs while a video call in `global` (or an allowed context) can still share the screen.
