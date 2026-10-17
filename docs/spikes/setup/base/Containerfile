@@ -12,6 +12,7 @@ RUN dnf -y install --setopt=install_weak_deps=False \
         dejavu-sans-fonts dejavu-sans-mono-fonts google-noto-emoji-fonts \
         podman podman-compose fuse-overlayfs slirp4netns passt shadow-utils \
         procps-ng smem which less dbus-daemon dbus-tools libcap \
+        python3-gobject-base libnotify \
     && dnf clean all
 
 # The host user exists in the image with the same name and uid, because the

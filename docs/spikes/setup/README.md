@@ -13,6 +13,8 @@ container. Host: Ubuntu 26.04 with GNOME (Wayland). Reports go to
 | `cgroup-mem.sh <container>` | cgroup memory of a context (M2.6) |
 | `lib-pss.sh <pattern> <container> <lib>` | Rss/Pss of one library's mappings (M2.6, cross-context sharing) |
 | `hyprland-nested.conf` | Hyprland nested in GNOME, ALT as modifier (step 2) |
+| `host-bus-proxy.sh <name>` | filtered view of the host's session bus for a context (M2.4) |
+| `bus-forward.py <name> <address>` | forwards one D-Bus name from the context bus to the host proxy (M2.4, runs in the context) |
 
 Everything the scripts create carries the label `io.koje.spike=true` and the
 name prefix `koje-spike-`, so cleanup never touches your other containers:
@@ -165,6 +167,41 @@ kill %1
 
 To check the pid: `grep libpod /proc/<pid>/cgroup` should name the context's
 container.
+
+**M2.4 – filtered D-Bus** (`M2.4-filtered-dbus.md`). Each context has its own
+session bus (ADR 0015); a forwarder in the context hands selected names to a
+filtered proxy of the host bus.
+
+```sh
+sudo apt install xdg-dbus-proxy
+docs/spikes/setup/build-base.sh                     # image now has python3-gobject, notify-send
+
+# terminal 1 (host): the filtered host bus for context a – leave it running
+docs/spikes/setup/host-bus-proxy.sh a
+
+# terminal 2 (host)
+docs/spikes/setup/rm-context.sh a
+KOJE_SPIKE_HOSTBUS=1 KOJE_SPIKE_MOUNTS="$PWD/docs/spikes/setup" docs/spikes/setup/run-context.sh a wayland-1
+fwd="python3 $PWD/docs/spikes/setup/bus-forward.py"
+podman exec -d koje-spike-a sh -c "$fwd org.freedesktop.Notifications \$KOJE_HOST_BUS > /tmp/fwd-notify.log 2>&1"
+
+# 1. notification from the context → host desktop
+podman exec koje-spike-a notify-send koje "hello from context a"
+
+# 2. OpenURI on the host is denied (straight to the proxy, no forwarder)
+podman exec koje-spike-a sh -c 'gdbus call --address "$KOJE_HOST_BUS" -d org.freedesktop.portal.Desktop \
+  -o /org/freedesktop/portal/desktop -m org.freedesktop.portal.OpenURI.OpenURI "" https://example.org {}'
+
+# 3. file chooser portal through the forwarder
+podman exec -d koje-spike-a sh -c "$fwd org.freedesktop.portal.Desktop \$KOJE_HOST_BUS > /tmp/fwd-portal.log 2>&1"
+podman exec koje-spike-a gdbus call --session -d org.freedesktop.portal.Desktop \
+  -o /org/freedesktop/portal/desktop -m org.freedesktop.portal.FileChooser.OpenFile "" "koje test" {}
+podman exec koje-spike-a cat /tmp/fwd-notify.log /tmp/fwd-portal.log
+```
+
+For 3, a file dialog should open on the host; pick a file. In the context's
+Firefox, `widget.use-xdg-desktop-portal.file-picker = 1` in `about:config` makes
+File → Open use the portal too.
 
 **M2.8 – pausing** (later, same setup): `podman pause koje-spike-a`, wait a minute
 (does Hyprland show "not responding"?), `podman unpause koje-spike-a`; then the

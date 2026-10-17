@@ -77,6 +77,14 @@ if [[ "${KOJE_SPIKE_GPU:-}" == nvidia ]]; then
   [[ -e "$nv_gbm" ]] && args+=(-v "$(readlink -f "$nv_gbm"):/usr/lib64/gbm/nvidia-drm_gbm.so:ro")
 fi
 
+# M2.4: the filtered host bus from host-bus-proxy.sh <name> (start it first).
+# Mounted as a directory, so a proxy restart does not leave a stale socket.
+if [[ -n "${KOJE_SPIKE_HOSTBUS:-}" ]]; then
+  hostbus="$run/koje-spike/$name"
+  mkdir -p "$hostbus"
+  args+=(-v "$hostbus:/run/user/$uid/koje-host" -e KOJE_HOST_BUS="unix:path=/run/user/$uid/koje-host/bus")
+fi
+
 # Spike-only escape hatch for M2.5 on Ubuntu: if nested Podman fails with
 # "permission denied" on user namespaces, retry with KOJE_SPIKE_APPARMOR=unconfined
 # and record it in the report (it must not end up in koje unexamined).
