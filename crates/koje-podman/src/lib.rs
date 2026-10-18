@@ -12,6 +12,9 @@ use koje_core::container::{LABEL_CONTEXT, container_name};
 use koje_core::name::ContextName;
 use koje_core::ports::{ContainerRuntime, ContainerStatus};
 use koje_core::size::ByteSize;
+use koje_core::spec::{ContainerSpec, MountKind};
+
+pub mod host;
 
 /// Errors of the Podman adapter.
 #[derive(Debug, thiserror::Error)]
@@ -139,6 +142,68 @@ fn read(path: &Path) -> Result<String> {
     })
 }
 
+/// `koje/…` images are built locally (M3.3); Podman needs `localhost/` for them
+/// to skip short-name resolution against registries.
+pub fn image_ref(image: &str) -> String {
+    if image.starts_with("koje/") {
+        format!("localhost/{image}")
+    } else {
+        image.to_owned()
+    }
+}
+
+/// `podman create` arguments for a spec (pure; the M2.3 `podman run` flags).
+pub fn create_args(spec: &ContainerSpec) -> Vec<String> {
+    let mut a: Vec<String> = ["create", "--name", &spec.name, "--hostname", &spec.hostname]
+        .map(String::from)
+        .into();
+    // --init: a real PID 1 that forwards SIGTERM and reaps (ADR 0015);
+    // keep-id: the user keeps its uid, files keep their owner (ADR 0014).
+    a.extend(["--init".into(), "--userns=keep-id".into()]);
+    for (k, v) in &spec.labels {
+        a.extend(["--label".into(), format!("{k}={v}")]);
+    }
+    for opt in &spec.security_opts {
+        a.extend(["--security-opt".into(), opt.clone()]);
+    }
+    for (k, v) in &spec.env {
+        a.extend(["--env".into(), format!("{k}={v}")]);
+    }
+    for m in &spec.mounts {
+        let target = m.target.display();
+        let (flag, value) = match &m.kind {
+            MountKind::Volume { name } => ("--volume", format!("{name}:{target}:U")),
+            MountKind::Tmpfs { mode } => (
+                "--mount",
+                format!("type=tmpfs,destination={target},tmpfs-mode={mode:04o},U=true"),
+            ),
+            MountKind::Bind { source, read_only } => (
+                "--volume",
+                format!(
+                    "{}:{target}{}",
+                    source.display(),
+                    if *read_only { ":ro" } else { "" }
+                ),
+            ),
+        };
+        a.extend([flag.to_owned(), value]);
+    }
+    for d in &spec.devices {
+        a.extend(["--device".into(), d.clone()]);
+    }
+    if !spec.network {
+        a.extend(["--network".into(), "none".into()]);
+    }
+    a.extend(["--shm-size".into(), spec.shm_size.0.to_string()]);
+    if let Some(max) = spec.memory_max {
+        a.extend(["--memory".into(), max.0.to_string()]);
+    }
+    a.extend(["--workdir".into(), spec.workdir.display().to_string()]);
+    a.push(image_ref(&spec.image));
+    a.extend(spec.command.iter().cloned());
+    a
+}
+
 /// Map Podman's `.State.Status` to koje's view.
 fn parse_status(value: &str) -> Result<ContainerStatus> {
     match value {
@@ -173,6 +238,16 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
             None => Ok(ContainerStatus::Missing),
             Some(value) => parse_status(&value),
         }
+    }
+
+    fn create(&self, spec: &ContainerSpec) -> Result<()> {
+        let args = create_args(spec);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.podman(&args).map(drop)
+    }
+
+    fn remove(&self, ctx: &ContextName) -> Result<()> {
+        self.podman(&["rm", &container_name(ctx)]).map(drop)
     }
 
     fn start(&self, ctx: &ContextName) -> Result<()> {
@@ -361,6 +436,105 @@ mod tests {
         let fake = Fake::default().answer(true, &format!("/{scope}\n"), "");
         let podman = Podman::with_runner(&fake, tmp.path(), "/x");
         assert_eq!(podman.memory_usage(&kp()).unwrap(), ByteSize(1_019_215_872));
+    }
+
+    fn spec() -> ContainerSpec {
+        use koje_core::access::Profile;
+        use koje_core::config::Limits;
+        use koje_core::spec::{ContextInputs, HostEnv, build};
+        let host = HostEnv {
+            uid: 1000,
+            home: "/home/mj".into(),
+            wayland_socket: Some("/run/user/1000/wayland-1".into()),
+            pipewire_socket: Some("/run/user/1000/pipewire-0".into()),
+            pulse_socket: Some("/run/user/1000/pulse/native".into()),
+            dri: true,
+            ..HostEnv::default()
+        };
+        let limits = Limits {
+            memory_soft: None,
+            memory_hard: Some(ByteSize(8 << 30)),
+        };
+        let name = kp();
+        build(
+            &ContextInputs {
+                name: &name,
+                image: "koje/base:latest",
+                access: Profile::Full.access(),
+                limits: &limits,
+                mounts: &["/home/mj/src/kp".into()],
+            },
+            &host,
+        )
+        .spec
+    }
+
+    #[test]
+    fn create_args_match_the_m2_3_flags() {
+        let args = create_args(&spec()).join(" ");
+        for part in [
+            "create --name koje-kp --hostname kp --init --userns=keep-id",
+            "--label io.koje.context=kp",
+            "--security-opt label=disable --security-opt unmask=/proc/sys",
+            "--env PULSE_SERVER=unix:/run/user/1000/pulse-native",
+            "--env WAYLAND_DISPLAY=wayland-1",
+            "--volume koje-kp-home:/home/mj:U",
+            "--mount type=tmpfs,destination=/run/user/1000,tmpfs-mode=0700,U=true",
+            "--volume /run/user/1000/wayland-1:/run/user/1000/wayland-1",
+            "--volume /run/user/1000/pulse/native:/run/user/1000/pulse-native",
+            "--volume /home/mj/src/kp:/home/mj/src/kp",
+            "--device /dev/dri --device /dev/fuse --device /dev/net/tun",
+            "--shm-size 1073741824",
+            "--memory 9448928042",
+            "--workdir /home/mj",
+            "localhost/koje/base:latest dbus-daemon --session --nofork --nopidfile --address=unix:path=/run/user/1000/bus",
+        ] {
+            assert!(args.contains(part), "missing {part:?} in\n{args}");
+        }
+        assert!(!args.contains("--network"), "{args}");
+    }
+
+    #[test]
+    fn create_args_without_network_and_read_only_binds() {
+        let mut s = spec();
+        s.network = false;
+        s.mounts.push(koje_core::spec::SpecMount {
+            target: "/usr/lib64/gbm/nvidia-drm_gbm.so".into(),
+            kind: MountKind::Bind {
+                source: "/usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.1".into(),
+                read_only: true,
+            },
+        });
+        let args = create_args(&s).join(" ");
+        assert!(args.contains("--network none"), "{args}");
+        assert!(
+            args.contains("libnvidia-allocator.so.1:/usr/lib64/gbm/nvidia-drm_gbm.so:ro"),
+            "{args}"
+        );
+    }
+
+    #[test]
+    fn image_refs() {
+        assert_eq!(image_ref("koje/base:latest"), "localhost/koje/base:latest");
+        assert_eq!(
+            image_ref("registry.fedoraproject.org/fedora:44"),
+            "registry.fedoraproject.org/fedora:44"
+        );
+    }
+
+    #[test]
+    fn create_and_remove_call_podman() {
+        let fake = Fake::default();
+        let podman = Podman::with_runner(&fake, "/x", "/x");
+        podman.create(&spec()).unwrap();
+        podman.remove(&kp()).unwrap();
+        let calls = fake.calls.borrow();
+        assert!(
+            calls[0].starts_with("create --name koje-kp"),
+            "{}",
+            calls[0]
+        );
+        assert_eq!(calls[1], "rm koje-kp");
     }
 
     #[test]

@@ -225,6 +225,22 @@ pub fn expand_all(mounts: &[Mount], host: &HostDirs) -> Result<Vec<PathBuf>> {
     Ok(seen.into_iter().map(|(p, _)| p).collect())
 }
 
+/// Check a mount again after its symlinks were resolved (ADR 0009): a link
+/// below an allowed folder may point into a protected one. `resolved` is the
+/// canonical host path of `mount`; resolving it is the caller's I/O.
+pub fn check_resolved(mount: &Mount, resolved: &Path, host: &HostDirs) -> Result<()> {
+    if mount.allow_unsafe {
+        return Ok(());
+    }
+    match refusal(resolved, host) {
+        None => Ok(()),
+        Some(reason) => Err(Error::RefusedMount {
+            value: mount.path.raw.clone(),
+            reason: format!("resolves to {}, which {reason}", resolved.display()),
+        }),
+    }
+}
+
 impl FromStr for MountPath {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
@@ -338,6 +354,24 @@ mod tests {
             Err(Error::RefusedMount { reason, .. }) => reason,
             other => panic!("expected RefusedMount for {raw:?}, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn resolved_paths_are_checked_again() {
+        let m = Mount::from(MountPath::new("~/src/link").unwrap());
+        // ~/src/link → ~/.config/koje: refused, with the resolved path in the reason.
+        let err = check_resolved(&m, Path::new("/home/mj/.config/koje"), &host()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("resolves to /home/mj/.config/koje"),
+            "{err}"
+        );
+        assert!(check_resolved(&m, Path::new("/home/mj/src/real"), &host()).is_ok());
+        let unsafe_mount = Mount {
+            allow_unsafe: true,
+            ..m
+        };
+        assert!(check_resolved(&unsafe_mount, Path::new("/etc"), &host()).is_ok());
     }
 
     #[test]

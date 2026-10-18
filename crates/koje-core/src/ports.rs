@@ -10,6 +10,7 @@
 use crate::layout::Placement;
 use crate::name::ContextName;
 use crate::size::ByteSize;
+use crate::spec::ContainerSpec;
 
 /// A window as reported by the compositor.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +60,10 @@ pub trait ContainerRuntime {
     type Error: std::error::Error + Send + Sync + 'static;
 
     fn status(&self, ctx: &ContextName) -> Result<ContainerStatus, Self::Error>;
+    /// Create (not start) a context container from a spec (`crate::spec::build`).
+    fn create(&self, spec: &ContainerSpec) -> Result<(), Self::Error>;
+    /// Remove a stopped context container. Its home volume stays (M3.8 removes it).
+    fn remove(&self, ctx: &ContextName) -> Result<(), Self::Error>;
     fn start(&self, ctx: &ContextName) -> Result<(), Self::Error>;
     fn stop(&self, ctx: &ContextName) -> Result<(), Self::Error>;
     fn pause(&self, ctx: &ContextName) -> Result<(), Self::Error>;
