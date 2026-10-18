@@ -41,20 +41,9 @@ kojed:
 doc:
     cargo doc --workspace --no-deps
 
-# Install koje and kojed into ~/.cargo/bin and koje's assets (run on the HOST)
-install: install-assets
-    cargo install --locked --path crates/koje
-    cargo install --locked --path crates/kojed
-
-# Install koje's assets for the current user (icon font, ADR 0020)
-install-assets:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    fonts="${XDG_DATA_HOME:-$HOME/.local/share}/fonts/koje"
-    mkdir -p "$fonts"
-    cp assets/fonts/lucide/lucide.ttf assets/fonts/lucide/LICENSE "$fonts/"
-    if command -v fc-cache >/dev/null; then fc-cache -f "$fonts"; fi
-    echo "installed icon font to $fonts"
+# Install koje on this machine (run on the HOST; see install.sh --help)
+install *ARGS:
+    ./install.sh {{ARGS}}
 
 # Render the concept document (needs the `typst` CLI; Tinymist in VS Code can preview too)
 concept:

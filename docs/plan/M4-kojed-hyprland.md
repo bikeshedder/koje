@@ -12,3 +12,4 @@ Goal: a running service that knows every window's context and colors it.
 - [ ] **M4.6 One workspace per context per monitor**; `koje focus <context>`
 - [ ] **M4.7 systemd user unit for kojed**; `koje` talks to kojed, clear error when it is not running
 - [ ] **M4.8 Ignored integration tests against a live Hyprland**
+- [ ] **M4.9 `koje setup` and `koje doctor`** (ADR 0021): the steps of `install.sh` in the CLI (plan, warn, ask; dependency check), plus the systemd user unit from M4.7; `install.sh` then only builds koje and calls `koje setup`

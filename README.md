@@ -12,6 +12,20 @@ left it. The programs themselves stay unchanged.
 > **Status:** early development. Only `koje list` works; every other command tells
 > you which milestone delivers it. See [the roadmap](docs/plan/roadmap.md).
 
+## Install (on the host)
+
+```sh
+./install.sh --dry-run    # show what would be installed or changed
+./install.sh              # install (asks once before changing anything)
+```
+
+The installer checks dependencies (and prints the `apt install` line for missing
+ones – it never runs `sudo`), builds `koje` and `kojed` into `~/.local/bin`,
+installs koje's icon font and Hyprland snippet below `~/.local/share`, adds one
+`source` line to `~/.config/hypr/hyprland.conf`, and installs koje's Waybar
+config only if you have none. Running it again updates koje's files and leaves
+yours alone. Details: [ADR 0021](docs/decisions/0021-installer.md).
+
 ## Documentation
 
 | Document | Purpose |

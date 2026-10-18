@@ -1,4 +1,4 @@
-/* Spike Waybar style – Lucide for icons (installed by `just install-assets`). */
+/* koje's Waybar style – Lucide for icons (installed by `just install-assets`). */
 * {
   /* text font first; characters it lacks (Lucide's private-use icons) fall back to lucide */
   font-family: "Noto Sans", "lucide", sans-serif;

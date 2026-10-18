@@ -18,8 +18,8 @@ newer Font Awesome or Nerd Fonts are not packaged everywhere.
 - Version **1.59.0**, pinned; updates are deliberate and checked against the
   previous `codepoints.json` (no changed or removed code points), see the README
   next to the font.
-- Installed per user into `$XDG_DATA_HOME/fonts/koje/` (`just install`, later
-  koje's installer); font family `lucide`.
+- Installed per user into `$XDG_DATA_HOME/fonts/koje/` by `install.sh`
+  (ADR 0021); font family `lucide`.
 - koje's bar configuration and UI refer to icons by name and look up code points
   in `codepoints.json` where they are generated, instead of hard-coding them.
 
