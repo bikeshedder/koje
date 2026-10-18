@@ -24,3 +24,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0017 | [Access profiles: configurable host access per context](0017-access-profiles.md) | Accepted |
 | 0018 | [Window colors by tag rule](0018-window-colors-by-tag-rule.md) | Accepted |
 | 0019 | [Host interfaces through a forwarder and a filtered proxy](0019-host-interfaces-via-forwarder.md) | Accepted |
+| 0020 | [Lucide as koje's icon font](0020-lucide-icon-font.md) | Accepted |
