@@ -279,8 +279,16 @@ same with the windows moved to `special:stash` (ALT+H) first.
 **Set up once** (GNOME stays available as a session at the login screen):
 
 ```sh
-sudo apt install hyprland hyprland-guiutils hyprlock hypridle waybar mako-notifier fuzzel \
-  foot grim slurp wl-clipboard xdg-desktop-portal-hyprland xdg-desktop-portal-gtk policykit-1-gnome
+# installs what exists; apt would cancel everything on one unknown name.
+# hyprland-guiutils (new name) / hyprland-qtutils (old name): Hyprland's own dialogs.
+want="hyprland hyprland-guiutils hyprland-qtutils hyprlock hypridle waybar mako-notifier fuzzel \
+  foot grim slurp wl-clipboard xdg-desktop-portal-hyprland xdg-desktop-portal-gtk policykit-1-gnome"
+have=""; missing=""
+for p in $want; do
+  if apt-cache show "$p" >/dev/null 2>&1; then have="$have $p"; else missing="$missing $p"; fi
+done
+echo "missing:$missing"
+sudo apt install $have
 mkdir -p ~/.config/hypr
 [ -e ~/.config/hypr/hyprland.conf ] || printf 'source = %s\n\n# your own additions below\n' \
   "$PWD/docs/spikes/setup/hyprland-session.conf" > ~/.config/hypr/hyprland.conf
