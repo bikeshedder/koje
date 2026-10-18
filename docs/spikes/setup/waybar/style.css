@@ -1,0 +1,15 @@
+/* Spike Waybar style – Lucide for icons (installed by `just install-assets`). */
+* {
+  /* text font first; characters it lacks (Lucide's private-use icons) fall back to lucide */
+  font-family: "Noto Sans", "lucide", sans-serif;
+  font-size: 13px;
+}
+window#waybar {
+  background: rgba(20, 20, 24, 0.92);
+  color: #e6e6e6;
+}
+#workspaces button { padding: 0 8px; color: #b0b0b0; }
+#workspaces button.active { color: #ffffff; border-bottom: 2px solid #2e7d5b; }
+#clock, #cpu, #memory, #pulseaudio, #network, #battery, #tray, #window {
+  padding: 0 10px;
+}
