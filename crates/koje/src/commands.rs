@@ -25,12 +25,14 @@ pub fn run(command: &Command) -> Result<()> {
         Command::State(cmd) => state(&paths, cmd),
         Command::Image(ImageCmd::Build { no_cache }) => image_build(*no_cache),
 
-        Command::Up { .. }
-        | Command::Down { .. }
-        | Command::Shell { .. }
-        | Command::Open { .. }
-        | Command::Sleep(_)
-        | Command::Wake(_) => todo_in("M3"),
+        Command::Up { ctx, state, .. } => {
+            crate::runtime::up(&paths, &ctx.context, state.as_deref())
+        }
+        Command::Down { ctx, no_save, .. } => crate::runtime::down(&paths, &ctx.context, *no_save),
+
+        Command::Shell { .. } | Command::Open { .. } | Command::Sleep(_) | Command::Wake(_) => {
+            todo_in("M3")
+        }
 
         Command::Focus(_) => todo_in("M4"),
 

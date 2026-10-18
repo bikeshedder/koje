@@ -53,6 +53,58 @@ fn editor(dir: &Path, body: &str) -> String {
     format!("sh {}", path.display())
 }
 
+/// A fake `podman` on a private PATH: logs every call to `<tmp>/podman.log`
+/// and keeps the container status in `<tmp>/podman.status` (create → exited,
+/// start → running, stop → exited), like Podman for one container.
+/// Written by a child process, so no fd of this test process points at the
+/// script while other tests fork ("text file busy").
+fn fake_podman(tmp: &Path) -> String {
+    let bin = tmp.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin dir");
+    let (log, status) = (tmp.join("podman.log"), tmp.join("podman.status"));
+    let script = format!(
+        r#"#!/bin/sh
+printf '%s\n' "$*" >> {log}
+case "$1" in
+  container) if [ -f {status} ]; then cat {status}; else echo "Error: no such container" >&2; exit 125; fi ;;
+  image) exit 0 ;;
+  create) echo exited > {status} ;;
+  start) echo running > {status} ;;
+  stop) echo exited > {status} ;;
+  unpause) echo running > {status} ;;
+esac
+"#,
+        log = log.display(),
+        status = status.display()
+    );
+    let ok = Command::new("sh")
+        .args([
+            "-c",
+            &format!("cat > {0}/podman && chmod +x {0}/podman", bin.display()),
+        ])
+        .stdin(Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            c.stdin
+                .take()
+                .expect("stdin")
+                .write_all(script.as_bytes())?;
+            c.wait()
+        })
+        .expect("write fake podman")
+        .success();
+    assert!(ok, "fake podman");
+    format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
+fn podman_log(tmp: &Path) -> String {
+    std::fs::read_to_string(tmp.join("podman.log")).unwrap_or_default()
+}
+
 fn config_of(xdg: &Path, ctx: &str) -> PathBuf {
     xdg.join(format!("config/koje/contexts/{ctx}/context.toml"))
 }
@@ -303,33 +355,7 @@ fn list_shows_details_and_json() {
 #[test]
 fn image_build_runs_podman_build_for_the_user() {
     let tmp = tempfile::tempdir().unwrap();
-    let bin = tmp.path().join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let log = tmp.path().join("podman.log");
-    // Written by a child process so no fd of this test process points at the
-    // script while other tests fork ("text file busy").
-    let script = format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n", log.display());
-    let status = Command::new("sh")
-        .args([
-            "-c",
-            &format!("cat > {0}/podman && chmod +x {0}/podman", bin.display()),
-        ])
-        .stdin(Stdio::piped())
-        .spawn()
-        .and_then(|mut c| {
-            c.stdin
-                .take()
-                .expect("stdin")
-                .write_all(script.as_bytes())?;
-            c.wait()
-        })
-        .unwrap();
-    assert!(status.success());
-    let path = format!(
-        "{}:{}",
-        bin.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
+    let path = fake_podman(tmp.path());
     let out = command(tmp.path(), &["image", "build", "--no-cache"])
         .env("PATH", path)
         .stdin(Stdio::null())
@@ -340,7 +366,7 @@ fn image_build_runs_podman_build_for_the_user() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let calls = std::fs::read_to_string(&log).unwrap();
+    let calls = podman_log(tmp.path());
     assert!(
         calls.starts_with("build --tag localhost/koje/base:latest --build-arg USER_NAME="),
         "{calls}"
@@ -349,10 +375,79 @@ fn image_build_runs_podman_build_for_the_user() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("built koje/base:latest"));
 }
 
+fn koje_fake(tmp: &Path, path: &str, args: &[&str]) -> Output {
+    command(tmp, args)
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .output()
+        .expect("run koje")
+}
+
+#[test]
+fn up_creates_once_then_starts_and_down_stops() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    assert!(out.contains("started kp (container created)"), "{out}");
+    let calls = podman_log(tmp.path());
+    assert!(
+        calls.contains("image exists localhost/koje/base:latest"),
+        "{calls}"
+    );
+    assert!(
+        calls.contains("create --name koje-kp --hostname kp --init --userns=keep-id"),
+        "{calls}"
+    );
+    assert!(calls.contains("--label io.koje.context=kp"), "{calls}");
+    assert!(calls.lines().any(|l| l == "start koje-kp"), "{calls}");
+
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    assert!(out.contains("already running"), "{out}");
+
+    let out = stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    assert!(out.contains("stopped kp"), "{out}");
+    let out = stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    assert!(out.contains("not running"), "{out}");
+
+    // The second start reuses the container: no second create.
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    assert!(
+        out.contains("started kp") && !out.contains("created"),
+        "{out}"
+    );
+    assert_eq!(podman_log(tmp.path()).matches("create --name").count(), 1);
+}
+
+#[test]
+fn up_and_down_need_m5_for_states() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    for (args, hint) in [
+        (&["up", "kp"][..], "koje up kp -s empty"),
+        (&["up", "kp", "-s", "default"], "koje up kp -s empty"),
+        (&["down", "kp"], "koje down kp --no-save"),
+    ] {
+        let out = koje_fake(tmp.path(), &path, args);
+        assert!(!out.status.success(), "{args:?}");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("milestone M5") && err.contains(hint), "{err}");
+    }
+    assert!(
+        !koje_fake(tmp.path(), &path, &["up", "nope", "-s", "empty"])
+            .status
+            .success()
+    );
+    // Nothing reached podman.
+    assert_eq!(podman_log(tmp.path()), "");
+}
+
 #[test]
 fn unimplemented_commands_name_their_milestone() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = koje(tmp.path(), &["up", "kp"]);
+    let out = koje(tmp.path(), &["shell", "kp"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M3"));
 }
