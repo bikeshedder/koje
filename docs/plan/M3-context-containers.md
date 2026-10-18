@@ -3,8 +3,9 @@
 Goal: real contexts with Podman. Windows appear on the desktop; no colors or layouts
 yet. Break down further using the M2.3–M2.5 reports.
 
-- [~] **M3.1 Podman adapter implementing `ContainerRuntime`** (CLI-based first; REST later)
-- [ ] **M3.2 Container spec from `context.toml`**: mounts at same path, home volume, sockets, devices, D-Bus proxy, labels, limits (`memory.max` safety net); canonicalize mount sources and re-check ADR 0009 (symlinks); nested Podman flags per ADR 0014; runtime env per ADR 0015; GPU per ADR 0016; Wayland socket directory per ADR 0022 (until kojed exists: the compositor's socket); devices/sockets per the effective access (ADR 0017); spec in the M2.3 report
+- [x] **M3.1 Podman adapter implementing `ContainerRuntime`** (CLI-based first; REST later)
+  - Notes: crate `koje-podman` (runner trait, fake in tests); names in `koje_core::container`. Host test `cargo test -p koje-podman -- --ignored` passes (2026-10-18). Not in the dev container yet (M0.8).
+- [~] **M3.2 Container spec from `context.toml`**: mounts at same path, home volume, sockets, devices, D-Bus proxy, labels, limits (`memory.max` safety net); canonicalize mount sources and re-check ADR 0009 (symlinks); nested Podman flags per ADR 0014; runtime env per ADR 0015; GPU per ADR 0016; Wayland socket directory per ADR 0022 (until kojed exists: the compositor's socket); devices/sockets per the effective access (ADR 0017); spec in the M2.3 report
 - [ ] **M3.3 Base image build** (`koje/base`): Containerfile in the repo, `koje image build`? (decide); image settings per ADR 0014 (start from `docs/spikes/setup/base/`)
 - [ ] **M3.4 `koje up <context> -s empty` / `koje down <context> --no-save`**
 - [ ] **M3.5 `koje shell <context> [--dev]`**
