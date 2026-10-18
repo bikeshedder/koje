@@ -282,7 +282,8 @@ same with the windows moved to `special:stash` (ALT+H) first.
 # installs what exists; apt would cancel everything on one unknown name.
 # hyprland-guiutils (new name) / hyprland-qtutils (old name): Hyprland's own dialogs.
 want="hyprland hyprland-guiutils hyprland-qtutils hyprlock hypridle waybar mako-notifier fuzzel \
-  foot grim slurp wl-clipboard xdg-desktop-portal-hyprland xdg-desktop-portal-gtk policykit-1-gnome"
+  foot grim slurp wl-clipboard xdg-desktop-portal-hyprland xdg-desktop-portal-gtk policykit-1-gnome \
+  fonts-font-awesome"
 have=""; missing=""
 for p in $want; do
   if apt-cache show "$p" >/dev/null 2>&1; then have="$have $p"; else missing="$missing $p"; fi
