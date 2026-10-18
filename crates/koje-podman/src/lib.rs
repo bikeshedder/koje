@@ -1,0 +1,424 @@
+//! Rootless Podman adapter: implements [`koje_core::ports::ContainerRuntime`]
+//! by calling the `podman` CLI (ADR 0002; the REST API may replace it later).
+//!
+//! Podman is reached through a [`Runner`], so the adapter is tested with a fake
+//! that records arguments and returns prepared output. cgroup and `/proc` reads
+//! go through configurable roots for the same reason.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use koje_core::container::{LABEL_CONTEXT, container_name};
+use koje_core::name::ContextName;
+use koje_core::ports::{ContainerRuntime, ContainerStatus};
+use koje_core::size::ByteSize;
+
+/// Errors of the Podman adapter.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("could not run podman: {0}")]
+    Spawn(#[source] std::io::Error),
+
+    #[error("`podman {args}` failed: {stderr}")]
+    Failed { args: String, stderr: String },
+
+    #[error("unexpected {what} from podman: {value:?}")]
+    Unexpected { what: &'static str, value: String },
+
+    #[error("failed to read {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Output of one `podman` invocation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunOutput {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Runs `podman` with arguments.
+pub trait Runner {
+    fn run(&self, args: &[&str]) -> std::io::Result<RunOutput>;
+}
+
+/// The real `podman` binary.
+#[derive(Debug, Clone)]
+pub struct Cli {
+    program: PathBuf,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        Self {
+            program: PathBuf::from("podman"),
+        }
+    }
+}
+
+impl Runner for Cli {
+    fn run(&self, args: &[&str]) -> std::io::Result<RunOutput> {
+        tracing::debug!(?args, "podman");
+        let out = Command::new(&self.program).args(args).output()?;
+        Ok(RunOutput {
+            success: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+}
+
+/// [`ContainerRuntime`] for rootless Podman.
+#[derive(Debug, Clone)]
+pub struct Podman<R = Cli> {
+    runner: R,
+    cgroup_root: PathBuf,
+    proc_root: PathBuf,
+}
+
+impl Podman<Cli> {
+    /// The real `podman` with the host's `/sys/fs/cgroup` and `/proc`.
+    pub fn new() -> Self {
+        Self::with_runner(Cli::default(), "/sys/fs/cgroup", "/proc")
+    }
+}
+
+impl Default for Podman<Cli> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<R: Runner> Podman<R> {
+    pub fn with_runner(
+        runner: R,
+        cgroup_root: impl Into<PathBuf>,
+        proc_root: impl Into<PathBuf>,
+    ) -> Self {
+        Self {
+            runner,
+            cgroup_root: cgroup_root.into(),
+            proc_root: proc_root.into(),
+        }
+    }
+
+    /// Run podman; trimmed stdout on success.
+    fn podman(&self, args: &[&str]) -> Result<String> {
+        let out = self.runner.run(args).map_err(Error::Spawn)?;
+        if out.success {
+            Ok(out.stdout.trim().to_owned())
+        } else {
+            Err(Error::Failed {
+                args: args.join(" "),
+                stderr: out.stderr.trim().to_owned(),
+            })
+        }
+    }
+
+    /// `podman container inspect --format <format> <target>`; `None` if there
+    /// is no such container.
+    fn inspect(&self, target: &str, format: &str) -> Result<Option<String>> {
+        match self.podman(&["container", "inspect", "--format", format, target]) {
+            Ok(value) => Ok(Some(value)),
+            Err(Error::Failed { stderr, .. }) if stderr.contains("no such") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+fn read(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path).map_err(|source| Error::Read {
+        path: path.to_owned(),
+        source,
+    })
+}
+
+/// Map Podman's `.State.Status` to koje's view.
+fn parse_status(value: &str) -> Result<ContainerStatus> {
+    match value {
+        "running" | "stopping" => Ok(ContainerStatus::Running),
+        "paused" => Ok(ContainerStatus::Paused),
+        "created" | "configured" | "exited" | "stopped" | "initialized" => {
+            Ok(ContainerStatus::Stopped)
+        }
+        other => Err(Error::Unexpected {
+            what: "container status",
+            value: other.to_owned(),
+        }),
+    }
+}
+
+/// The container id in a `/proc/<pid>/cgroup` file, from systemd's
+/// `libpod-<64 hex>.scope` (or cgroupfs' `libpod-<64 hex>`). Conmon's
+/// `libpod-conmon-<id>.scope` is not a container process and is skipped.
+pub fn container_id_from_cgroup(text: &str) -> Option<&str> {
+    text.match_indices("libpod-").find_map(|(i, _)| {
+        let rest = &text[i + "libpod-".len()..];
+        let id = rest.get(..64)?;
+        id.bytes().all(|b| b.is_ascii_hexdigit()).then_some(id)
+    })
+}
+
+impl<R: Runner> ContainerRuntime for Podman<R> {
+    type Error = Error;
+
+    fn status(&self, ctx: &ContextName) -> Result<ContainerStatus> {
+        match self.inspect(&container_name(ctx), "{{.State.Status}}")? {
+            None => Ok(ContainerStatus::Missing),
+            Some(value) => parse_status(&value),
+        }
+    }
+
+    fn start(&self, ctx: &ContextName) -> Result<()> {
+        self.podman(&["start", &container_name(ctx)]).map(drop)
+    }
+
+    fn stop(&self, ctx: &ContextName) -> Result<()> {
+        self.podman(&["stop", "--time", "10", &container_name(ctx)])
+            .map(drop)
+    }
+
+    fn pause(&self, ctx: &ContextName) -> Result<()> {
+        self.podman(&["pause", &container_name(ctx)]).map(drop)
+    }
+
+    fn unpause(&self, ctx: &ContextName) -> Result<()> {
+        self.podman(&["unpause", &container_name(ctx)]).map(drop)
+    }
+
+    fn memory_usage(&self, ctx: &ContextName) -> Result<ByteSize> {
+        let name = container_name(ctx);
+        let cgroup = self
+            .inspect(&name, "{{.State.CgroupPath}}")?
+            .filter(|p| !p.is_empty())
+            .ok_or(Error::Unexpected {
+                what: "cgroup path (container not running?)",
+                value: name,
+            })?;
+        let path = self
+            .cgroup_root
+            .join(cgroup.trim_start_matches('/'))
+            .join("memory.current");
+        let text = read(&path)?;
+        text.trim()
+            .parse::<u64>()
+            .map(ByteSize)
+            .map_err(|_| Error::Unexpected {
+                what: "memory.current",
+                value: text.trim().to_owned(),
+            })
+    }
+
+    fn context_of_pid(&self, pid: u32) -> Result<Option<ContextName>> {
+        let path = self.proc_root.join(pid.to_string()).join("cgroup");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            // The process is gone: it belongs to no context any more.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(Error::Read { path, source }),
+        };
+        let Some(id) = container_id_from_cgroup(&text) else {
+            return Ok(None);
+        };
+        let format = format!("{{{{index .Config.Labels \"{LABEL_CONTEXT}\"}}}}");
+        let label = self.inspect(id, &format)?.unwrap_or_default();
+        if label.is_empty() || label == "<no value>" {
+            return Ok(None); // a container, but not one of koje's
+        }
+        ContextName::new(&label)
+            .map(Some)
+            .map_err(|_| Error::Unexpected {
+                what: "context label",
+                value: label,
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+
+    use super::*;
+
+    /// Records every call and answers from a queue.
+    #[derive(Default)]
+    struct Fake {
+        calls: RefCell<Vec<String>>,
+        answers: RefCell<VecDeque<RunOutput>>,
+    }
+
+    impl Fake {
+        fn answer(self, success: bool, stdout: &str, stderr: &str) -> Self {
+            self.answers.borrow_mut().push_back(RunOutput {
+                success,
+                stdout: stdout.into(),
+                stderr: stderr.into(),
+            });
+            self
+        }
+    }
+
+    impl Runner for &Fake {
+        fn run(&self, args: &[&str]) -> std::io::Result<RunOutput> {
+            self.calls.borrow_mut().push(args.join(" "));
+            Ok(self.answers.borrow_mut().pop_front().unwrap_or(RunOutput {
+                success: true,
+                ..RunOutput::default()
+            }))
+        }
+    }
+
+    fn kp() -> ContextName {
+        ContextName::new("kp").unwrap()
+    }
+
+    const ID: &str = "275e5400c5b8d0009562fa78c0a675959f3e3e8ab12b81d4c9fc4c29240fc160";
+
+    #[test]
+    fn status_maps_podman_states() {
+        for (value, want) in [
+            ("running", ContainerStatus::Running),
+            ("paused", ContainerStatus::Paused),
+            ("exited", ContainerStatus::Stopped),
+            ("created", ContainerStatus::Stopped),
+        ] {
+            let fake = Fake::default().answer(true, &format!("{value}\n"), "");
+            let podman = Podman::with_runner(&fake, "/nonexistent", "/nonexistent");
+            assert_eq!(podman.status(&kp()).unwrap(), want, "{value}");
+            assert_eq!(
+                fake.calls.borrow()[0],
+                "container inspect --format {{.State.Status}} koje-kp"
+            );
+        }
+        let fake = Fake::default().answer(true, "weird", "");
+        assert!(matches!(
+            Podman::with_runner(&fake, "/x", "/x").status(&kp()),
+            Err(Error::Unexpected { .. })
+        ));
+    }
+
+    #[test]
+    fn missing_container_is_a_status_not_an_error() {
+        let fake = Fake::default().answer(false, "", "Error: no such container koje-kp\n");
+        let podman = Podman::with_runner(&fake, "/x", "/x");
+        assert_eq!(podman.status(&kp()).unwrap(), ContainerStatus::Missing);
+
+        let fake = Fake::default().answer(false, "", "Error: cannot connect to Podman\n");
+        assert!(matches!(
+            Podman::with_runner(&fake, "/x", "/x").status(&kp()),
+            Err(Error::Failed { .. })
+        ));
+    }
+
+    #[test]
+    fn lifecycle_commands() {
+        let fake = Fake::default();
+        let podman = Podman::with_runner(&fake, "/x", "/x");
+        podman.start(&kp()).unwrap();
+        podman.stop(&kp()).unwrap();
+        podman.pause(&kp()).unwrap();
+        podman.unpause(&kp()).unwrap();
+        assert_eq!(
+            *fake.calls.borrow(),
+            [
+                "start koje-kp",
+                "stop --time 10 koje-kp",
+                "pause koje-kp",
+                "unpause koje-kp"
+            ]
+        );
+    }
+
+    #[test]
+    fn failures_carry_podman_stderr() {
+        let fake = Fake::default().answer(false, "", "Error: container is not running\n");
+        let err = Podman::with_runner(&fake, "/x", "/x")
+            .pause(&kp())
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "`podman pause koje-kp` failed: Error: container is not running"
+        );
+    }
+
+    #[test]
+    fn memory_usage_reads_the_cgroup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scope = "user.slice/user-1000.slice/libpod-abc.scope";
+        std::fs::create_dir_all(tmp.path().join(scope)).unwrap();
+        std::fs::write(
+            tmp.path().join(scope).join("memory.current"),
+            "1019215872\n",
+        )
+        .unwrap();
+        let fake = Fake::default().answer(true, &format!("/{scope}\n"), "");
+        let podman = Podman::with_runner(&fake, tmp.path(), "/x");
+        assert_eq!(podman.memory_usage(&kp()).unwrap(), ByteSize(1_019_215_872));
+    }
+
+    #[test]
+    fn container_id_from_systemd_and_cgroupfs_paths() {
+        let systemd = format!(
+            "0::/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-{ID}.scope/container\n"
+        );
+        assert_eq!(container_id_from_cgroup(&systemd), Some(ID));
+        let cgroupfs = format!("0::/libpod_parent/libpod-{ID}\n");
+        assert_eq!(container_id_from_cgroup(&cgroupfs), Some(ID));
+        let conmon = format!("0::/user.slice/libpod-conmon-{ID}.scope\n");
+        assert_eq!(container_id_from_cgroup(&conmon), None);
+        assert_eq!(
+            container_id_from_cgroup("0::/user.slice/app.slice/foot.scope\n"),
+            None
+        );
+    }
+
+    fn proc_with_cgroup(pid: u32, text: &str) -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(pid.to_string())).unwrap();
+        std::fs::write(tmp.path().join(pid.to_string()).join("cgroup"), text).unwrap();
+        tmp
+    }
+
+    #[test]
+    fn context_of_pid_follows_cgroup_and_label() {
+        let proc = proc_with_cgroup(42, &format!("0::/user.slice/libpod-{ID}.scope/container\n"));
+        let fake = Fake::default().answer(true, "kundenportal\n", "");
+        let podman = Podman::with_runner(&fake, "/x", proc.path());
+        assert_eq!(
+            podman.context_of_pid(42).unwrap(),
+            Some(ContextName::new("kundenportal").unwrap())
+        );
+        assert_eq!(
+            fake.calls.borrow()[0],
+            format!(
+                "container inspect --format {{{{index .Config.Labels \"io.koje.context\"}}}} {ID}"
+            )
+        );
+    }
+
+    #[test]
+    fn context_of_pid_is_none_for_host_and_foreign_processes() {
+        // Host process: no libpod cgroup, podman is not even asked.
+        let proc = proc_with_cgroup(7, "0::/user.slice/app.slice/foot.scope\n");
+        let fake = Fake::default();
+        let podman = Podman::with_runner(&fake, "/x", proc.path());
+        assert_eq!(podman.context_of_pid(7).unwrap(), None);
+        assert!(fake.calls.borrow().is_empty());
+        // Gone process.
+        assert_eq!(podman.context_of_pid(8).unwrap(), None);
+        // A container without koje's label.
+        let proc = proc_with_cgroup(9, &format!("0::/libpod-{ID}.scope\n"));
+        for label in ["", "<no value>"] {
+            let fake = Fake::default().answer(true, label, "");
+            let podman = Podman::with_runner(&fake, "/x", proc.path());
+            assert_eq!(podman.context_of_pid(9).unwrap(), None, "{label:?}");
+        }
+    }
+}

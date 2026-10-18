@@ -243,6 +243,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "koje-podman"
+version = "0.1.0"
+dependencies = [
+ "koje-core",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "kojed"
 version = "0.1.0"
 dependencies = [

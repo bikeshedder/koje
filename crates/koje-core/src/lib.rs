@@ -11,6 +11,7 @@
 pub mod access;
 pub mod color;
 pub mod config;
+pub mod container;
 pub mod context;
 pub mod error;
 pub mod fsutil;

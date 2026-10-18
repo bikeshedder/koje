@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/koje-core", "crates/koje", "crates/kojed"]
+members = ["crates/koje-core", "crates/koje-podman", "crates/koje", "crates/kojed"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +13,7 @@ publish = false
 
 [workspace.dependencies]
 koje-core = { path = "crates/koje-core" }
+koje-podman = { path = "crates/koje-podman" }
 
 anyhow = "1"
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
