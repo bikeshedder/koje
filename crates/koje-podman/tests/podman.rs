@@ -203,3 +203,92 @@ fn create_from_spec_keeps_uid_and_isolates_network() {
         ContainerStatus::Missing
     );
 }
+
+#[test]
+#[ignore = "needs rootless Podman and koje/base (koje image build) on the host"]
+fn base_image_runs_the_session_bus() {
+    use koje_core::access::Profile;
+    use koje_core::config::Limits;
+    use koje_core::spec::{ContextInputs, build};
+
+    let podman = Podman::new();
+    assert!(
+        podman
+            .image_exists(koje_podman::image::BASE_IMAGE)
+            .expect("image exists"),
+        "build it first: koje image build"
+    );
+    let ctx = ContextName::new(format!("kojebase-{}", std::process::id())).expect("valid name");
+    let host = koje_podman::host::detect().expect("detect host");
+    let limits = Limits::default();
+    let mut spec = build(
+        &ContextInputs {
+            name: &ctx,
+            image: koje_podman::image::BASE_IMAGE,
+            access: Profile::Isolated.access(),
+            limits: &limits,
+            mounts: &[],
+        },
+        &host,
+    )
+    .spec;
+    spec.labels.insert(LABEL_TEST.into(), "true".into());
+    let _cleanup = SpecContainer { ctx: ctx.clone() };
+    podman.create(&spec).expect("create");
+    podman.start(&ctx).expect("start");
+
+    let exec = |args: &[&str]| {
+        Command::new("podman")
+            .args(["exec", &container_name(&ctx)])
+            .args(args)
+            .output()
+            .expect("exec")
+    };
+    // The main process is the context's own session bus (ADR 0015).
+    let mut names = exec(&[
+        "dbus-send",
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus.ListNames",
+    ]);
+    for _ in 0..20 {
+        if names.status.success() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        names = exec(&[
+            "dbus-send",
+            "--session",
+            "--print-reply",
+            "--dest=org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus.ListNames",
+        ]);
+    }
+    assert!(
+        names.status.success(),
+        "session bus: {}",
+        String::from_utf8_lossy(&names.stderr)
+    );
+    // Nested Podman's id mapping tools have their file capabilities (ADR 0014).
+    let caps = exec(&["getcap", "/usr/bin/newuidmap"]);
+    assert!(
+        String::from_utf8_lossy(&caps.stdout).contains("cap_setuid"),
+        "newuidmap caps"
+    );
+    // The image's portal is not D-Bus activatable (ADR 0019/0023).
+    let activatable = exec(&[
+        "dbus-send",
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus.ListActivatableNames",
+    ]);
+    assert!(
+        !String::from_utf8_lossy(&activatable.stdout).contains("org.freedesktop.portal.Desktop"),
+        "the image's portal must not be activatable"
+    );
+}
