@@ -301,6 +301,55 @@ fn list_shows_details_and_json() {
 }
 
 #[test]
+fn image_build_runs_podman_build_for_the_user() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = tmp.path().join("podman.log");
+    // Written by a child process so no fd of this test process points at the
+    // script while other tests fork ("text file busy").
+    let script = format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n", log.display());
+    let status = Command::new("sh")
+        .args([
+            "-c",
+            &format!("cat > {0}/podman && chmod +x {0}/podman", bin.display()),
+        ])
+        .stdin(Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            c.stdin
+                .take()
+                .expect("stdin")
+                .write_all(script.as_bytes())?;
+            c.wait()
+        })
+        .unwrap();
+    assert!(status.success());
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let out = command(tmp.path(), &["image", "build", "--no-cache"])
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(
+        calls.starts_with("build --tag localhost/koje/base:latest --build-arg USER_NAME="),
+        "{calls}"
+    );
+    assert!(calls.contains("--no-cache"), "{calls}");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("built koje/base:latest"));
+}
+
+#[test]
 fn unimplemented_commands_name_their_milestone() {
     let tmp = tempfile::tempdir().unwrap();
     let out = koje(tmp.path(), &["up", "kp"]);

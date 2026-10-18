@@ -12,7 +12,6 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 - **Sound without microphone** – can PipeWire's permissions give a context playback but not capture (ADR 0017 has one `sound` switch for both)?
 - **Sharing secrets between contexts** – each context has its own keyring (ADR 0019). How could selected secrets be shared with another context on purpose?
 - **Files outside mounts from the file chooser** – the host portal returns host paths; mount the document portal into contexts?
-- **Base image** – one image for all contexts, or a base plus per-context additions? Who builds it, how is it updated? (M2.6: contexts share the pages of common image layers – keep layers common.)
 
 ## Memory
 

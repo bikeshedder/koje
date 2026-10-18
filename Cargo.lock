@@ -223,6 +223,7 @@ dependencies = [
  "anyhow",
  "clap",
  "koje-core",
+ "koje-podman",
  "serde",
  "serde_json",
  "tempfile",

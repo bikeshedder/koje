@@ -150,11 +150,24 @@ pub enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Manage koje's base image `koje/base`.
+    #[command(subcommand)]
+    Image(ImageCmd),
     /// List contexts.
     List {
         /// Machine-readable output (JSON array).
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ImageCmd {
+    /// Build `koje/base` for the current user with Podman (a few minutes).
+    Build {
+        /// Rebuild every layer, e.g. to pick up distribution updates.
+        #[arg(long)]
+        no_cache: bool,
     },
 }
 
@@ -267,6 +280,14 @@ mod tests {
                 cmd: Some(LayoutCmd::Next(_)),
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn image_build() {
+        assert!(matches!(
+            parse(&["image", "build", "--no-cache"]).unwrap().command,
+            Command::Image(ImageCmd::Build { no_cache: true })
         ));
     }
 

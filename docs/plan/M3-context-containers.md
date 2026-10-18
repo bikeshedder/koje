@@ -7,7 +7,8 @@ yet. Break down further using the M2.3–M2.5 reports.
   - Notes: crate `koje-podman` (runner trait, fake in tests); names in `koje_core::container`. Host test `cargo test -p koje-podman -- --ignored` passes (2026-10-18). Not in the dev container yet (M0.8).
 - [x] **M3.2 Container spec from `context.toml`**: mounts at same path, home volume, sockets, devices, D-Bus proxy, labels, limits (`memory.max` safety net); canonicalize mount sources and re-check ADR 0009 (symlinks); nested Podman flags per ADR 0014; runtime env per ADR 0015; GPU per ADR 0016; Wayland socket directory per ADR 0022 (until kojed exists: the compositor's socket); devices/sockets per the effective access (ADR 0017); spec in the M2.3 report
   - Notes: `koje_core::spec::build` (pure) + `koje_podman::create_args`; host facts via `koje_podman::host::detect`; mounts resolved and re-checked by `host::resolve_mounts`. Not yet: proxy/forwarder (M3.14), security-context socket (M4.10). Host tests pass (2026-10-18).
-- [ ] **M3.3 Base image build** (`koje/base`): Containerfile in the repo, `koje image build`? (decide); image settings per ADR 0014 (start from `docs/spikes/setup/base/`)
+- [~] **M3.3 Base image build** (`koje/base`): Containerfile in the repo, `koje image build`? (decide); image settings per ADR 0014 (start from `docs/spikes/setup/base/`)
+  - Notes: ADR 0023 – built locally per user (`koje image build`, `install.sh`), batteries included; `assets/image/`. Done when the image builds on the host and a context created from it runs its session bus.
 - [ ] **M3.4 `koje up <context> -s empty` / `koje down <context> --no-save`**
 - [ ] **M3.5 `koje shell <context> [--dev]`**
 - [ ] **M3.6 `koje open <context> <url|file>`**

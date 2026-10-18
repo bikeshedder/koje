@@ -61,6 +61,32 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
     }
 }
 
+/// The user the base image is built for: name and home from `/etc/passwd`
+/// for the current uid (fallback `$USER`/`$HOME`).
+pub fn image_user() -> std::io::Result<crate::image::ImageUser> {
+    let uid = std::fs::metadata("/proc/self")?.uid();
+    let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+    Ok(image_user_from(uid, &passwd, |k| std::env::var(k).ok()))
+}
+
+fn image_user_from(
+    uid: u32,
+    passwd: &str,
+    var: impl Fn(&str) -> Option<String>,
+) -> crate::image::ImageUser {
+    let entry = passwd.lines().find_map(|l| {
+        let f: Vec<&str> = l.split(':').collect();
+        (f.len() >= 6 && f[2] == uid.to_string()).then(|| (f[0].to_owned(), PathBuf::from(f[5])))
+    });
+    let (name, home) = entry.unwrap_or_else(|| {
+        (
+            var("USER").unwrap_or_else(|| format!("user{uid}")),
+            var("HOME").map(PathBuf::from).unwrap_or_default(),
+        )
+    });
+    crate::image::ImageUser { name, uid, home }
+}
+
 /// A context's mounts ready for the spec: expanded (ADR 0009 rules), resolved
 /// to their real paths and checked again, so a symlink cannot lead into a
 /// protected folder. Folders must exist.
@@ -182,6 +208,22 @@ mod tests {
         let err =
             resolve_mounts(&context_with_mounts(&["~/src/missing".into()]), &dirs).unwrap_err();
         assert!(matches!(err, koje_core::Error::Read { .. }), "{err}");
+    }
+
+    #[test]
+    fn image_user_from_passwd_or_env() {
+        let passwd = "root:x:0:0:root:/root:/bin/bash\nbikeshedder:x:1000:1000::/home/bikeshedder:/bin/bash\n";
+        let u = image_user_from(1000, passwd, |_| None);
+        assert_eq!(
+            (u.name.as_str(), u.home.as_path()),
+            ("bikeshedder", Path::new("/home/bikeshedder"))
+        );
+        let u = image_user_from(1001, passwd, |k| match k {
+            "USER" => Some("ldapuser".into()),
+            "HOME" => Some("/home/ldapuser".into()),
+            _ => None,
+        });
+        assert_eq!((u.name.as_str(), u.uid), ("ldapuser", 1001));
     }
 
     #[test]

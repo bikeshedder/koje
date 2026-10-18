@@ -10,7 +10,7 @@ use koje_core::name::{ContextName, StateName};
 use koje_core::paths::Paths;
 use koje_core::states::{self, Role, Summary};
 
-use crate::cli::{Command, Ctx, StateCmd};
+use crate::cli::{Command, Ctx, ImageCmd, StateCmd};
 use crate::prompt::confirm;
 
 pub fn run(command: &Command) -> Result<()> {
@@ -23,6 +23,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
         Command::State(cmd) => state(&paths, cmd),
+        Command::Image(ImageCmd::Build { no_cache }) => image_build(*no_cache),
 
         Command::Up { .. }
         | Command::Down { .. }
@@ -151,6 +152,21 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
     }
     context::remove(paths, &name)?;
     println!("removed context {name}");
+    Ok(())
+}
+
+/// `koje image build`: build `koje/base` for the current user (ADR 0023).
+fn image_build(no_cache: bool) -> Result<()> {
+    let user = koje_podman::host::image_user().context("finding the current user")?;
+    println!(
+        "building {} for {} (uid {}, home {}) – this takes a few minutes",
+        koje_podman::image::BASE_IMAGE,
+        user.name,
+        user.uid,
+        user.home.display()
+    );
+    koje_podman::Podman::new().build_base(&user, no_cache)?;
+    println!("built {}", koje_podman::image::BASE_IMAGE);
     Ok(())
 }
 

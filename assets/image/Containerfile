@@ -1,0 +1,53 @@
+# koje's base image `koje/base` (ADR 0023). Built locally per user by
+# `koje image build`; contexts run it with --userns=keep-id and mount the home
+# volume at the host's home path, so the user exists here with the same name,
+# uid and home. Requirements come from the M2 spikes (ADR 0014–0016, 0019).
+FROM registry.fedoraproject.org/fedora:44
+
+# Batteries included (ADR 0023): browser, terminal, file manager, tools.
+# Graphics (Mesa: AMD/Intel; NVIDIA via CDI at runtime), sound and printing
+# clients, fonts. Nested Podman (fuse-overlayfs, pasta). D-Bus session bus.
+# An own keyring per context (gnome-keyring, ADR 0019).
+RUN dnf -y install --setopt=install_weak_deps=False \
+        firefox foot nautilus xdg-utils git less which procps-ng \
+        mesa-dri-drivers mesa-vulkan-drivers libglvnd-egl \
+        pipewire-utils pulseaudio-utils cups-client \
+        dejavu-sans-fonts dejavu-sans-mono-fonts google-noto-sans-fonts google-noto-emoji-fonts \
+        podman podman-compose fuse-overlayfs slirp4netns passt shadow-utils libcap \
+        dbus-daemon dbus-tools gnome-keyring \
+    && dnf clean all
+
+# newuidmap/newgidmap need their file capabilities for nested Podman; setuid
+# does not work (M2.5).
+RUN rpm --restore shadow-utils && getcap /usr/bin/newuidmap /usr/bin/newgidmap
+
+# The host user, with sub-ids for nested Podman: everything up to 65535 except
+# the user's own uid (M2.5).
+ARG USER_NAME
+ARG USER_UID
+ARG USER_HOME
+RUN test -n "${USER_NAME}" && test -n "${USER_UID}" && test -n "${USER_HOME}" \
+    && useradd --uid "${USER_UID}" --home-dir "${USER_HOME}" --no-create-home "${USER_NAME}" \
+    && printf '%s:1:%s\n%s:%s:%s\n' \
+        "${USER_NAME}" "$((USER_UID - 1))" \
+        "${USER_NAME}" "$((USER_UID + 1))" "$((65535 - USER_UID))" \
+        | tee /etc/subuid > /etc/subgid
+
+# Links opened in a context go to the context's Firefox.
+RUN mkdir -p /etc/xdg \
+    && printf '[Default Applications]\nx-scheme-handler/http=firefox.desktop\nx-scheme-handler/https=firefox.desktop\ntext/html=firefox.desktop\n' \
+        > /etc/xdg/mimeapps.list
+
+# Inner Podman (ADR 0014): fuse-overlayfs storage, settings in containers.conf.
+COPY containers.conf /etc/containers/containers.conf
+RUN printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
+        > /etc/containers/storage.conf
+
+# The image's own portal must not be D-Bus activated on the context bus: koje's
+# forwarder owns org.freedesktop.portal.Desktop there and talks to the host's
+# portal (ADR 0019; M2.4 found the image's portal activated first).
+RUN rm -f /usr/share/dbus-1/services/org.freedesktop.portal.Desktop.service \
+          /usr/share/dbus-1/services/org.freedesktop.impl.portal.*.service
+
+ARG KOJE_IMAGE_VERSION=1
+LABEL io.koje.image=base io.koje.image-version="${KOJE_IMAGE_VERSION}"

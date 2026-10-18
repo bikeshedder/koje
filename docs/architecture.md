@@ -144,6 +144,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje open <context> <url\|file>` | open inside a context |
 | `koje shell <context> [--dev]` | shell in context or dev container |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
+| `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
 
 **States:** `default` (read by `up`, written by `down` without `-s`), `fresh`
 (curated start), `empty` (reserved, virtual, read-only), any other name. Missing

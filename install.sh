@@ -8,6 +8,7 @@
 #
 # It never runs sudo: missing system packages are listed with an install command.
 # It writes only below ~/.local (binaries, icon font, koje's Hyprland snippet),
+# builds koje's base image with rootless Podman if it is missing,
 # adds one `source` line to ~/.config/hypr/hyprland.conf if missing, and installs
 # koje's Waybar config only if you have none. Everything is shown before it happens.
 set -euo pipefail
@@ -21,7 +22,7 @@ for arg in "$@"; do
     --dry-run) dry=1 ;;
     --yes | -y) yes=1 ;;
     --skip-build) build=0 ;;
-    -h | --help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -87,6 +88,15 @@ if ((build)); then
   for b in koje kojed; do
     if [[ -e "$bin/$b" ]]; then add "!" "binary: $bin/$b (rebuilt)" "binary $b"; else add "+" "binary: $bin/$b" "binary $b"; fi
   done
+fi
+
+# koje's base image (ADR 0023): built once per user; `koje image build` rebuilds it.
+if command -v podman >/dev/null 2>&1; then
+  if podman image exists localhost/koje/base:latest 2>/dev/null; then
+    add "=" "base image: koje/base (rebuild with: koje image build)" ""
+  else
+    add "+" "base image: koje/base (built with Podman, takes a few minutes)" "image_build"
+  fi
 fi
 
 plan_copy assets/fonts/lucide/lucide.ttf "$data/fonts/koje/lucide.ttf" "icon font"
@@ -163,6 +173,13 @@ binary() {
   fi
   mkdir -p "$bin"
   install -m 755 "target/release/$1" "$bin/$1"
+}
+
+image_build() {
+  local koje=$bin/koje
+  [[ -x "$koje" ]] || koje=$(command -v koje || true)
+  [[ -n "$koje" ]] || { echo "  koje is not built (run without --skip-build)" >&2; return 1; }
+  "$koje" image build
 }
 
 hyprconf() {

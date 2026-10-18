@@ -15,6 +15,7 @@ use koje_core::size::ByteSize;
 use koje_core::spec::{ContainerSpec, MountKind};
 
 pub mod host;
+pub mod image;
 
 /// Errors of the Podman adapter.
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +50,9 @@ pub struct RunOutput {
 /// Runs `podman` with arguments.
 pub trait Runner {
     fn run(&self, args: &[&str]) -> std::io::Result<RunOutput>;
+    /// Run with the terminal attached (long builds show their progress);
+    /// returns whether podman succeeded.
+    fn run_attached(&self, args: &[&str]) -> std::io::Result<bool>;
 }
 
 /// The real `podman` binary.
@@ -66,6 +70,11 @@ impl Default for Cli {
 }
 
 impl Runner for Cli {
+    fn run_attached(&self, args: &[&str]) -> std::io::Result<bool> {
+        tracing::debug!(?args, "podman (attached)");
+        Ok(Command::new(&self.program).args(args).status()?.success())
+    }
+
     fn run(&self, args: &[&str]) -> std::io::Result<RunOutput> {
         tracing::debug!(?args, "podman");
         let out = Command::new(&self.program).args(args).output()?;
@@ -80,7 +89,7 @@ impl Runner for Cli {
 /// [`ContainerRuntime`] for rootless Podman.
 #[derive(Debug, Clone)]
 pub struct Podman<R = Cli> {
-    runner: R,
+    pub(crate) runner: R,
     cgroup_root: PathBuf,
     proc_root: PathBuf,
 }
@@ -112,7 +121,7 @@ impl<R: Runner> Podman<R> {
     }
 
     /// Run podman; trimmed stdout on success.
-    fn podman(&self, args: &[&str]) -> Result<String> {
+    pub(crate) fn podman(&self, args: &[&str]) -> Result<String> {
         let out = self.runner.run(args).map_err(Error::Spawn)?;
         if out.success {
             Ok(out.stdout.trim().to_owned())
@@ -341,6 +350,10 @@ mod tests {
     }
 
     impl Runner for &Fake {
+        fn run_attached(&self, args: &[&str]) -> std::io::Result<bool> {
+            Ok(self.run(args)?.success)
+        }
+
         fn run(&self, args: &[&str]) -> std::io::Result<RunOutput> {
             self.calls.borrow_mut().push(args.join(" "));
             Ok(self.answers.borrow_mut().pop_front().unwrap_or(RunOutput {
