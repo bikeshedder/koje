@@ -13,3 +13,4 @@ Goal: a running service that knows every window's context and colors it.
 - [ ] **M4.7 systemd user unit for kojed**; `koje` talks to kojed, clear error when it is not running
 - [ ] **M4.8 Ignored integration tests against a live Hyprland**
 - [ ] **M4.9 `koje setup` and `koje doctor`** (ADR 0021): the steps of `install.sh` in the CLI (plan, warn, ask; dependency check), plus the systemd user unit from M4.7; `install.sh` then only builds koje and calls `koje setup`
+- [ ] **M4.10 Security-context socket per context** (ADR 0022): kojed creates `wp_security_context_v1` sockets (engine `io.koje`, app id `io.koje.<context>`) in per-context runtime directories, keeps them alive, recreates them after a compositor or kojed restart; prototype in `docs/spikes/setup/wl-secure-socket`

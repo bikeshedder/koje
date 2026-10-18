@@ -36,8 +36,9 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 - [x] **M2.8 Pausing a context with windows** *(host)*
   - Done when: `podman pause` a context with visible windows; observe Hyprland behavior (ANR dialog?), resume; same with windows moved to a special workspace first.
   - Notes: [report](../spikes/M2.8-pausing.md). Frozen, no dialog (without `hyprland-guiutils`), input queued and delivered on unpause. Recheck the dialog in M2.1.
-- [~] **M2.9 Screen capture permissions** *(host)*
+- [x] **M2.9 Screen capture permissions** *(host)*
   - Done when: Hyprland permission rules deny screencopy to context programs while a video call in `global` (or an allowed context) can still share the screen.
+  - Notes: [report](../spikes/M2.9-screen-capture.md), ADR 0022. `security-context-v1` socket per context: no direct capture, portal sharing works. Path-based permission rules unusable.
 - [x] **M2.10 More host interfaces through the forwarder** *(host)*
   - Done when: settings (`SettingChanged`), inhibit, screen sharing (PipeWire fd passing through the forwarder, a video call in a context shares a window) and print work through proxy + forwarder; Firefox uses the portal file chooser.
   - Notes: [report](../spikes/M2.10-host-interfaces.md). Settings, inhibit, screen sharing work; forwarder needs one host connection per client + path translation; contexts need `XDG_SESSION_TYPE`, `GTK_USE_PORTAL`. Printing → CUPS.
