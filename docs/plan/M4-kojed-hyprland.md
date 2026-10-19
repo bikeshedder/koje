@@ -11,7 +11,7 @@ Goal: a running service that knows every window's context and colors it.
   - Done: `koje_hyprland::events` – pure `parse_line` (open/close/focus/title/configreloaded, addresses normalized to `0x…`), `Events::next()` reconnects with backoff and yields `Connected` on every connection (kojed resyncs). Tested against fake sockets.
 - [x] **M4.4 Window → context mapping** (PID → cgroup → container label), cached
   - Done (host-tested 2026-10-19): `koje_core::windows::WindowMap` (pure; pid cache lives as long as one of the process's windows), `kojed::daemon` resolves via `ContainerRuntime::context_of_pid` in `spawn_blocking`, resyncs on every `Connected`.
-- [ ] **M4.5 Border colors per context** (active/inactive), reapplied on reconnect
+- [~] **M4.5 Border colors per context** (active/inactive), reapplied on reconnect
   - Notes: ADR 0018 – tag rule per context, re-add on `configreloaded`; check how to replace a rule on color change.
   - Done in code (awaiting host test): rule `koje-<context>` with `Color::dimmed()` as inactive color; rules + tags again on `configreloaded`; a context created after start gets its rule with its first window. Color change: the rule is added again for new windows; open windows of that context get `setprop active_border_color`/`inactive_border_color` (host test showed rules reach only new windows).
 - [x] **M4.6 One workspace per context per monitor**; `koje focus <context>`
