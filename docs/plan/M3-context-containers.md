@@ -9,8 +9,9 @@ yet. Break down further using the M2.3–M2.5 reports.
   - Notes: `koje_core::spec::build` (pure) + `koje_podman::create_args`; host facts via `koje_podman::host::detect`; mounts resolved and re-checked by `host::resolve_mounts`. Not yet: proxy/forwarder (M3.14), security-context socket (M4.10). Host tests pass (2026-10-18).
 - [x] **M3.3 Base image build** (`koje/base`): Containerfile in the repo, `koje image build`? (decide); image settings per ADR 0014 (start from `docs/spikes/setup/base/`)
   - Notes: ADR 0023 – built locally per user (`koje image build`, `install.sh`), batteries included; `assets/image/`. Image builds on the host; `base_image_runs_the_session_bus` passes (2026-10-18). Follow-up: notice outdated images (`io.koje.image-version`).
-- [~] **M3.4 `koje up <context> -s empty` / `koje down <context> --no-save`**
-- [ ] **M3.5 `koje shell <context> [--dev]`**
+- [x] **M3.4 `koje up <context> -s empty` / `koje down <context> --no-save`**
+  - Notes: decisions in `koje_core::lifecycle`; container persists between down/up (only `koje rm` removes it, M3.8); other states/saving need M5 and say so. Host test 2026-10-19: created, started, Firefox in hardware mode (NVIDIA CDI detected).
+- [~] **M3.5 `koje shell <context> [--dev]`**
 - [ ] **M3.6 `koje open <context> <url|file>`**
 - [ ] **M3.7 `koje sleep` / `koje wake`** (windows to stash comes with M5)
 - [ ] **M3.8 `koje rm` removes containers and volumes** (with confirmation)
