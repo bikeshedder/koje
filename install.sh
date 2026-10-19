@@ -90,15 +90,6 @@ if ((build)); then
   done
 fi
 
-# koje's base image (ADR 0023): built once per user; `koje image build` rebuilds it.
-if command -v podman >/dev/null 2>&1; then
-  if podman image exists localhost/koje/base:latest 2>/dev/null; then
-    add "=" "base image: koje/base (rebuild with: koje image build)" ""
-  else
-    add "+" "base image: koje/base (built with Podman, takes a few minutes)" "image_build"
-  fi
-fi
-
 plan_copy assets/fonts/lucide/lucide.ttf "$data/fonts/koje/lucide.ttf" "icon font"
 plan_copy assets/fonts/lucide/LICENSE "$data/fonts/koje/LICENSE" "icon font license"
 plan_copy assets/hyprland/koje.conf "$snippet" "Hyprland snippet"
@@ -134,6 +125,15 @@ else
   add "-" "Waybar: you have your own config in $waybar_dir – left alone" ""
 fi
 
+# koje's base image (ADR 0023): built once per user; `koje image build` rebuilds it.
+if command -v podman >/dev/null 2>&1; then
+  if podman image exists localhost/koje/base:latest 2>/dev/null; then
+    add "=" "base image: koje/base (rebuild with: koje image build)" ""
+  else
+    add "+" "base image: koje/base (built with Podman, takes a few minutes)" "image_build"
+  fi
+fi
+
 echo
 echo "${bold}Plan${reset}  (+ new  ! overwrite  ~ append  = unchanged  - skipped)"
 changes=0 warnings=0
@@ -162,7 +162,13 @@ if ((!yes)); then
 fi
 
 # --- 3. execute -----------------------------------------------------------------
-copy() { mkdir -p "$(dirname "$2")"; rm -f "$2"; cp "$1" "$2"; }
+# Copy via a temp file and rename: the target never disappears, not even for a
+# moment (Hyprland reloads on changes to sourced files and would miss it).
+copy() {
+  mkdir -p "$(dirname "$2")"
+  cp "$1" "$2.koje-new"
+  mv -f "$2.koje-new" "$2"
+}
 
 built=0
 binary() {
@@ -172,14 +178,17 @@ binary() {
     built=1
   fi
   mkdir -p "$bin"
-  install -m 755 "target/release/$1" "$bin/$1"
+  install -m 755 "target/release/$1" "$bin/$1.koje-new"
+  mv -f "$bin/$1.koje-new" "$bin/$1"
 }
 
+# Last step; a failure does not undo or stop the rest of the install.
 image_build() {
   local koje=$bin/koje
   [[ -x "$koje" ]] || koje=$(command -v koje || true)
-  [[ -n "$koje" ]] || { echo "  koje is not built (run without --skip-build)" >&2; return 1; }
-  "$koje" image build
+  if [[ -z "$koje" ]] || ! "$koje" image build; then
+    echo "  warning: the base image was not built – retry with: koje image build" >&2
+  fi
 }
 
 hyprconf() {
