@@ -45,6 +45,7 @@ echo "${bold}Checking dependencies${reset}"
 deps=(
   "podman:podman" "newuidmap:uidmap" "pasta:passt" "fuse-overlayfs:fuse-overlayfs"
   "Hyprland:hyprland" "waybar:waybar" "fc-cache:fontconfig" "xdg-dbus-proxy:xdg-dbus-proxy"
+  "fuzzel:fuzzel" "jq:jq"
 )
 portals=("xdg-desktop-portal-hyprland" "xdg-desktop-portal-gtk")
 missing=()
@@ -99,6 +100,7 @@ fi
 plan_copy assets/fonts/lucide/lucide.ttf "$data/fonts/koje/lucide.ttf" "icon font"
 plan_copy assets/fonts/lucide/LICENSE "$data/fonts/koje/LICENSE" "icon font license"
 plan_copy assets/hyprland/koje.conf "$snippet" "Hyprland snippet"
+plan_copy assets/bin/koje-window-picker "$libdir/koje-window-picker" "window picker (Super+Tab)"
 
 if [[ ! -e "$hyprconf" ]]; then
   add "+" "Hyprland config: $hyprconf (new, sources koje's snippet)" "hyprconf new"

@@ -4,12 +4,19 @@
   "layer": "top",
   "position": "top",
   "height": 28,
-  "modules-left": ["hyprland/workspaces", "hyprland/window"],
+  "modules-left": ["hyprland/workspaces", "wlr/taskbar"],
   "modules-center": ["clock"],
   "modules-right": ["cpu", "memory", "pulseaudio", "network", "battery", "tray"],
 
   "hyprland/workspaces": { "format": "{name}" },
-  "hyprland/window": { "max-length": 60 },
+  "wlr/taskbar": {
+    "format": "{icon} {title:.28}",
+    "icon-size": 16,
+    "tooltip-format": "{title} – {app_id}",
+    "on-click": "activate",
+    "on-click-middle": "close",
+    "all-outputs": true
+  },
   "clock": {
     "format": "\ue087  {:%H:%M}",                       // clock
     "format-alt": "\ue063  {:%a %d.%m.%Y}",          // calendar
