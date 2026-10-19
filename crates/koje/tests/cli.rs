@@ -454,6 +454,56 @@ fn shell_needs_a_running_context_and_execs_into_it() {
 }
 
 #[test]
+fn open_passes_urls_and_mounted_files_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    // A mounted folder (an absolute path outside any protected dir) with a file.
+    let shared = tmp.path().join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::write(shared.join("spec.pdf"), "x").unwrap();
+    std::fs::write(tmp.path().join("elsewhere.txt"), "x").unwrap();
+    let cfg = config_of(tmp.path(), "kp");
+    let text = std::fs::read_to_string(&cfg).unwrap();
+    std::fs::write(
+        &cfg,
+        text.replace(
+            "mounts = []",
+            &format!("mounts = [{:?}]", shared.display().to_string()),
+        ),
+    )
+    .unwrap();
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+
+    let out = stdout(&koje_fake(
+        tmp.path(),
+        &path,
+        &["open", "kp", "https://example.org"],
+    ));
+    assert!(out.contains("opened https://example.org in kp"), "{out}");
+    let file = shared.join("spec.pdf").display().to_string();
+    stdout(&koje_fake(tmp.path(), &path, &["open", "kp", &file]));
+    let log = podman_log(tmp.path());
+    assert!(
+        log.contains("exec -d koje-kp xdg-open https://example.org"),
+        "{log}"
+    );
+    assert!(
+        log.contains(&format!(
+            "exec -d koje-kp xdg-open {}",
+            std::fs::canonicalize(&file).unwrap().display()
+        )),
+        "{log}"
+    );
+
+    let elsewhere = tmp.path().join("elsewhere.txt").display().to_string();
+    let out = koje_fake(tmp.path(), &path, &["open", "kp", &elsewhere]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("not visible in kp"));
+    let out = koje_fake(tmp.path(), &path, &["open", "kp", "/does/not/exist"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("does not exist"));
+}
+
+#[test]
 fn up_and_down_need_m5_for_states() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());

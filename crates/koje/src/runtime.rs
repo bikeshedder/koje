@@ -107,6 +107,37 @@ pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// `koje open <context> <url|file>`: open in the running context with
+/// `xdg-open` (links go to the context's browser). Files must lie in one of the
+/// context's mounted folders – only there the context sees host files.
+pub fn open(paths: &Paths, context: &str, target: &str) -> Result<()> {
+    use koje_core::open::{Target, classify, visible_in};
+    let name = ContextName::new(context)?;
+    let cfg = context::load(paths, &name)?;
+    let cwd = std::env::current_dir().context("finding the current directory")?;
+    let arg = match classify(target, &cwd) {
+        Target::Url(url) => url,
+        Target::File(file) => {
+            let file = std::fs::canonicalize(&file)
+                .with_context(|| format!("{} does not exist", file.display()))?;
+            let mounts = koje_podman::host::resolve_mounts(&cfg, &paths.host_dirs()?)?;
+            if !visible_in(&file, &mounts) {
+                bail!(
+                    "{} is not visible in {name}: only its mounted folders are – \
+                     add a folder to `mounts` with: koje edit {name}",
+                    file.display()
+                );
+            }
+            file.display().to_string()
+        }
+    };
+    let podman = Podman::new();
+    require_running(podman.status(&name)?, name.as_str()).map_err(anyhow::Error::msg)?;
+    podman.exec_detached(&name, &["xdg-open", &arg])?;
+    println!("opened {arg} in {name}");
+    Ok(())
+}
+
 /// Build `koje/base` on first use (ADR 0023).
 fn ensure_image(podman: &Podman, cfg: &ContextConfig) -> Result<()> {
     if cfg.image != BASE_IMAGE || podman.image_exists(BASE_IMAGE)? {

@@ -32,7 +32,9 @@ pub fn run(command: &Command) -> Result<()> {
 
         Command::Shell { ctx, dev } => crate::runtime::shell(&paths, &ctx.context, dev.as_deref()),
 
-        Command::Open { .. } | Command::Sleep(_) | Command::Wake(_) => todo_in("M3"),
+        Command::Open { ctx, target } => crate::runtime::open(&paths, &ctx.context, target),
+
+        Command::Sleep(_) | Command::Wake(_) => todo_in("M3"),
 
         Command::Focus(_) => todo_in("M4"),
 

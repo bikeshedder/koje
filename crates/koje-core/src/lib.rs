@@ -21,6 +21,7 @@ pub mod lifecycle;
 pub mod memory;
 pub mod mount;
 pub mod name;
+pub mod open;
 pub mod paths;
 pub mod ports;
 pub mod recovery;
