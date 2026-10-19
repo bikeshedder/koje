@@ -175,8 +175,11 @@ to the stash first. Memory stays allocated (can be swapped out).
 | Crate | Role |
 |---|---|
 | `koje-core` | domain types and pure logic; ports (traits) for Hyprland and Podman |
-| `kojed` | service: Hyprland events, colors, layouts, recovery, memory, API for clients |
-| `koje` | CLI, client of core and (later) kojed |
+| `koje-podman` | adapter: rootless Podman (`ContainerRuntime`), base image |
+| `koje-hyprland` | adapter: Hyprland command and event sockets (`Compositor`) |
+| `koje-forward` | static D-Bus forwarder that runs inside every context (ADR 0025) |
+| `kojed` | service: Hyprland events, colors, layouts, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027) |
+| `koje` | CLI, client of core and kojed |
 | `koje-gui` (later) | panel overlay via layer-shell (toolkit undecided) |
 
 UI stages: 1) launcher menu (fuzzel/rofi), 2) Waybar module (context, layouts,

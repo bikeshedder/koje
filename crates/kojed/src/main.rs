@@ -11,9 +11,13 @@
 //!
 //! One current-thread tokio runtime (ADR 0026).
 
+mod api;
 mod daemon;
 
+use std::sync::Arc;
+
 use anyhow::{Context as _, Result};
+use koje_core::api::{BUS_NAME, OBJECT_PATH};
 use koje_core::paths::Paths;
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
@@ -32,10 +36,39 @@ async fn main() -> Result<()> {
     let hyprland = Hyprland::from_env();
     let mut events = hyprland.events();
     let mut daemon = daemon::Daemon::new(hyprland, Podman::new(), paths);
+    // The contexts before the first client asks (errors are logged; a
+    // compositor that is not up yet gets its rules on `Connected`).
+    if let Err(e) = daemon.reload().await {
+        tracing::warn!("{e:#}");
+    }
+    let daemon: api::Shared = Arc::new(tokio::sync::Mutex::new(daemon));
+    let conn = zbus::connection::Builder::session()
+        .context("connecting to the session bus")?
+        .name(BUS_NAME)?
+        .serve_at(
+            OBJECT_PATH,
+            api::Api {
+                daemon: Arc::clone(&daemon),
+            },
+        )?
+        .build()
+        .await
+        .with_context(|| {
+            format!("owning {BUS_NAME} on the session bus (is kojed running already?)")
+        })?;
+    tracing::info!("serving {BUS_NAME}");
     loop {
         let event = events.next().await;
-        if let Err(e) = daemon.handle(event).await {
-            tracing::warn!("{e:#}");
+        let changes = daemon.lock().await.handle(event).await;
+        match changes {
+            Ok(changes) => {
+                for change in &changes {
+                    if let Err(e) = api::emit(&conn, change).await {
+                        tracing::warn!("emitting a signal: {e}");
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("{e:#}"),
         }
     }
 }

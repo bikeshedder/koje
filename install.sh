@@ -8,7 +8,7 @@
 #
 # It never runs sudo: missing system packages are listed with an install command.
 # It writes only below ~/.local (binaries, the static forwarder, icon font,
-# koje's Hyprland snippet),
+# koje's Hyprland snippet) and kojed's systemd user unit in ~/.config/systemd/user,
 # builds koje's base image with rootless Podman if it is missing,
 # adds one `source` line to ~/.config/hypr/hyprland.conf if missing, and installs
 # koje's Waybar config only if you have none. Everything is shown before it happens.
@@ -100,6 +100,10 @@ fi
 plan_copy assets/fonts/lucide/lucide.ttf "$data/fonts/koje/lucide.ttf" "icon font"
 plan_copy assets/fonts/lucide/LICENSE "$data/fonts/koje/LICENSE" "icon font license"
 plan_copy assets/hyprland/koje.conf "$snippet" "Hyprland snippet"
+unit=$config/systemd/user/kojed.service
+if [[ ! -e "$unit" ]]; then add "+" "systemd user unit: $unit" "kojed_unit"
+elif cmp -s assets/systemd/kojed.service "$unit"; then add "=" "systemd user unit: $unit" ""
+else add "!" "systemd user unit: $unit" "kojed_unit"; fi
 plan_copy assets/bin/koje-window-picker "$libdir/koje-window-picker" "window picker (Super+Tab)"
 
 if [[ ! -e "$hyprconf" ]]; then
@@ -190,6 +194,11 @@ binary() {
   mv -f "$bin/$1.koje-new" "$bin/$1"
 }
 
+kojed_unit() {
+  copy assets/systemd/kojed.service "$unit"
+  systemctl --user daemon-reload || echo "  warning: systemctl --user daemon-reload failed" >&2
+}
+
 # Last step; a failure does not undo or stop the rest of the install.
 image_build() {
   local koje=$bin/koje
@@ -229,8 +238,14 @@ for p in "${plan[@]}"; do
   echo "  done: ${what//$HOME/\~}"
 done
 command -v fc-cache >/dev/null 2>&1 && fc-cache -f "$data/fonts/koje" >/dev/null 2>&1 || true
+# A running kojed picks up a new binary or unit only when restarted.
+if ((built)) && systemctl --user is-active --quiet kojed 2>/dev/null; then
+  systemctl --user restart kojed && echo "  restarted kojed"
+fi
 
 echo
 echo "${bold}Next${reset}"
 case ":$PATH:" in *":$bin:"*) ;; *) echo "  add ${bin//$HOME/\~} to your PATH" ;; esac
 echo "  in Hyprland: hyprctl reload; restart Waybar: pkill waybar; waybar &"
+systemctl --user is-active --quiet kojed 2>/dev/null ||
+  echo "  start kojed (Hyprland does it at login): systemctl --user start kojed"

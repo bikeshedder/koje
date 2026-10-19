@@ -7,6 +7,7 @@
 mod cli;
 mod commands;
 mod hostbus;
+mod kojed;
 mod prompt;
 mod runtime;
 

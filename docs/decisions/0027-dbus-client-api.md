@@ -17,7 +17,9 @@ to sleep). The bar and panel want to subscribe to events.
   breaking change gets `…2`).
 - Methods for commands (first: `Focus(s context)`, `ListContexts()`,
   `Status()`); signals for events (`WindowAdded`, `WindowRemoved`,
-  `ContextChanged`).
+  `ContextChanged`). The live set is whatever `busctl --user introspect`
+  shows; M4.7 started with `ListContexts`, `ActiveContext`, `Reload` and the
+  two window signals.
 - Contexts never reach it: they have their own session bus, and the filtered
   host bus (ADR 0019) allows only portal and notification names.
 - Clients that find no owner of `io.koje.Daemon` say that kojed is not running

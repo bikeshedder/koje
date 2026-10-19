@@ -1,5 +1,6 @@
 //! End-to-end tests of the `koje` binary with isolated XDG directories.
-//! They never touch the real user configuration, Podman or Hyprland.
+//! They never touch the real user configuration, Podman, Hyprland or kojed
+//! (the session bus points nowhere).
 
 #![allow(clippy::expect_used)]
 
@@ -13,6 +14,10 @@ fn command(xdg: &Path, args: &[&str]) -> Command {
         .env("XDG_CONFIG_HOME", xdg.join("config"))
         .env("XDG_DATA_HOME", xdg.join("data"))
         .env("XDG_STATE_HOME", xdg.join("state"))
+        .env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            format!("unix:path={}", xdg.join("no-bus").display()),
+        )
         .env_remove("RUST_LOG")
         .env_remove("VISUAL")
         .env_remove("EDITOR");

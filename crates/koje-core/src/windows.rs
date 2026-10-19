@@ -29,6 +29,15 @@ struct Tracked {
     context: Option<ContextName>,
 }
 
+/// The result of [`WindowMap::retain`].
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Retained {
+    /// Present but not known yet: to resolve and insert.
+    pub added: Vec<String>,
+    /// Context windows that are gone.
+    pub removed: Vec<(String, ContextName)>,
+}
+
 /// The windows kojed knows, by compositor address.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WindowMap {
@@ -76,15 +85,23 @@ impl WindowMap {
     }
 
     /// Keep only the windows in `present` (after a reconnect, windows may
-    /// have closed unseen); the addresses not known yet.
-    pub fn retain<'a>(&mut self, present: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    /// have closed unseen).
+    pub fn retain<'a>(&mut self, present: impl IntoIterator<Item = &'a str>) -> Retained {
         let present: BTreeSet<&str> = present.into_iter().collect();
-        self.windows.retain(|a, _| present.contains(a.as_str()));
-        present
+        let mut removed = Vec::new();
+        self.windows.retain(|a, w| {
+            let keep = present.contains(a.as_str());
+            if !keep && let Some(ctx) = &w.context {
+                removed.push((a.clone(), ctx.clone()));
+            }
+            keep
+        });
+        let added = present
             .into_iter()
             .filter(|a| !self.windows.contains_key(*a))
             .map(str::to_owned)
-            .collect()
+            .collect();
+        Retained { added, removed }
     }
 
     pub fn context_of(&self, address: &str) -> Option<&ContextName> {
@@ -177,8 +194,9 @@ mod tests {
         let mut m = WindowMap::new();
         m.insert("0xa", 7, Some(ctx("a")));
         m.insert("0xb", 8, Some(ctx("b")));
-        let new = m.retain(["0xb", "0xc"]);
-        assert_eq!(new, ["0xc"]);
+        let r = m.retain(["0xb", "0xc"]);
+        assert_eq!(r.added, ["0xc"]);
+        assert_eq!(r.removed, [("0xa".to_owned(), ctx("a"))]);
         assert!(!m.contains("0xa"));
         assert!(m.contains("0xb"));
     }

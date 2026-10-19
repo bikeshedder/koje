@@ -15,7 +15,8 @@ Goal: a running service that knows every window's context and colors it.
   - Notes: ADR 0018 – tag rule per context, re-add on `configreloaded`; check how to replace a rule on color change.
   - Done in code (awaiting host test): rule `koje-<context>` with `Color::dimmed()` as inactive color; rules + tags again on `configreloaded`; a context created after start gets its rule with its first window. Color change: the rule is added again (later rules win) – to verify on the host; kojed picks it up on the next resync until `koje edit` tells kojed (M4.7).
 - [ ] **M4.6 One workspace per context per monitor**; `koje focus <context>`
-- [ ] **M4.7 systemd user unit for kojed**; `koje` talks to kojed, clear error when it is not running
+- [~] **M4.7 systemd user unit for kojed**; `koje` talks to kojed, clear error when it is not running
+  - Done in code (awaiting host test): `io.koje.Daemon1` with `ListContexts() → a(ssu)`, `ActiveContext() → s`, `Reload()`, signals `WindowAdded`/`WindowRemoved`; `assets/systemd/kojed.service` (`Type=dbus`), installed by `install.sh`, started by `exec-once` in koje's Hyprland snippet; `koje new`/`edit` call `Reload` (silent without kojed); `koje::kojed::call` fails with the start hint when the name has no owner. Test against a private `dbus-daemon`.
 - [ ] **M4.8 Ignored integration tests against a live Hyprland**
 - [ ] **M4.9 `koje setup` and `koje doctor`** (ADR 0021): the steps of `install.sh` in the CLI (plan, warn, ask; dependency check), plus the systemd user unit from M4.7; `install.sh` then only builds koje and calls `koje setup`
 - [ ] **M4.10 Security-context socket per context** (ADR 0022): kojed creates `wp_security_context_v1` sockets (engine `io.koje`, app id `io.koje.<context>`) in per-context runtime directories, keeps them alive, recreates them after a compositor or kojed restart; prototype in `docs/spikes/setup/wl-secure-socket`

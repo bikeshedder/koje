@@ -12,6 +12,27 @@ use koje_core::paths::Paths;
 use koje_core::ports::{Compositor, CompositorCommand, CompositorEvent, ContainerRuntime};
 use koje_core::windows::{self, WindowMap};
 
+/// What clients hear about (D-Bus signals, ADR 0027).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    WindowAdded {
+        address: String,
+        context: ContextName,
+    },
+    WindowRemoved {
+        address: String,
+        context: ContextName,
+    },
+}
+
+/// A context as `ListContexts` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextInfo {
+    pub name: ContextName,
+    pub color: Color,
+    pub windows: usize,
+}
+
 #[derive(Debug)]
 pub struct Daemon<C, R> {
     compositor: C,
@@ -19,6 +40,7 @@ pub struct Daemon<C, R> {
     paths: Paths,
     colors: BTreeMap<ContextName, Color>,
     windows: WindowMap,
+    focused: Option<String>,
 }
 
 impl<C, R> Daemon<C, R>
@@ -33,7 +55,39 @@ where
             paths,
             colors: BTreeMap::new(),
             windows: WindowMap::new(),
+            focused: None,
         }
+    }
+
+    /// Known contexts with their window counts.
+    pub fn contexts(&self) -> Vec<ContextInfo> {
+        let counts = self.windows.counts();
+        self.colors
+            .iter()
+            .map(|(name, color)| ContextInfo {
+                name: name.clone(),
+                color: *color,
+                windows: counts.get(name).copied().unwrap_or(0),
+            })
+            .collect()
+    }
+
+    /// The context of the focused window, if it belongs to one.
+    pub fn active_context(&self) -> Option<&ContextName> {
+        self.focused
+            .as_deref()
+            .and_then(|a| self.windows.context_of(a))
+    }
+
+    /// Read the contexts again (after `koje new`/`koje edit`) and send their
+    /// rules. Without a compositor that is fine: rules follow on `Connected`.
+    pub async fn reload(&mut self) -> Result<()> {
+        let list = koje_core::context::list(&self.paths).context("reading the contexts")?;
+        self.colors = list.into_iter().map(|c| (c.name, c.color)).collect();
+        if let Err(e) = self.apply(&self.rules()).await {
+            tracing::info!("rules not sent: {e:#}");
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -41,7 +95,7 @@ where
         &self.windows
     }
 
-    pub async fn handle(&mut self, event: CompositorEvent) -> Result<()> {
+    pub async fn handle(&mut self, event: CompositorEvent) -> Result<Vec<Change>> {
         match event {
             CompositorEvent::Connected => self.sync().await,
             CompositorEvent::ConfigReloaded => {
@@ -49,31 +103,48 @@ where
                 // set again too, which is idempotent.
                 let mut commands = self.rules();
                 commands.extend(self.windows.tags());
-                self.apply(&commands).await
+                self.apply(&commands).await.map(|()| Vec::new())
             }
             CompositorEvent::WindowOpened { address, .. } => self.opened(&address).await,
-            CompositorEvent::WindowClosed { address } => {
-                self.windows.remove(&address);
-                Ok(())
+            CompositorEvent::WindowClosed { address } => Ok(self
+                .windows
+                .remove(&address)
+                .map(|context| Change::WindowRemoved { address, context })
+                .into_iter()
+                .collect()),
+            CompositorEvent::WindowFocused { address } => {
+                self.focused = address;
+                Ok(Vec::new())
             }
-            CompositorEvent::WindowFocused { .. } | CompositorEvent::WindowTitle { .. } => Ok(()),
+            CompositorEvent::WindowTitle { .. } => Ok(Vec::new()),
         }
     }
 
     /// Start and every (re)connection: contexts, rules, all windows.
-    async fn sync(&mut self) -> Result<()> {
+    async fn sync(&mut self) -> Result<Vec<Change>> {
         self.load_colors();
         let present = self
             .compositor
             .windows()
             .await
             .map_err(anyhow::Error::new)?;
-        let new = self
+        let diff = self
             .windows
             .retain(present.iter().map(|w| w.address.as_str()));
+        let mut changes: Vec<Change> = diff
+            .removed
+            .into_iter()
+            .map(|(address, context)| Change::WindowRemoved { address, context })
+            .collect();
         let mut commands = Vec::new();
-        for w in present.iter().filter(|w| new.contains(&w.address)) {
+        for w in present.iter().filter(|w| diff.added.contains(&w.address)) {
             let ctx = self.resolve(w.pid).await;
+            if let Some(context) = &ctx {
+                changes.push(Change::WindowAdded {
+                    address: w.address.clone(),
+                    context: context.clone(),
+                });
+            }
             self.windows.insert(&w.address, w.pid, ctx);
         }
         // Contexts created since the colors were loaded.
@@ -92,12 +163,13 @@ where
             contexts = ?self.windows.counts(),
             "synced with the compositor"
         );
-        self.apply(&commands).await
+        self.apply(&commands).await?;
+        Ok(changes)
     }
 
-    async fn opened(&mut self, address: &str) -> Result<()> {
+    async fn opened(&mut self, address: &str) -> Result<Vec<Change>> {
         if self.windows.contains(address) {
-            return Ok(());
+            return Ok(Vec::new());
         }
         // Events carry no pid; the window list has it.
         let all = self
@@ -106,7 +178,7 @@ where
             .await
             .map_err(anyhow::Error::new)?;
         let Some(w) = all.into_iter().find(|w| w.address == address) else {
-            return Ok(()); // closed again already
+            return Ok(Vec::new()); // closed again already
         };
         let ctx = self.resolve(w.pid).await;
         let mut commands = Vec::new();
@@ -118,8 +190,13 @@ where
             commands.extend(self.colors.get(c).map(|color| windows::rule(c, *color)));
         }
         tracing::debug!(address, pid = w.pid, context = ?ctx.as_ref().map(ContextName::as_str), "window opened");
+        let change = ctx.clone().map(|context| Change::WindowAdded {
+            address: address.to_owned(),
+            context,
+        });
         commands.extend(self.windows.insert(address, w.pid, ctx));
-        self.apply(&commands).await
+        self.apply(&commands).await?;
+        Ok(change.into_iter().collect())
     }
 
     /// The context of a process: cached per pid while it has windows, else
@@ -317,11 +394,30 @@ mod tests {
         comp.open("0xh", 99); // a host window
         let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
 
-        d.handle(CompositorEvent::Connected).await.unwrap();
+        let changes = d.handle(CompositorEvent::Connected).await.unwrap();
         assert_eq!(
             comp.take(),
             [windows::rule(&ctx("work"), red()), tag("0xa", "koje-work")]
         );
+        assert_eq!(
+            changes,
+            [Change::WindowAdded {
+                address: "0xa".into(),
+                context: ctx("work")
+            }]
+        );
+        d.handle(CompositorEvent::WindowFocused {
+            address: Some("0xa".into()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(d.active_context(), Some(&ctx("work")));
+        d.handle(CompositorEvent::WindowFocused {
+            address: Some("0xh".into()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(d.active_context(), None, "a host window");
 
         // A second window of the same process: no new lookup.
         comp.open("0xb", 10);
@@ -348,12 +444,28 @@ mod tests {
             ]
         );
 
-        d.handle(CompositorEvent::WindowClosed {
-            address: "0xb".into(),
-        })
-        .await
-        .unwrap();
+        let changes = d
+            .handle(CompositorEvent::WindowClosed {
+                address: "0xb".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            changes,
+            [Change::WindowRemoved {
+                address: "0xb".into(),
+                context: ctx("work")
+            }]
+        );
         assert!(!d.windows().contains("0xb"));
+        assert_eq!(
+            d.contexts(),
+            [ContextInfo {
+                name: ctx("work"),
+                color: red(),
+                windows: 1
+            }]
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -391,7 +503,20 @@ mod tests {
         d.handle(CompositorEvent::Connected).await.unwrap();
         comp.close("0xa");
         comp.open("0xc", 10);
-        d.handle(CompositorEvent::Connected).await.unwrap();
+        let changes = d.handle(CompositorEvent::Connected).await.unwrap();
+        assert_eq!(
+            changes,
+            [
+                Change::WindowRemoved {
+                    address: "0xa".into(),
+                    context: ctx("work")
+                },
+                Change::WindowAdded {
+                    address: "0xc".into(),
+                    context: ctx("work")
+                }
+            ]
+        );
         assert!(!d.windows().contains("0xa"));
         assert_eq!(d.windows().context_of("0xc"), Some(&ctx("work")));
         // A window that closed before kojed looked: nothing to do.

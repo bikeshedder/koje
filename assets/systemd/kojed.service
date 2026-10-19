@@ -1,0 +1,12 @@
+# koje's background service (M4.7, ADR 0026/0027). Installed by install.sh to
+# ~/.config/systemd/user/; started by koje's Hyprland snippet (exec-once).
+[Unit]
+Description=koje background service (window colors, contexts)
+Documentation=https://github.com/bikeshedder/koje
+
+[Service]
+Type=dbus
+BusName=io.koje.Daemon
+ExecStart=%h/.local/bin/kojed
+Restart=on-failure
+RestartSec=2

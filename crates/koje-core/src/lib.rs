@@ -9,6 +9,7 @@
 //! **layout** is a named arrangement of a context's windows.
 
 pub mod access;
+pub mod api;
 pub mod color;
 pub mod config;
 pub mod container;

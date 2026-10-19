@@ -72,6 +72,7 @@ fn new(paths: &Paths, ctx: &Ctx, color: Option<&str>, prefix: Option<String>) ->
         cfg.color,
         paths.context_config(&name).display()
     );
+    crate::kojed::reload();
     Ok(())
 }
 
@@ -105,6 +106,7 @@ fn edit_loop(paths: &Paths, name: &ContextName, draft: &Path, original: &str) ->
         match context::replace_config(paths, name, &text) {
             Ok(_) => {
                 println!("saved {}", paths.context_config(name).display());
+                crate::kojed::reload();
                 return Ok(());
             }
             Err(err) => {
