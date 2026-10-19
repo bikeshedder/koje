@@ -20,7 +20,8 @@ left it. The programs themselves stay unchanged.
 ```
 
 The installer checks dependencies (and prints the `apt install` line for missing
-ones – it never runs `sudo`), builds `koje` and `kojed` into `~/.local/bin`,
+ones – it never runs `sudo`), builds `koje` and `kojed` into `~/.local/bin` and the static `koje-forward`
+into `~/.local/lib/koje/`,
 installs koje's icon font and Hyprland snippet below `~/.local/share`, adds one
 `source` line to `~/.config/hypr/hyprland.conf`, and installs koje's Waybar
 config only if you have none. Running it again updates koje's files and leaves

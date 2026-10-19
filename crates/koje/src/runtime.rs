@@ -30,11 +30,27 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
              start {name} without windows: koje up {name} -s empty"
         );
     }
+    let global = GlobalConfig::load(&paths.global_config())?;
+    let access = cfg.effective_access(&global);
     let podman = Podman::new();
-    match plan_up(podman.status(&name)?) {
+    let status = podman.status(&name)?;
+    let plan = plan_up(status);
+    if plan == UpPlan::Paused {
+        bail!("{name} is paused – resume it with: koje wake {name}");
+    }
+    let mut host = koje_podman::host::detect().context("detecting the host environment")?;
+    // The proxy first: its directory must exist when the container starts.
+    if koje_core::hostbus::needed(&access) {
+        host.forwarder = crate::hostbus::forwarder_binary();
+        match crate::hostbus::start_proxy(&name, &access) {
+            Ok(dir) => host.host_bus_dir = Some(dir),
+            Err(e) => println!("note: host interfaces unavailable: {e:#}"),
+        }
+    }
+    match plan {
         UpPlan::CreateAndStart => {
             ensure_image(&podman, &cfg)?;
-            let built = spec(paths, &cfg)?;
+            let built = spec(paths, &cfg, &global, access, &host)?;
             print_notes(&built);
             podman
                 .create(&built.spec)
@@ -47,7 +63,13 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
             println!("started {name}");
         }
         UpPlan::AlreadyRunning => println!("{name} is already running"),
-        UpPlan::Paused => bail!("{name} is paused – resume it with: koje wake {name}"),
+        UpPlan::Paused => unreachable!("handled above"),
+    }
+    if host.host_bus_dir.is_some()
+        && host.forwarder.is_some()
+        && let Err(e) = crate::hostbus::start_forwarder(&podman, &name, &access, host.uid)
+    {
+        println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
     Ok(())
 }
@@ -76,6 +98,7 @@ pub fn down(paths: &Paths, context: &str, no_save: bool) -> Result<()> {
         DownPlan::AlreadyStopped => println!("{name} is not running"),
         DownPlan::NotCreated => println!("{name} has not been started yet"),
     }
+    crate::hostbus::stop_proxy(&name);
     Ok(())
 }
 
@@ -188,20 +211,24 @@ fn ensure_image(podman: &Podman, cfg: &ContextConfig) -> Result<()> {
 }
 
 /// The container spec from the context's config, the global defaults and the host.
-fn spec(paths: &Paths, cfg: &ContextConfig) -> Result<Built> {
-    let global = GlobalConfig::load(&paths.global_config())?;
-    let host = koje_podman::host::detect().context("detecting the host environment")?;
+fn spec(
+    paths: &Paths,
+    cfg: &ContextConfig,
+    global: &GlobalConfig,
+    access: koje_core::access::Access,
+    host: &koje_core::spec::HostEnv,
+) -> Result<Built> {
     let mounts = koje_podman::host::resolve_mounts(cfg, &paths.host_dirs()?)?;
-    let limits = cfg.effective_limits(&global)?;
+    let limits = cfg.effective_limits(global)?;
     Ok(build(
         &ContextInputs {
             name: &cfg.name,
             image: &cfg.image,
-            access: cfg.effective_access(&global),
+            access,
             limits: &limits,
             mounts: &mounts,
         },
-        &host,
+        host,
     ))
 }
 

@@ -197,6 +197,7 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
     if has_volume {
         podman.remove_volume(&volume)?;
     }
+    crate::hostbus::stop_proxy(&name);
     context::remove(paths, &name)?;
     println!("removed context {name}");
     Ok(())

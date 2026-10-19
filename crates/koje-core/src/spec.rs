@@ -18,6 +18,9 @@ use crate::size::ByteSize;
 /// Where the image's (Fedora) GBM looks for backends (ADR 0016).
 pub const IMAGE_GBM_DIR: &str = "/usr/lib64/gbm";
 
+/// Where the forwarder is mounted inside every context (ADR 0025).
+pub const FORWARDER_IN_CONTEXT: &str = "/usr/local/libexec/koje/koje-forward";
+
 /// How to (re)generate the NVIDIA CDI spec (ADR 0016; needs root).
 pub const NVIDIA_CDI_GENERATE: &str = "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml";
 
@@ -46,6 +49,8 @@ pub struct HostEnv {
     pub nvidia: Option<Nvidia>,
     /// Per-context directory holding the filtered host bus socket (ADR 0019).
     pub host_bus_dir: Option<PathBuf>,
+    /// The static `koje-forward` binary on the host (ADR 0025).
+    pub forwarder: Option<PathBuf>,
 }
 
 /// The host's NVIDIA setup (ADR 0016).
@@ -205,8 +210,21 @@ impl Parts<'_> {
     }
 
     fn host_bus(&mut self, on: bool) {
-        let dir = self.host.host_bus_dir.as_ref();
-        if let Some(dir) = self.need(on, dir, "host interfaces (bus proxy)") {
+        let host = self.host;
+        let Some(forwarder) = self.need(
+            on,
+            host.forwarder.as_ref(),
+            "host interfaces (koje-forward not installed – run ./install.sh)",
+        ) else {
+            return;
+        };
+        self.mounts
+            .push(bind(&forwarder, FORWARDER_IN_CONTEXT, true));
+        if let Some(dir) = self.need(
+            on,
+            host.host_bus_dir.as_ref(),
+            "host interfaces (bus proxy)",
+        ) {
             let target = self.run.join("koje-host");
             self.set(
                 "KOJE_HOST_BUS",
@@ -358,6 +376,7 @@ mod tests {
                 gbm: Some("/usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.595.91.07".into()),
             }),
             host_bus_dir: Some("/run/user/1000/koje/kp/host-bus".into()),
+            forwarder: Some("/home/mj/.local/lib/koje/koje-forward".into()),
         }
     }
 
@@ -420,6 +439,7 @@ mod tests {
                 "/run/user/1000/pipewire-0",
                 "/run/user/1000/pulse-native",
                 "/run/cups/cups.sock",
+                "/usr/local/libexec/koje/koje-forward",
                 "/run/user/1000/koje-host",
                 "/usr/lib64/gbm/nvidia-drm_gbm.so",
                 "/home/mj/src/kp",
@@ -506,7 +526,7 @@ mod tests {
                 "sound (PipeWire): not available on the host",
                 "sound (PulseAudio): not available on the host",
                 "print (CUPS): not available on the host",
-                "host interfaces (bus proxy): not available on the host",
+                "host interfaces (koje-forward not installed – run ./install.sh): not available on the host",
                 "gpu: no GPU found on the host",
             ]
         );

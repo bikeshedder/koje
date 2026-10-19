@@ -53,6 +53,8 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
         nvidia: nvidia(root),
         // Started per context by koje (M3.14); not part of host detection.
         host_bus_dir: None,
+        // Found by the CLI (`hostbus::forwarder_binary`), only when needed.
+        forwarder: None,
     }
 }
 

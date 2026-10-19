@@ -7,7 +7,8 @@
 #   ./install.sh --skip-build   do not build/install koje and kojed
 #
 # It never runs sudo: missing system packages are listed with an install command.
-# It writes only below ~/.local (binaries, icon font, koje's Hyprland snippet),
+# It writes only below ~/.local (binaries, the static forwarder, icon font,
+# koje's Hyprland snippet),
 # builds koje's base image with rootless Podman if it is missing,
 # adds one `source` line to ~/.config/hypr/hyprland.conf if missing, and installs
 # koje's Waybar config only if you have none. Everything is shown before it happens.
@@ -22,7 +23,7 @@ for arg in "$@"; do
     --dry-run) dry=1 ;;
     --yes | -y) yes=1 ;;
     --skip-build) build=0 ;;
-    -h | --help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -31,6 +32,8 @@ data=${XDG_DATA_HOME:-$HOME/.local/share}
 config=${XDG_CONFIG_HOME:-$HOME/.config}
 bin=$HOME/.local/bin
 snippet=$data/koje/hyprland/koje.conf
+libdir=$HOME/.local/lib/koje
+musl=x86_64-unknown-linux-musl
 hyprconf=$config/hypr/hyprland.conf
 source_line="source = $snippet"
 
@@ -88,6 +91,9 @@ if ((build)); then
   for b in koje kojed; do
     if [[ -e "$bin/$b" ]]; then add "!" "binary: $bin/$b (rebuilt)" "binary $b"; else add "+" "binary: $bin/$b" "binary $b"; fi
   done
+  # The forwarder runs inside every context: static, mounted read-only (ADR 0025).
+  if [[ -e "$libdir/koje-forward" ]]; then mark="!"; else mark="+"; fi
+  add "$mark" "forwarder: $libdir/koje-forward (static, for contexts)" "forwarder"
 fi
 
 plan_copy assets/fonts/lucide/lucide.ttf "$data/fonts/koje/lucide.ttf" "icon font"
@@ -189,6 +195,18 @@ image_build() {
   if [[ -z "$koje" ]] || ! "$koje" image build; then
     echo "  warning: the base image was not built – retry with: koje image build" >&2
   fi
+}
+
+forwarder() {
+  if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep -qx "$musl"; then
+    echo "adding the Rust target $musl (for the static forwarder) …"
+    rustup target add "$musl"
+  fi
+  echo "building koje-forward (static) …"
+  cargo build --release --locked -p koje-forward --target "$musl"
+  mkdir -p "$libdir"
+  install -m 755 "target/$musl/release/koje-forward" "$libdir/koje-forward.koje-new"
+  mv -f "$libdir/koje-forward.koje-new" "$libdir/koje-forward"
 }
 
 hyprconf() {

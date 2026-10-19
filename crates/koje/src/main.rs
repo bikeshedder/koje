@@ -6,6 +6,7 @@
 
 mod cli;
 mod commands;
+mod hostbus;
 mod prompt;
 mod runtime;
 

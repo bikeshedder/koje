@@ -75,16 +75,31 @@ case "$1" in
   stop) echo exited > {status} ;;
   pause) echo paused > {status} ;;
   unpause) echo running > {status} ;;
-  exec) case "$*" in *"podman ps"*) echo web ;; esac ;;
+  exec) case "$*" in
+    *"podman ps"*) echo web ;;
+    *koje-forward*) touch {status}.forward ;;
+    *ListNames*) if [ -f {status}.forward ]; then echo '"org.freedesktop.Notifications" "org.freedesktop.portal.Desktop"'; fi ;;
+  esac ;;
 esac
 "#,
         log = log.display(),
         status = status.display()
     );
+    write_tool(&bin, "podman", &script);
+    format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
+/// Write an executable script `bin/<name>` from a child process, so no fd of
+/// this test process points at it while other tests fork ("text file busy").
+fn write_tool(bin: &Path, name: &str, script: &str) {
     let ok = Command::new("sh")
         .args([
             "-c",
-            &format!("cat > {0}/podman && chmod +x {0}/podman", bin.display()),
+            &format!("cat > {0}/{name} && chmod +x {0}/{name}", bin.display()),
         ])
         .stdin(Stdio::piped())
         .spawn()
@@ -95,14 +110,9 @@ esac
                 .write_all(script.as_bytes())?;
             c.wait()
         })
-        .expect("write fake podman")
+        .expect("write fake tool")
         .success();
-    assert!(ok, "fake podman");
-    format!(
-        "{}:{}",
-        bin.display(),
-        std::env::var("PATH").unwrap_or_default()
-    )
+    assert!(ok, "fake {name}");
 }
 
 fn podman_log(tmp: &Path) -> String {
@@ -568,6 +578,104 @@ fn rm_removes_container_and_home_volume() {
         "{log}"
     );
     assert!(!config_of(tmp.path(), "kp").exists());
+}
+
+#[test]
+fn up_starts_proxy_and_forwarder_down_stops_the_proxy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    let bin = tmp.path().join("bin");
+    let log = tmp.path().join("systemd.log");
+    write_tool(&bin, "xdg-dbus-proxy", "#!/bin/sh\n");
+    // is-active: never active; systemd-run: log, and create the socket path (ends in /bus).
+    write_tool(
+        &bin,
+        "systemctl",
+        &format!(
+            "#!/bin/sh\nprintf 'systemctl %s\\n' \"$*\" >> {0}\ncase \"$*\" in *is-active*) exit 1 ;; esac\n",
+            log.display()
+        ),
+    );
+    write_tool(
+        &bin,
+        "systemd-run",
+        &format!(
+            "#!/bin/sh\nprintf 'systemd-run %s\\n' \"$*\" >> {0}\nfor a; do case \"$a\" in /*/bus) : > \"$a\" ;; esac; done\n",
+            log.display()
+        ),
+    );
+    let forwarder = tmp.path().join("koje-forward");
+    std::fs::write(&forwarder, "").unwrap();
+    let run = tmp.path().join("run");
+    std::fs::create_dir_all(&run).unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+
+    let koje_up = |args: &[&str]| {
+        command(tmp.path(), args)
+            .env("PATH", &path)
+            .env("XDG_RUNTIME_DIR", &run)
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/fake/host/bus")
+            .env("KOJE_FORWARD", &forwarder)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let out = stdout(&koje_up(&["up", "kp", "-s", "empty"]));
+    assert!(
+        !out.contains("host interfaces"),
+        "no host interface note expected:\n{out}"
+    );
+
+    let systemd = std::fs::read_to_string(&log).unwrap();
+    let dir = run.join("koje/kp/host-bus");
+    assert!(
+        systemd.contains("systemd-run --user --unit=koje-proxy-kp --collect"),
+        "{systemd}"
+    );
+    assert!(
+        systemd.contains(&format!(
+            "xdg-dbus-proxy unix:path=/fake/host/bus {}/bus --filter",
+            dir.display()
+        )),
+        "{systemd}"
+    );
+    assert!(
+        systemd.contains("--talk=org.freedesktop.Notifications"),
+        "{systemd}"
+    );
+
+    let podman = podman_log(tmp.path());
+    assert!(
+        podman.contains(&format!("--volume {}:/run/user/", dir.display())),
+        "{podman}"
+    );
+    assert!(
+        podman.contains(&format!(
+            "--volume {}:/usr/local/libexec/koje/koje-forward:ro",
+            forwarder.display()
+        )),
+        "{podman}"
+    );
+    assert!(
+        podman.contains(
+            "exec -d koje-kp /usr/local/libexec/koje/koje-forward --host unix:path=/run/user/"
+        ) && podman.contains("org.freedesktop.Notifications org.freedesktop.portal.Desktop"),
+        "{podman}"
+    );
+
+    // Again: the forwarder already owns its names and is not started twice.
+    stdout(&koje_up(&["up", "kp", "-s", "empty"]));
+    let starts = podman_log(tmp.path())
+        .matches("exec -d koje-kp /usr/local/libexec/koje/koje-forward")
+        .count();
+    assert_eq!(starts, 1);
+
+    stdout(&koje_up(&["down", "kp", "--no-save"]));
+    assert!(
+        std::fs::read_to_string(&log)
+            .unwrap()
+            .contains("systemctl --user stop koje-proxy-kp")
+    );
 }
 
 #[test]
