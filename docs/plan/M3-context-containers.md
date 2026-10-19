@@ -19,7 +19,8 @@ yet. Break down further using the M2.3–M2.5 reports.
   - Notes: `lifecycle::plan_sleep/plan_wake`. Host test 2026-10-19.
 - [x] **M3.8 `koje rm` removes containers and volumes** (with confirmation)
   - Notes: stops, removes container, then home volume, config last; works without Podman (koje files only). Host test 2026-10-19: nothing left.
-- [~] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
+- [x] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
+  - Notes: `crates/koje-podman/tests/podman.rs` – lifecycle/memory/pid mapping, create from spec, context from `koje/base`. All pass on the host (2026-10-19). Dev container: M0.8.
 - [ ] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)
 - [ ] **M3.11 Stale sockets** after a host PipeWire/compositor restart (ADR 0015): detect and restart or remount
   - Notes: seen in M2.4 – after restarting the nested Hyprland, a running context kept the old `wayland-1` socket; mounting the socket's directory (as for the host bus proxy) would avoid it. Solved for Wayland by ADR 0022 (kojed recreates the socket in the mounted directory); PipeWire/PulseAudio still open.
