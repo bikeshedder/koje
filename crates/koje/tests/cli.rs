@@ -68,7 +68,9 @@ printf '%s\n' "$*" >> {log}
 case "$1" in
   container) if [ -f {status} ]; then cat {status}; else echo "Error: no such container" >&2; exit 125; fi ;;
   image) exit 0 ;;
-  create) echo exited > {status} ;;
+  volume) case "$2" in exists) test -f {status}.volume ;; rm) rm -f {status}.volume ;; esac ;;
+  rm) rm -f {status} ;;
+  create) echo exited > {status}; touch {status}.volume ;;
   start) echo running > {status} ;;
   stop) echo exited > {status} ;;
   pause) echo paused > {status} ;;
@@ -527,6 +529,45 @@ fn sleep_and_wake() {
         log.lines().any(|l| l == "pause koje-kp") && log.lines().any(|l| l == "unpause koje-kp"),
         "{log}"
     );
+}
+
+#[test]
+fn rm_removes_container_and_home_volume() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+
+    // The question lists the container (running) and the home volume; "n" keeps all.
+    let out = command(tmp.path(), &["rm", "kp"])
+        .env("PATH", &path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("container koje-kp (running – stopped first)"),
+        "{text}"
+    );
+    assert!(text.contains("home volume koje-kp-home"), "{text}");
+    assert!(!out.status.success());
+    assert!(config_of(tmp.path(), "kp").exists());
+
+    stdout(&koje_fake(tmp.path(), &path, &["rm", "kp", "--yes"]));
+    let log = podman_log(tmp.path());
+    let tail: Vec<&str> = log
+        .lines()
+        .filter(|l| !l.starts_with("container") && !l.starts_with("volume exists"))
+        .collect();
+    assert!(
+        tail.ends_with(&[
+            "stop --time 10 koje-kp",
+            "rm koje-kp",
+            "volume rm koje-kp-home"
+        ]),
+        "{log}"
+    );
+    assert!(!config_of(tmp.path(), "kp").exists());
 }
 
 #[test]

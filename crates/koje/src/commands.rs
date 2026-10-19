@@ -142,18 +142,60 @@ fn run_editor(file: &Path) -> Result<()> {
 
 /// `koje rm`: delete a context's config, states and recovery file.
 fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
+    use koje_core::container::{container_name, home_volume};
+    use koje_core::lifecycle::{DownPlan, plan_down};
+    use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
+
     let name = context_name(ctx)?;
     if !context::exists(paths, &name) {
         bail!("context {name} does not exist");
     }
+    // Podman may be missing or broken; koje's own files can be removed anyway.
+    let podman = koje_podman::Podman::new();
+    let volume = home_volume(&name);
+    let (status, has_volume) = match podman.status(&name) {
+        Ok(status) => (Some(status), podman.volume_exists(&volume).unwrap_or(false)),
+        Err(e) => {
+            eprintln!("koje: could not check for a container ({e}); removing koje's files only");
+            (None, false)
+        }
+    };
+    let has_container = status.is_some_and(|s| s != ContainerStatus::Missing);
     if !yes {
         println!("This deletes context {name} for good:");
+        if let Some(status) = status.filter(|_| has_container) {
+            let running = matches!(status, ContainerStatus::Running | ContainerStatus::Paused);
+            let note = if running {
+                " (running – stopped first)"
+            } else {
+                ""
+            };
+            println!("  container {}{note}", container_name(&name));
+        }
+        if has_volume {
+            println!("  home volume {volume} – everything {name} stored in its home");
+        }
         for dir in context::dirs(paths, &name).iter().filter(|d| d.exists()) {
             println!("  {}", dir.display());
         }
         if !confirm(&format!("Remove context {name}?"), false)? {
             bail!("aborted; nothing was removed");
         }
+    }
+    // Container and volume first, config last: on failure `koje rm` can be repeated.
+    if let Some(status) = status.filter(|_| has_container) {
+        match plan_down(status) {
+            DownPlan::Stop => podman.stop(&name)?,
+            DownPlan::UnpauseAndStop => {
+                podman.unpause(&name)?;
+                podman.stop(&name)?;
+            }
+            DownPlan::AlreadyStopped | DownPlan::NotCreated => {}
+        }
+        podman.remove(&name)?;
+    }
+    if has_volume {
+        podman.remove_volume(&volume)?;
     }
     context::remove(paths, &name)?;
     println!("removed context {name}");

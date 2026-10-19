@@ -16,7 +16,7 @@ yet. Break down further using the M2.3–M2.5 reports.
 - [x] **M3.6 `koje open <context> <url|file>`**
   - Notes: files only inside mounted folders (same path); `koje_core::open`. Host test 2026-10-19: URL and mounted file open in the context's Firefox, unmounted file refused.
 - [~] **M3.7 `koje sleep` / `koje wake`** (windows to stash comes with M5)
-- [ ] **M3.8 `koje rm` removes containers and volumes** (with confirmation)
+- [~] **M3.8 `koje rm` removes containers and volumes** (with confirmation)
 - [ ] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
 - [ ] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)
 - [ ] **M3.11 Stale sockets** after a host PipeWire/compositor restart (ADR 0015): detect and restart or remount

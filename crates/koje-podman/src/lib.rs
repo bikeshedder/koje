@@ -173,6 +173,20 @@ impl<R: Runner> Podman<R> {
         self.podman(&args).map(drop)
     }
 
+    /// Whether a named volume exists.
+    pub fn volume_exists(&self, volume: &str) -> Result<bool> {
+        let out = self
+            .runner
+            .run(&["volume", "exists", volume])
+            .map_err(Error::Spawn)?;
+        Ok(out.success)
+    }
+
+    /// Remove a named volume (and everything in it).
+    pub fn remove_volume(&self, volume: &str) -> Result<()> {
+        self.podman(&["volume", "rm", volume]).map(drop)
+    }
+
     /// Names of the dev containers running in the context (its nested Podman).
     pub fn dev_containers(&self, ctx: &ContextName) -> Result<Vec<String>> {
         let out = self.podman(&[
