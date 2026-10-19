@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/koje-core", "crates/koje-podman", "crates/koje", "crates/kojed"]
+members = ["crates/koje-core", "crates/koje-podman", "crates/koje-forward", "crates/koje", "crates/kojed"]
 
 [workspace.package]
 version = "0.1.0"
@@ -18,11 +18,15 @@ koje-podman = { path = "crates/koje-podman" }
 anyhow = "1"
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
 directories = "6"
+futures-util = "0.3"
 indexmap = { version = "2.14", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 toml = { version = "1", features = ["preserve_order"] }
+# 5.x: 6.0 is too fresh (ADR 0025 / M3.16).
+zbus = { version = "5.19", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
