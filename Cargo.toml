@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/koje-core", "crates/koje-podman", "crates/koje-forward", "crates/koje", "crates/kojed"]
+members = ["crates/koje-core", "crates/koje-podman", "crates/koje-hyprland", "crates/koje-forward", "crates/koje", "crates/kojed"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ publish = false
 [workspace.dependencies]
 koje-core = { path = "crates/koje-core" }
 koje-podman = { path = "crates/koje-podman" }
+koje-hyprland = { path = "crates/koje-hyprland" }
 
 anyhow = "1"
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
@@ -26,7 +27,7 @@ thiserror = "2"
 toml = { version = "1", features = ["preserve_order"] }
 # 5.x: 6.0 is too fresh (ADR 0025 / M3.16).
 zbus = { version = "5.19", default-features = false, features = ["tokio"] }
-tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "net", "io-util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

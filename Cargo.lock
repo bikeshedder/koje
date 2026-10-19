@@ -427,6 +427,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "koje-hyprland"
+version = "0.1.0"
+dependencies = [
+ "koje-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "koje-podman"
 version = "0.1.0"
 dependencies = [

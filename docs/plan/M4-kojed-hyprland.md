@@ -4,9 +4,11 @@ Goal: a running service that knows every window's context and colors it.
 
 - [x] **M4.1 Decide service model** (async runtime or threads) and client API (D-Bus vs Unix socket) → ADRs
   - Notes: ADR 0026 (tokio, current-thread), ADR 0027 (D-Bus `io.koje.Daemon`, interface `io.koje.Daemon1`).
-- [~] **M4.2 Hyprland adapter implementing `Compositor`** (command socket, batching)
+- [x] **M4.2 Hyprland adapter implementing `Compositor`** (command socket, batching)
   - Notes: port shape and request syntax per M2.2 report (0.53 syntax); all request strings in one place.
-- [ ] **M4.3 Event stream** from socket2 with reconnect
+  - Done: crate `koje-hyprland` – `requests` (all strings, argument check against `;`/`,`), `clients` (`j/clients` + `j/monitors` → `WindowInfo`, placement relative to the monitor), instance discovery (signature, else newest; rediscovered when the socket goes away). Port: `Compositor::windows()` + `apply(&[CompositorCommand])` as one `[[BATCH]]`. Live check of the strings: M4.8.
+- [x] **M4.3 Event stream** from socket2 with reconnect
+  - Done: `koje_hyprland::events` – pure `parse_line` (open/close/focus/title/configreloaded, addresses normalized to `0x…`), `Events::next()` reconnects with backoff and yields `Reconnected`. Tested against fake sockets.
 - [ ] **M4.4 Window → context mapping** (PID → cgroup → container label), cached
 - [ ] **M4.5 Border colors per context** (active/inactive), reapplied on reconnect
   - Notes: ADR 0018 – tag rule per context, re-add on `configreloaded`; check how to replace a rule on color change.

@@ -4,9 +4,13 @@
 //! the binaries (or future adapter crates); tests use in-memory fakes. Keep
 //! the traits small and add methods only when a milestone needs them.
 //!
-//! These are synchronous on purpose for now. Whether `kojed` becomes async is
-//! an open question (`docs/open-questions.md`).
+//! The compositor port is asynchronous (kojed runs on tokio, ADR 0026); the
+//! container runtime is synchronous for now (kojed calls it in
+//! `spawn_blocking`).
 
+use std::future::Future;
+
+use crate::color::Color;
 use crate::layout::Placement;
 use crate::name::ContextName;
 use crate::size::ByteSize;
@@ -15,7 +19,7 @@ use crate::spec::ContainerSpec;
 /// A window as reported by the compositor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowInfo {
-    /// Compositor-specific address (Hyprland: hex address like `0x55d1…`).
+    /// Compositor-specific address (Hyprland: `0x55d1…`, always with `0x`).
     pub address: String,
     pub pid: u32,
     /// Wayland app id / class.
@@ -25,25 +29,76 @@ pub struct WindowInfo {
     pub placement: Placement,
 }
 
+/// One step for the compositor; [`Compositor::apply`] sends a list as one batch
+/// (Hyprland `[[BATCH]]`: 10 commands in 0.1 ms, M2.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompositorCommand {
+    /// Border colors for every window carrying `tag` (ADR 0018). Defining it
+    /// again replaces the colors.
+    ContextRule {
+        tag: String,
+        active: Color,
+        inactive: Color,
+    },
+    /// Give a window a tag (it then gets the tag's rule).
+    TagWindow {
+        address: String,
+        tag: String,
+    },
+    /// Move and resize a window.
+    Place {
+        address: String,
+        placement: Placement,
+    },
+    /// Move a window to a workspace without following it.
+    MoveToWorkspace {
+        address: String,
+        workspace: String,
+    },
+    FocusWindow {
+        address: String,
+    },
+    FocusWorkspace {
+        workspace: String,
+    },
+}
+
+/// What the compositor reports (Hyprland: socket2 events, M2.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompositorEvent {
+    WindowOpened {
+        address: String,
+        workspace: String,
+        class: String,
+        title: String,
+    },
+    WindowClosed {
+        address: String,
+    },
+    /// The focused window changed; `None` when nothing has focus.
+    WindowFocused {
+        address: Option<String>,
+    },
+    WindowTitle {
+        address: String,
+        title: String,
+    },
+    /// The compositor reloaded its config: runtime rules are gone (ADR 0018).
+    ConfigReloaded,
+    /// The event connection was lost and is back: state may have changed.
+    Reconnected,
+}
+
 /// Window manager operations koje needs (implemented for Hyprland).
 pub trait Compositor {
     type Error: std::error::Error + Send + Sync + 'static;
 
-    fn windows(&self) -> Result<Vec<WindowInfo>, Self::Error>;
-    /// Move and resize in one step; may also move across workspaces.
-    fn place(
+    fn windows(&self) -> impl Future<Output = Result<Vec<WindowInfo>, Self::Error>> + Send;
+    /// Apply all commands in one request.
+    fn apply(
         &self,
-        address: &str,
-        workspace: &str,
-        placement: &Placement,
-    ) -> Result<(), Self::Error>;
-    fn set_border_color(
-        &self,
-        address: &str,
-        active: &str,
-        inactive: &str,
-    ) -> Result<(), Self::Error>;
-    fn focus_workspace(&self, workspace: &str) -> Result<(), Self::Error>;
+        commands: &[CompositorCommand],
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 /// Lifecycle of a context container as seen from koje.
