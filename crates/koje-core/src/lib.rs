@@ -15,6 +15,7 @@ pub mod container;
 pub mod context;
 pub mod error;
 pub mod fsutil;
+pub mod hostbus;
 pub mod layout;
 pub mod layouts;
 pub mod lifecycle;
