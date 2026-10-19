@@ -32,3 +32,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0025 | [Running the host-bus proxy and the forwarder](0025-host-bus-runtime.md) | Accepted |
 | 0026 | [kojed runs on tokio](0026-kojed-on-tokio.md) | Accepted |
 | 0027 | [Client API: kojed on the session bus](0027-dbus-client-api.md) | Accepted |
+| 0028 | [One named workspace per context](0028-context-workspaces.md) | Accepted |

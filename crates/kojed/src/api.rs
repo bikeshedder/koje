@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use koje_core::api::OBJECT_PATH;
+use koje_core::name::ContextName;
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
 use tokio::sync::Mutex;
@@ -50,6 +51,17 @@ impl Api {
             .active_context()
             .map(ToString::to_string)
             .unwrap_or_default()
+    }
+
+    /// Show a context's workspace.
+    async fn focus(&self, context: &str) -> fdo::Result<()> {
+        let ctx = ContextName::new(context).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?;
+        self.daemon
+            .lock()
+            .await
+            .focus(&ctx)
+            .await
+            .map_err(|e| failed(&e))
     }
 
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).

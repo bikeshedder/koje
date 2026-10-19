@@ -127,6 +127,29 @@ async fn serves_contexts_without_hyprland() {
     assert_eq!(list, [("work".to_owned(), "#FF0000".to_owned(), 0)]);
     let active: String = call(&conn, "ActiveContext", &()).await;
     assert_eq!(active, "");
+    // Focus needs Hyprland; the error says so instead of hanging.
+    let err = conn
+        .call_method(
+            Some(BUS_NAME),
+            OBJECT_PATH,
+            Some(INTERFACE),
+            "Focus",
+            &("work",),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("compositor"), "{err}");
+    let err = conn
+        .call_method(
+            Some(BUS_NAME),
+            OBJECT_PATH,
+            Some(INTERFACE),
+            "Focus",
+            &("Bad Name",),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("InvalidArgs"), "{err}");
 
     // `koje new` writes the file, then asks kojed to reload.
     create(root, "home", Color::rgb(0, 0, 0xff));

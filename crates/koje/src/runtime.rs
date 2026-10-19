@@ -71,6 +71,10 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
     {
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
+    // Its windows go to its workspace (kojed, M4.6): show it.
+    if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
+        tracing::debug!("not focusing {name}: {e:#}");
+    }
     Ok(())
 }
 

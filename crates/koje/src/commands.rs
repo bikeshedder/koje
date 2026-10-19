@@ -37,7 +37,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),
         Command::Wake(ctx) => crate::runtime::wake(&paths, &ctx.context),
 
-        Command::Focus(_) => todo_in("M4"),
+        Command::Focus(ctx) => focus(&paths, ctx),
 
         Command::Save { .. }
         | Command::Stash
@@ -74,6 +74,13 @@ fn new(paths: &Paths, ctx: &Ctx, color: Option<&str>, prefix: Option<String>) ->
     );
     crate::kojed::reload();
     Ok(())
+}
+
+/// `koje focus`: kojed shows the context's workspace.
+fn focus(paths: &Paths, ctx: &Ctx) -> Result<()> {
+    let name = context_name(ctx)?;
+    context::load(paths, &name)?;
+    crate::kojed::call::<_, ()>("Focus", &(name.as_str(),))
 }
 
 /// `koje edit`: edit a copy of `context.toml` and replace the original only

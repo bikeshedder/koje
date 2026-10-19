@@ -14,7 +14,8 @@ Goal: a running service that knows every window's context and colors it.
 - [ ] **M4.5 Border colors per context** (active/inactive), reapplied on reconnect
   - Notes: ADR 0018 – tag rule per context, re-add on `configreloaded`; check how to replace a rule on color change.
   - Done in code (awaiting host test): rule `koje-<context>` with `Color::dimmed()` as inactive color; rules + tags again on `configreloaded`; a context created after start gets its rule with its first window. Color change: the rule is added again (later rules win) – to verify on the host; kojed picks it up on the next resync until `koje edit` tells kojed (M4.7).
-- [ ] **M4.6 One workspace per context per monitor**; `koje focus <context>`
+- [~] **M4.6 One workspace per context per monitor**; `koje focus <context>`
+  - Done in code (awaiting host test), ADR 0028: workspace `<context>`, kojed moves context windows there (not from special workspaces), D-Bus `Focus`, `koje focus`, `koje up` focuses. Single monitor only; per-monitor workspaces wait for the multi-monitor question.
 - [~] **M4.7 systemd user unit for kojed**; `koje` talks to kojed, clear error when it is not running
   - Done in code (awaiting host test): `io.koje.Daemon1` with `ListContexts() → a(ssu)`, `ActiveContext() → s`, `Reload()`, signals `WindowAdded`/`WindowRemoved`; `assets/systemd/kojed.service` (`Type=dbus`), installed by `install.sh`, started by `exec-once` in koje's Hyprland snippet; `koje new`/`edit` call `Reload` (silent without kojed); `koje::kojed::call` fails with the start hint when the name has no owner. Test against a private `dbus-daemon`.
 - [ ] **M4.8 Ignored integration tests against a live Hyprland**

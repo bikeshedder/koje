@@ -710,9 +710,26 @@ fn up_and_down_need_m5_for_states() {
 #[test]
 fn unimplemented_commands_name_their_milestone() {
     let tmp = tempfile::tempdir().unwrap();
+    let out = koje(tmp.path(), &["stats"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M6"));
+}
+
+#[test]
+fn focus_needs_the_context_and_kojed() {
+    let tmp = tempfile::tempdir().unwrap();
     let out = koje(tmp.path(), &["focus", "kp"]);
     assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M4"));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("kp"),
+        "unknown context named"
+    );
+    assert!(koje(tmp.path(), &["new", "kp"]).status.success());
+    // The test's session bus points nowhere.
+    let out = koje(tmp.path(), &["focus", "kp"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("session bus"), "{err}");
 }
 
 #[test]

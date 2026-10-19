@@ -1,0 +1,39 @@
+# 0028. One named workspace per context
+
+- Status: Accepted
+- Date: 2026-10-19
+- Source: plan task M4.6, concept "Workspaces"
+
+## Context
+
+The concept gives each context one Hyprland workspace ("Ein Kontext belegt genau
+einen Hyprland-Workspace pro Monitor"); `koje focus` brings it to the front.
+Programs in a context open their windows wherever Hyprland puts them, usually
+the current workspace, and a link clicked in context A may open a window while
+the user looks at context B. How several monitors share a context is still open
+(`docs/open-questions.md`).
+
+## Decision
+
+- A context's workspace is the **named workspace `<context>`**. Context names
+  start with a letter, so they never clash with numbered or `special:`
+  workspaces.
+- kojed **moves every context window** there when it maps it (on `openwindow`
+  and when it syncs at start or after a reconnect), silently (the user's view
+  stays where it is). Windows on special workspaces (overlays, stash) are left
+  alone. Host windows are never moved.
+- `koje focus <context>` asks kojed (`Focus`) to switch to that workspace.
+  `koje up` does the same after starting a context, so its new windows are in
+  view. Without kojed, `focus` fails with the start hint, `up` skips it.
+- Single monitor for now: Hyprland places the workspace on the focused monitor.
+
+## Consequences
+
++ A context's windows stay together without the user sorting them.
++ Waybar's workspace module shows contexts by name.
+- A window opened from another context appears on its own workspace, not in
+  front of the user; a notification or bar hint may be needed (M8).
+- Multi-monitor (one workspace per context per monitor) still needs a decision;
+  the workspace name will then need a monitor part.
+- The `global` context's windows (M7) would be moved to a workspace `global`;
+  M7 decides whether that context is exempt.

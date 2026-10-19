@@ -79,6 +79,17 @@ where
             .and_then(|a| self.windows.context_of(a))
     }
 
+    /// Show a context's workspace (`koje focus`).
+    pub async fn focus(&mut self, ctx: &ContextName) -> Result<()> {
+        if !self.colors.contains_key(ctx) {
+            self.load_colors();
+        }
+        if !self.colors.contains_key(ctx) {
+            anyhow::bail!("no context named {ctx}");
+        }
+        self.apply(&[windows::focus(ctx)]).await
+    }
+
     /// Read the contexts again (after `koje new`/`koje edit`) and send their
     /// rules. Without a compositor that is fine: rules follow on `Connected`.
     pub async fn reload(&mut self) -> Result<()> {
@@ -136,10 +147,11 @@ where
             .into_iter()
             .map(|(address, context)| Change::WindowRemoved { address, context })
             .collect();
-        let mut commands = Vec::new();
+        let mut moves = Vec::new();
         for w in present.iter().filter(|w| diff.added.contains(&w.address)) {
             let ctx = self.resolve(w.pid).await;
             if let Some(context) = &ctx {
+                moves.extend(windows::move_to_context(&w.address, &w.workspace, context));
                 changes.push(Change::WindowAdded {
                     address: w.address.clone(),
                     context: context.clone(),
@@ -156,8 +168,9 @@ where
         {
             self.load_colors();
         }
-        commands.extend(self.rules());
+        let mut commands = self.rules();
         commands.extend(self.windows.tags());
+        commands.extend(moves);
         tracing::info!(
             windows = present.len(),
             contexts = ?self.windows.counts(),
@@ -190,11 +203,15 @@ where
             commands.extend(self.colors.get(c).map(|color| windows::rule(c, *color)));
         }
         tracing::debug!(address, pid = w.pid, context = ?ctx.as_ref().map(ContextName::as_str), "window opened");
-        let change = ctx.clone().map(|context| Change::WindowAdded {
-            address: address.to_owned(),
-            context,
+        let change = ctx.clone().map(|context| {
+            commands.push(windows::tag_window(address, &context));
+            commands.extend(windows::move_to_context(address, &w.workspace, &context));
+            Change::WindowAdded {
+                address: address.to_owned(),
+                context,
+            }
         });
-        commands.extend(self.windows.insert(address, w.pid, ctx));
+        self.windows.insert(address, w.pid, ctx);
         self.apply(&commands).await?;
         Ok(change.into_iter().collect())
     }
@@ -379,6 +396,13 @@ mod tests {
         }
     }
 
+    fn mv(address: &str, ws: &str) -> CompositorCommand {
+        CompositorCommand::MoveToWorkspace {
+            address: address.into(),
+            workspace: ws.into(),
+        }
+    }
+
     fn tag(address: &str, t: &str) -> CompositorCommand {
         CompositorCommand::TagWindow {
             address: address.into(),
@@ -397,7 +421,11 @@ mod tests {
         let changes = d.handle(CompositorEvent::Connected).await.unwrap();
         assert_eq!(
             comp.take(),
-            [windows::rule(&ctx("work"), red()), tag("0xa", "koje-work")]
+            [
+                windows::rule(&ctx("work"), red()),
+                tag("0xa", "koje-work"),
+                mv("0xa", "work")
+            ]
         );
         assert_eq!(
             changes,
@@ -430,7 +458,7 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(comp.take(), [tag("0xb", "koje-work")]);
+        assert_eq!(comp.take(), [tag("0xb", "koje-work"), mv("0xb", "work")]);
         assert_eq!(*s.runtime.lookups.lock().unwrap(), lookups);
 
         // A reload drops the rules: rule and tags again.
@@ -490,8 +518,29 @@ mod tests {
         .unwrap();
         assert_eq!(
             comp.take(),
-            [windows::rule(&ctx("new"), blue), tag("0xn", "koje-new")]
+            [
+                windows::rule(&ctx("new"), blue),
+                tag("0xn", "koje-new"),
+                mv("0xn", "new")
+            ]
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn focus() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.focus(&ctx("work")).await.unwrap();
+        assert_eq!(
+            comp.take(),
+            [CompositorCommand::FocusWorkspace {
+                workspace: "work".into()
+            }]
+        );
+        let err = d.focus(&ctx("nope")).await.unwrap_err();
+        assert_eq!(err.to_string(), "no context named nope");
+        assert_eq!(comp.take(), []);
     }
 
     #[tokio::test(flavor = "current_thread")]
