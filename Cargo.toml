@@ -29,6 +29,8 @@ toml = { version = "1", features = ["preserve_order"] }
 zbus = { version = "5.19", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time", "net", "io-util"] }
 tracing = "0.1"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]

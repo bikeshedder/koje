@@ -13,6 +13,7 @@
 
 mod api;
 mod daemon;
+mod wayland;
 
 use std::sync::Arc;
 
@@ -33,6 +34,10 @@ async fn main() -> Result<()> {
 
     let paths = Paths::from_env().context("finding koje's directories")?;
     tracing::info!(config = %paths.global_config().display(), "kojed starting");
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR is not set")?;
+    let sockets = wayland::Sockets::start(runtime.into(), || {
+        Ok(koje_hyprland::instance::wayland_from_env()?)
+    })?;
     let hyprland = Hyprland::from_env();
     let mut events = hyprland.events();
     let mut daemon = daemon::Daemon::new(hyprland, Podman::new(), paths);
@@ -49,6 +54,7 @@ async fn main() -> Result<()> {
             OBJECT_PATH,
             api::Api {
                 daemon: Arc::clone(&daemon),
+                sockets: sockets.clone(),
             },
         )?
         .build()
@@ -59,6 +65,10 @@ async fn main() -> Result<()> {
     tracing::info!("serving {BUS_NAME}");
     loop {
         let event = events.next().await;
+        if event == koje_core::ports::CompositorEvent::Connected {
+            // A new compositor (or kojed's start): new security contexts.
+            sockets.reset();
+        }
         let changes = daemon.lock().await.handle(event).await;
         match changes {
             Ok(changes) => {

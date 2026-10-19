@@ -24,6 +24,11 @@ pub const FORWARDER_IN_CONTEXT: &str = "/usr/local/libexec/koje/koje-forward";
 /// How to (re)generate the NVIDIA CDI spec (ADR 0016; needs root).
 pub const NVIDIA_CDI_GENERATE: &str = "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml";
 
+/// Directory in the context's `XDG_RUNTIME_DIR` holding its Wayland socket.
+pub const WAYLAND_DIR: &str = "koje-wayland";
+/// The socket's name in kojed's per-context directory.
+pub const WAYLAND_SOCKET: &str = "wayland-0";
+
 /// `/dev/shm` size (ADR 0015): a limit, not reserved memory.
 pub const SHM_SIZE: ByteSize = ByteSize(1 << 30);
 
@@ -37,8 +42,8 @@ pub struct HostEnv {
     pub uid: u32,
     /// The user's home; the context's home volume is mounted at this path.
     pub home: PathBuf,
-    /// Wayland socket for the context. ADR 0022: kojed's security-context socket;
-    /// until kojed exists (M4.10) the compositor's socket.
+    /// The context's Wayland socket: kojed's security-context socket (ADR 0022),
+    /// in a per-context directory that is mounted (so a recreated socket shows).
     pub wayland_socket: Option<PathBuf>,
     pub pipewire_socket: Option<PathBuf>,
     pub pulse_socket: Option<PathBuf>,
@@ -170,11 +175,16 @@ impl Parts<'_> {
         let Some(socket) = self.need(on, self.host.wayland_socket.as_ref(), "wayland") else {
             return;
         };
-        let file = socket
-            .file_name()
-            .map_or_else(|| "wayland-0".into(), |n| n.to_string_lossy().into_owned());
-        self.mounts.push(bind(&socket, self.run.join(&file), false));
-        self.set("WAYLAND_DISPLAY", file);
+        let file = socket.file_name().map_or_else(
+            || WAYLAND_SOCKET.into(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let dir = self.run.join(WAYLAND_DIR);
+        if let Some(host_dir) = socket.parent() {
+            self.mounts.push(bind(host_dir, &dir, false));
+        }
+        // Absolute: the socket is not directly in XDG_RUNTIME_DIR.
+        self.set("WAYLAND_DISPLAY", dir.join(file).display().to_string());
         // libwebrtc decides Wayland vs. X11 by XDG_SESSION_TYPE; GTK uses the
         // host's file chooser only when told to (M2.10).
         for (k, v) in [
@@ -366,7 +376,7 @@ mod tests {
         HostEnv {
             uid: 1000,
             home: "/home/mj".into(),
-            wayland_socket: Some("/run/user/1000/wayland-1".into()),
+            wayland_socket: Some("/run/user/1000/koje/kp/wayland/wayland-0".into()),
             pipewire_socket: Some("/run/user/1000/pipewire-0".into()),
             pulse_socket: Some("/run/user/1000/pulse/native".into()),
             cups_socket: Some("/run/cups/cups.sock".into()),
@@ -417,7 +427,10 @@ mod tests {
         assert_eq!(b.notes, Vec::<String>::new());
         assert_eq!(s.name, "koje-kp");
         assert_eq!(s.labels["io.koje.context"], "kp");
-        assert_eq!(s.env["WAYLAND_DISPLAY"], "wayland-1");
+        assert_eq!(
+            s.env["WAYLAND_DISPLAY"],
+            "/run/user/1000/koje-wayland/wayland-0"
+        );
         assert_eq!(s.env["XDG_SESSION_TYPE"], "wayland");
         assert_eq!(s.env["GTK_USE_PORTAL"], "1");
         assert_eq!(s.env["PULSE_SERVER"], "unix:/run/user/1000/pulse-native");
@@ -435,7 +448,7 @@ mod tests {
             [
                 "/home/mj",
                 "/run/user/1000",
-                "/run/user/1000/wayland-1",
+                "/run/user/1000/koje-wayland",
                 "/run/user/1000/pipewire-0",
                 "/run/user/1000/pulse-native",
                 "/run/cups/cups.sock",

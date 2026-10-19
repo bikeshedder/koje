@@ -63,7 +63,12 @@ fn editor(dir: &Path, body: &str) -> String {
 /// start → running, stop → exited), like Podman for one container.
 /// Written by a child process, so no fd of this test process points at the
 /// script while other tests fork ("text file busy").
+/// A fake `podman` on `PATH`. Contexts get no Wayland (global config), as the
+/// socket would come from kojed (ADR 0022), which these tests do not run.
 fn fake_podman(tmp: &Path) -> String {
+    let global = tmp.join("config/koje/config.toml");
+    std::fs::create_dir_all(global.parent().expect("config dir")).expect("config dir");
+    std::fs::write(&global, "[access]\nwayland = false\n").expect("global config");
     let bin = tmp.join("bin");
     std::fs::create_dir_all(&bin).expect("bin dir");
     let (log, status) = (tmp.join("podman.log"), tmp.join("podman.status"));
@@ -713,6 +718,28 @@ fn unimplemented_commands_name_their_milestone() {
     let out = koje(tmp.path(), &["stats"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M6"));
+}
+
+#[test]
+fn up_with_wayland_needs_kojed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    std::fs::remove_file(tmp.path().join("config/koje/config.toml")).unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let out = command(tmp.path(), &["up", "kp", "-s", "empty"])
+        .env("PATH", &path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("Wayland socket"), "{err}");
+    // Nothing was created without the socket.
+    assert!(
+        !podman_log(tmp.path()).contains("create"),
+        "{}",
+        podman_log(tmp.path())
+    );
 }
 
 #[test]

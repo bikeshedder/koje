@@ -79,8 +79,9 @@ where
             .and_then(|a| self.windows.context_of(a))
     }
 
-    /// Show a context's workspace (`koje focus`).
-    pub async fn focus(&mut self, ctx: &ContextName) -> Result<()> {
+    /// Fail unless `ctx` is a context (re-reading the contexts once); the
+    /// commands for any color changes that brought.
+    fn require(&mut self, ctx: &ContextName) -> Result<Vec<CompositorCommand>> {
         let mut commands = Vec::new();
         if !self.colors.contains_key(ctx) {
             commands = self.load_colors();
@@ -88,6 +89,17 @@ where
         if !self.colors.contains_key(ctx) {
             anyhow::bail!("no context named {ctx}");
         }
+        Ok(commands)
+    }
+
+    /// Whether `ctx` is a context.
+    pub fn knows(&mut self, ctx: &ContextName) -> bool {
+        self.require(ctx).is_ok()
+    }
+
+    /// Show a context's workspace (`koje focus`).
+    pub async fn focus(&mut self, ctx: &ContextName) -> Result<()> {
+        let mut commands = self.require(ctx)?;
         commands.push(windows::focus(ctx));
         self.apply(&commands).await
     }

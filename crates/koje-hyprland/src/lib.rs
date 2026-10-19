@@ -29,6 +29,8 @@ pub enum Error {
     NoRuntimeDir,
     #[error("no running Hyprland found in {0}")]
     NoInstance(PathBuf),
+    #[error("no Wayland socket for the Hyprland instance in {0}")]
+    NoWaylandSocket(PathBuf),
     #[error("Hyprland socket {path}: {source}")]
     Io {
         path: PathBuf,

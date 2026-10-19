@@ -34,18 +34,12 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
     let at = |p: &str| root.join(p.trim_start_matches('/'));
     let socket = |p: PathBuf| is_socket(&p).then_some(p);
     let runtime = var("XDG_RUNTIME_DIR").map_or_else(|| at(&format!("run/user/{uid}")), |d| at(&d));
-    let wayland = var("WAYLAND_DISPLAY").and_then(|w| {
-        let p = Path::new(&w);
-        socket(if p.is_absolute() {
-            at(&w)
-        } else {
-            runtime.join(p)
-        })
-    });
     HostEnv {
         uid,
         home: var("HOME").map(PathBuf::from).unwrap_or_default(),
-        wayland_socket: wayland,
+        // kojed's per-context socket (ADR 0022), asked for by the CLI; a
+        // context never gets the compositor's own socket.
+        wayland_socket: None,
         pipewire_socket: socket(runtime.join("pipewire-0")),
         pulse_socket: socket(runtime.join("pulse/native")),
         cups_socket: socket(at("run/cups/cups.sock")),
@@ -222,7 +216,7 @@ mod tests {
         ]);
         let h = detect_with(1000, r, |k| vars.get(k).map(|v| (*v).to_owned()));
         assert_eq!(h.home, PathBuf::from("/home/mj"));
-        assert_eq!(h.wayland_socket, Some(r.join("run/user/1000/wayland-1")));
+        assert_eq!(h.wayland_socket, None, "never the compositor's socket");
         assert_eq!(h.pipewire_socket, Some(r.join("run/user/1000/pipewire-0")));
         assert_eq!(h.pulse_socket, Some(r.join("run/user/1000/pulse/native")));
         assert_eq!(h.cups_socket, Some(r.join("run/cups/cups.sock")));

@@ -27,6 +27,14 @@ portal capture on their behalf.
 - Screen sharing goes through the portal (ADR 0019, `screencast` switch), so the
   user picks what to share each time.
 - `wayland = false` in the access profile (ADR 0017) means no socket at all.
+- Implementation (M4.10): the socket is
+  `$XDG_RUNTIME_DIR/koje/<context>/wayland/wayland-0`; the directory is mounted
+  at `$XDG_RUNTIME_DIR/koje-wayland` in the context and `WAYLAND_DISPLAY` is the
+  absolute path of the socket there. `koje up` asks kojed (`WaylandSocket`)
+  before creating or starting the container and fails without kojed; `koje
+  down` releases it. kojed finds the compositor's socket in Hyprland's
+  `hyprland.lock` and recreates the sockets of all contexts that had one when
+  Hyprland (re)connects, kojed's own start included.
 
 ## Consequences
 

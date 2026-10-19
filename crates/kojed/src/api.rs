@@ -12,12 +12,18 @@ use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
 use crate::daemon::{Change, Daemon};
+use crate::wayland::Sockets;
 
 pub type Shared = Arc<Mutex<Daemon<Hyprland, Podman>>>;
 
 #[derive(Debug)]
 pub struct Api {
     pub daemon: Shared,
+    pub sockets: Sockets,
+}
+
+fn context_arg(context: &str) -> fdo::Result<ContextName> {
+    ContextName::new(context).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))
 }
 
 fn failed(e: &anyhow::Error) -> fdo::Error {
@@ -55,13 +61,30 @@ impl Api {
 
     /// Show a context's workspace.
     async fn focus(&self, context: &str) -> fdo::Result<()> {
-        let ctx = ContextName::new(context).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?;
+        let ctx = context_arg(context)?;
         self.daemon
             .lock()
             .await
             .focus(&ctx)
             .await
             .map_err(|e| failed(&e))
+    }
+
+    /// The context's security-context Wayland socket (ADR 0022), created if
+    /// needed; its directory is what `koje up` mounts.
+    async fn wayland_socket(&self, context: &str) -> fdo::Result<String> {
+        let ctx = context_arg(context)?;
+        if !self.daemon.lock().await.knows(&ctx) {
+            return Err(fdo::Error::InvalidArgs(format!("no context named {ctx}")));
+        }
+        let path = self.sockets.ensure(&ctx).await.map_err(|e| failed(&e))?;
+        Ok(path.display().to_string())
+    }
+
+    /// Stop serving the context's Wayland socket (`koje down`).
+    fn release_wayland_socket(&self, context: &str) -> fdo::Result<()> {
+        self.sockets.release(&context_arg(context)?);
+        Ok(())
     }
 
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).

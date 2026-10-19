@@ -8,6 +8,30 @@ use crate::{Error, Result};
 
 pub const COMMAND_SOCKET: &str = ".socket.sock";
 pub const EVENT_SOCKET: &str = ".socket2.sock";
+/// `<pid>\n<wayland socket name>\n`, written by Hyprland (`hyprctl instances`).
+pub const LOCK_FILE: &str = "hyprland.lock";
+
+/// The compositor's Wayland socket of the instance in `dir`: from its lock
+/// file, else `$WAYLAND_DISPLAY` (stale after a Hyprland restart, so second).
+pub fn wayland_socket(dir: &Path, runtime: &Path, env_display: Option<&str>) -> Option<PathBuf> {
+    let from_lock = std::fs::read_to_string(dir.join(LOCK_FILE))
+        .ok()
+        .and_then(|text| text.lines().nth(1).map(str::trim).map(str::to_owned))
+        .filter(|name| !name.is_empty());
+    from_lock
+        .as_deref()
+        .or(env_display)
+        .map(|name| runtime.join(name))
+        .filter(|p| p.exists())
+}
+
+/// [`wayland_socket`] of the current instance, from the process environment.
+pub fn wayland_from_env() -> Result<PathBuf> {
+    let run = std::env::var_os("XDG_RUNTIME_DIR").ok_or(Error::NoRuntimeDir)?;
+    let dir = from_env()?;
+    let display = std::env::var("WAYLAND_DISPLAY").ok();
+    wayland_socket(&dir, Path::new(&run), display.as_deref()).ok_or(Error::NoWaylandSocket(dir))
+}
 
 /// The instance directory from the process environment.
 pub fn from_env() -> Result<PathBuf> {
@@ -61,6 +85,30 @@ mod tests {
         // A stale signature (Hyprland restarted) falls back to the newest.
         assert_eq!(discover(tmp.path(), Some("gone")).unwrap(), new);
         assert_eq!(discover(tmp.path(), Some("../x")).unwrap(), new);
+    }
+
+    #[test]
+    fn wayland_socket_from_lock_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = instance(tmp.path(), "sig", 0);
+        let run = tmp.path();
+        std::fs::write(run.join("wayland-1"), "").unwrap();
+        std::fs::write(run.join("wayland-0"), "").unwrap();
+        // Without a lock file: the environment.
+        assert_eq!(
+            wayland_socket(&dir, run, Some("wayland-0")),
+            Some(run.join("wayland-0"))
+        );
+        std::fs::write(dir.join(LOCK_FILE), "4242\nwayland-1\n").unwrap();
+        assert_eq!(
+            wayland_socket(&dir, run, Some("wayland-0")),
+            Some(run.join("wayland-1"))
+        );
+        assert_eq!(
+            wayland_socket(&dir, &run.join("x"), None),
+            None,
+            "socket missing"
+        );
     }
 
     #[test]

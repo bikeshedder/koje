@@ -39,6 +39,13 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
     let mut host = koje_podman::host::detect().context("detecting the host environment")?;
+    // kojed's security-context socket (ADR 0022); it must exist before the
+    // container starts, since its directory is mounted.
+    if access.wayland {
+        let socket: String = crate::kojed::call("WaylandSocket", &(name.as_str(),))
+            .context("getting the context's Wayland socket from kojed")?;
+        host.wayland_socket = Some(socket.into());
+    }
     // The proxy first: its directory must exist when the container starts.
     if koje_core::hostbus::needed(&access) {
         host.forwarder = crate::hostbus::forwarder_binary();
@@ -103,6 +110,9 @@ pub fn down(paths: &Paths, context: &str, no_save: bool) -> Result<()> {
         DownPlan::NotCreated => println!("{name} has not been started yet"),
     }
     crate::hostbus::stop_proxy(&name);
+    if let Err(e) = crate::kojed::call::<_, ()>("ReleaseWaylandSocket", &(name.as_str(),)) {
+        tracing::debug!("not releasing the Wayland socket of {name}: {e:#}");
+    }
     Ok(())
 }
 
