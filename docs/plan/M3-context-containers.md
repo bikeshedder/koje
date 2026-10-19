@@ -11,9 +11,11 @@ yet. Break down further using the M2.3–M2.5 reports.
   - Notes: ADR 0023 – built locally per user (`koje image build`, `install.sh`), batteries included; `assets/image/`. Image builds on the host; `base_image_runs_the_session_bus` passes (2026-10-18). Follow-up: notice outdated images (`io.koje.image-version`).
 - [x] **M3.4 `koje up <context> -s empty` / `koje down <context> --no-save`**
   - Notes: decisions in `koje_core::lifecycle`; container persists between down/up (only `koje rm` removes it, M3.8); other states/saving need M5 and say so. Host test 2026-10-19: created, started, Firefox in hardware mode (NVIDIA CDI detected).
-- [~] **M3.5 `koje shell <context> [--dev]`**
-- [~] **M3.6 `koje open <context> <url|file>`**
-- [ ] **M3.7 `koje sleep` / `koje wake`** (windows to stash comes with M5)
+- [x] **M3.5 `koje shell <context> [--dev]`**
+  - Notes: `--dev [name]` (only running one or named); needs a running context. Host test 2026-10-19 (shell); `--dev` covered by the CLI test only.
+- [x] **M3.6 `koje open <context> <url|file>`**
+  - Notes: files only inside mounted folders (same path); `koje_core::open`. Host test 2026-10-19: URL and mounted file open in the context's Firefox, unmounted file refused.
+- [~] **M3.7 `koje sleep` / `koje wake`** (windows to stash comes with M5)
 - [ ] **M3.8 `koje rm` removes containers and volumes** (with confirmation)
 - [ ] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
 - [ ] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)

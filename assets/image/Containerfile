@@ -9,7 +9,7 @@ FROM registry.fedoraproject.org/fedora:44
 # clients, fonts. Nested Podman (fuse-overlayfs, pasta). D-Bus session bus.
 # An own keyring per context (gnome-keyring, ADR 0019).
 RUN dnf -y install --setopt=install_weak_deps=False \
-        firefox foot nautilus xdg-utils git less which procps-ng \
+        firefox foot nautilus xdg-utils git less which procps-ng hostname \
         mesa-dri-drivers mesa-vulkan-drivers libglvnd-egl \
         pipewire-utils pulseaudio-utils cups-client \
         dejavu-sans-fonts dejavu-sans-mono-fonts google-noto-sans-fonts google-noto-emoji-fonts \
