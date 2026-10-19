@@ -178,7 +178,13 @@ where
         commands.extend(moves);
         tracing::info!(
             windows = present.len(),
-            contexts = ?self.windows.counts(),
+            contexts = %self
+                .windows
+                .counts()
+                .iter()
+                .map(|(c, n)| format!("{c}={n}"))
+                .collect::<Vec<_>>()
+                .join(" "),
             "synced with the compositor"
         );
         self.apply(&commands).await?;
