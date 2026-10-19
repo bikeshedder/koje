@@ -15,9 +15,11 @@ yet. Break down further using the M2.3–M2.5 reports.
   - Notes: `--dev [name]` (only running one or named); needs a running context. Host test 2026-10-19 (shell); `--dev` covered by the CLI test only.
 - [x] **M3.6 `koje open <context> <url|file>`**
   - Notes: files only inside mounted folders (same path); `koje_core::open`. Host test 2026-10-19: URL and mounted file open in the context's Firefox, unmounted file refused.
-- [~] **M3.7 `koje sleep` / `koje wake`** (windows to stash comes with M5)
-- [~] **M3.8 `koje rm` removes containers and volumes** (with confirmation)
-- [ ] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
+- [x] **M3.7 `koje sleep` / `koje wake`** (windows to stash comes with M5)
+  - Notes: `lifecycle::plan_sleep/plan_wake`. Host test 2026-10-19.
+- [x] **M3.8 `koje rm` removes containers and volumes** (with confirmation)
+  - Notes: stops, removes container, then home volume, config last; works without Podman (koje files only). Host test 2026-10-19: nothing left.
+- [~] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
 - [ ] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)
 - [ ] **M3.11 Stale sockets** after a host PipeWire/compositor restart (ADR 0015): detect and restart or remount
   - Notes: seen in M2.4 – after restarting the nested Hyprland, a running context kept the old `wayland-1` socket; mounting the socket's directory (as for the host bus proxy) would avoid it. Solved for Wayland by ADR 0022 (kojed recreates the socket in the mounted directory); PipeWire/PulseAudio still open.
