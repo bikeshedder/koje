@@ -51,6 +51,35 @@ pub fn plan_down(status: ContainerStatus) -> DownPlan {
     }
 }
 
+/// What `koje sleep` (pause) or `koje wake` (resume) does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PausePlan {
+    /// Pause / resume the container.
+    Do,
+    /// Already in the wanted state.
+    Already,
+    /// Not running at all.
+    NotRunning,
+}
+
+/// `koje sleep`: freeze a running context (windows to the stash first: M5).
+pub fn plan_sleep(status: ContainerStatus) -> PausePlan {
+    match status {
+        ContainerStatus::Running => PausePlan::Do,
+        ContainerStatus::Paused => PausePlan::Already,
+        ContainerStatus::Stopped | ContainerStatus::Missing => PausePlan::NotRunning,
+    }
+}
+
+/// `koje wake`: resume a paused context.
+pub fn plan_wake(status: ContainerStatus) -> PausePlan {
+    match status {
+        ContainerStatus::Paused => PausePlan::Do,
+        ContainerStatus::Running => PausePlan::Already,
+        ContainerStatus::Stopped | ContainerStatus::Missing => PausePlan::NotRunning,
+    }
+}
+
 /// Why a command needs a running context, with the command that helps.
 pub fn require_running(status: ContainerStatus, ctx: &str) -> Result<(), String> {
     match status {
@@ -93,6 +122,16 @@ mod tests {
         assert_eq!(plan_up(ContainerStatus::Stopped), UpPlan::Start);
         assert_eq!(plan_up(ContainerStatus::Running), UpPlan::AlreadyRunning);
         assert_eq!(plan_up(ContainerStatus::Paused), UpPlan::Paused);
+    }
+
+    #[test]
+    fn sleep_and_wake() {
+        assert_eq!(plan_sleep(ContainerStatus::Running), PausePlan::Do);
+        assert_eq!(plan_sleep(ContainerStatus::Paused), PausePlan::Already);
+        assert_eq!(plan_sleep(ContainerStatus::Stopped), PausePlan::NotRunning);
+        assert_eq!(plan_wake(ContainerStatus::Paused), PausePlan::Do);
+        assert_eq!(plan_wake(ContainerStatus::Running), PausePlan::Already);
+        assert_eq!(plan_wake(ContainerStatus::Missing), PausePlan::NotRunning);
     }
 
     #[test]

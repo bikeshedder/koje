@@ -71,6 +71,7 @@ case "$1" in
   create) echo exited > {status} ;;
   start) echo running > {status} ;;
   stop) echo exited > {status} ;;
+  pause) echo paused > {status} ;;
   unpause) echo running > {status} ;;
   exec) case "$*" in *"podman ps"*) echo web ;; esac ;;
 esac
@@ -501,6 +502,31 @@ fn open_passes_urls_and_mounted_files_only() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("not visible in kp"));
     let out = koje_fake(tmp.path(), &path, &["open", "kp", "/does/not/exist"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("does not exist"));
+}
+
+#[test]
+fn sleep_and_wake() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    assert!(
+        !koje_fake(tmp.path(), &path, &["sleep", "kp"])
+            .status
+            .success()
+    );
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    assert!(stdout(&koje_fake(tmp.path(), &path, &["sleep", "kp"])).contains("kp is asleep"));
+    assert!(stdout(&koje_fake(tmp.path(), &path, &["sleep", "kp"])).contains("already asleep"));
+    // up on a paused context points to wake.
+    let out = koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("koje wake kp"));
+    assert!(stdout(&koje_fake(tmp.path(), &path, &["wake", "kp"])).contains("kp is awake"));
+    assert!(stdout(&koje_fake(tmp.path(), &path, &["wake", "kp"])).contains("not asleep"));
+    let log = podman_log(tmp.path());
+    assert!(
+        log.lines().any(|l| l == "pause koje-kp") && log.lines().any(|l| l == "unpause koje-kp"),
+        "{log}"
+    );
 }
 
 #[test]

@@ -6,7 +6,8 @@ use anyhow::{Context as _, Result, bail};
 use koje_core::config::{ContextConfig, GlobalConfig};
 use koje_core::context;
 use koje_core::lifecycle::{
-    DownPlan, UpPlan, pick_dev_container, plan_down, plan_up, require_running,
+    DownPlan, PausePlan, UpPlan, pick_dev_container, plan_down, plan_sleep, plan_up, plan_wake,
+    require_running,
 };
 use koje_core::name::{ContextName, StateName};
 use koje_core::paths::Paths;
@@ -135,6 +136,43 @@ pub fn open(paths: &Paths, context: &str, target: &str) -> Result<()> {
     require_running(podman.status(&name)?, name.as_str()).map_err(anyhow::Error::msg)?;
     podman.exec_detached(&name, &["xdg-open", &arg])?;
     println!("opened {arg} in {name}");
+    Ok(())
+}
+
+/// `koje sleep <context>`: freeze the context (CPU 0, memory kept). Moving its
+/// windows to the stash first comes with M5; frozen windows are harmless (M2.8).
+pub fn sleep(paths: &Paths, context: &str) -> Result<()> {
+    let name = ContextName::new(context)?;
+    context::load(paths, &name)?;
+    let podman = Podman::new();
+    match plan_sleep(podman.status(&name)?) {
+        PausePlan::Do => {
+            podman.pause(&name)?;
+            println!("{name} is asleep – wake it with: koje wake {name}");
+        }
+        PausePlan::Already => println!("{name} is already asleep"),
+        PausePlan::NotRunning => {
+            bail!("{name} is not running – start it with: koje up {name} -s empty")
+        }
+    }
+    Ok(())
+}
+
+/// `koje wake <context>`: resume a paused context.
+pub fn wake(paths: &Paths, context: &str) -> Result<()> {
+    let name = ContextName::new(context)?;
+    context::load(paths, &name)?;
+    let podman = Podman::new();
+    match plan_wake(podman.status(&name)?) {
+        PausePlan::Do => {
+            podman.unpause(&name)?;
+            println!("{name} is awake");
+        }
+        PausePlan::Already => println!("{name} is not asleep"),
+        PausePlan::NotRunning => {
+            bail!("{name} is not running – start it with: koje up {name} -s empty")
+        }
+    }
     Ok(())
 }
 

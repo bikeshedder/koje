@@ -34,7 +34,8 @@ pub fn run(command: &Command) -> Result<()> {
 
         Command::Open { ctx, target } => crate::runtime::open(&paths, &ctx.context, target),
 
-        Command::Sleep(_) | Command::Wake(_) => todo_in("M3"),
+        Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),
+        Command::Wake(ctx) => crate::runtime::wake(&paths, &ctx.context),
 
         Command::Focus(_) => todo_in("M4"),
 
