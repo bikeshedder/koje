@@ -8,3 +8,5 @@ See the mockups in the concept (sections "Layouts" and "Oberfläche").
 - [ ] **M8.3 Choose panel toolkit** (iced, egui, Slint) → ADR
 - [ ] **M8.4 Panel prototype** (layer-shell overlay): contexts, states, layouts matrix, memory
 - [ ] **M8.5 Layout overview** (Super+L): thumbnails, drag windows between layouts
+- [ ] **M8.6 Overlay on windows of sleeping contexts** (ADR 0024): "<context> is asleep – Wake up" on every window of a paused context (layer-shell, positioned from kojed's window list); click wakes the context
+- [ ] **M8.7 Overlay for hanging windows** (ADR 0024): same overlay with "not responding – Wait / Quit", once Hyprland reports unresponsive windows (upstream request `docs/upstream/hyprland-anr-ipc.md`; fallback: plugin)

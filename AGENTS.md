@@ -41,6 +41,7 @@ install.sh        installer for users (ADR 0021); `just install` runs it
 docs/plan          roadmap + one file per milestone with task checkboxes
 docs/decisions     ADRs (numbered); docs/open-questions.md for undecided items
 docs/spikes        reports of experiments run on the host (Hyprland, Podman)
+docs/upstream      drafts of requests to upstream projects (Hyprland, …)
 docs/concept       the concept document (German, Typst + PDF)
 .devcontainer      dev environment (Rust, just, Podman, Claude Code)
 ```

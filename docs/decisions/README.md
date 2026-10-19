@@ -28,3 +28,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0021 | [Installer: what it may change](0021-installer.md) | Accepted |
 | 0022 | [A security-context Wayland socket per context](0022-wayland-security-context.md) | Accepted |
 | 0023 | [The base image `koje/base`](0023-base-image.md) | Accepted |
+| 0024 | [One koje overlay for sleeping and hanging windows](0024-unresponsive-window-overlay.md) | Accepted |
