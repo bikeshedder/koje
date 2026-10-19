@@ -2,8 +2,9 @@
 
 Goal: a running service that knows every window's context and colors it.
 
-- [ ] **M4.1 Decide service model** (async runtime or threads) and client API (D-Bus vs Unix socket) → ADRs
-- [ ] **M4.2 Hyprland adapter implementing `Compositor`** (command socket, batching)
+- [x] **M4.1 Decide service model** (async runtime or threads) and client API (D-Bus vs Unix socket) → ADRs
+  - Notes: ADR 0026 (tokio, current-thread), ADR 0027 (D-Bus `io.koje.Daemon`, interface `io.koje.Daemon1`).
+- [~] **M4.2 Hyprland adapter implementing `Compositor`** (command socket, batching)
   - Notes: port shape and request syntax per M2.2 report (0.53 syntax); all request strings in one place.
 - [ ] **M4.3 Event stream** from socket2 with reconnect
 - [ ] **M4.4 Window → context mapping** (PID → cgroup → container label), cached

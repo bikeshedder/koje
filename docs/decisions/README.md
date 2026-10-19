@@ -30,3 +30,5 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0023 | [The base image `koje/base`](0023-base-image.md) | Accepted |
 | 0024 | [One koje overlay for sleeping and hanging windows](0024-unresponsive-window-overlay.md) | Accepted |
 | 0025 | [Running the host-bus proxy and the forwarder](0025-host-bus-runtime.md) | Accepted |
+| 0026 | [kojed runs on tokio](0026-kojed-on-tokio.md) | Accepted |
+| 0027 | [Client API: kojed on the session bus](0027-dbus-client-api.md) | Accepted |

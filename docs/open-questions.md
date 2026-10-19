@@ -30,8 +30,6 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 
 ## Tool and UI
 
-- **Service model** – async (tokio) or threads in `kojed`? *(M4.1)*
-- **Client API** – D-Bus or own Unix socket between `koje`/UI and `kojed`? *(M4.1)*
 - **Integrations** – declarative TOML enough, or do some need executable hooks? How does `terminal` detect the cwd reliably?
 - **Window IDs** – naming rule and stability across restarts.
 - **Podman binding** – when to switch from CLI calls to the REST API?
