@@ -18,6 +18,9 @@ use crate::size::ByteSize;
 /// Where the image's (Fedora) GBM looks for backends (ADR 0016).
 pub const IMAGE_GBM_DIR: &str = "/usr/lib64/gbm";
 
+/// How to (re)generate the NVIDIA CDI spec (ADR 0016; needs root).
+pub const NVIDIA_CDI_GENERATE: &str = "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml";
+
 /// `/dev/shm` size (ADR 0015): a limit, not reserved memory.
 pub const SHM_SIZE: ByteSize = ByteSize(1 << 30);
 
@@ -39,12 +42,28 @@ pub struct HostEnv {
     pub cups_socket: Option<PathBuf>,
     /// `/dev/dri` exists.
     pub dri: bool,
-    /// An NVIDIA CDI spec exists (ADR 0016).
-    pub nvidia_cdi: bool,
-    /// The host's NVIDIA GBM backend, resolved (`…/gbm/nvidia-drm_gbm.so` → real file).
-    pub nvidia_gbm: Option<PathBuf>,
+    /// An NVIDIA GPU (PCI vendor 0x10de) or its CDI spec; `None` without NVIDIA.
+    pub nvidia: Option<Nvidia>,
     /// Per-context directory holding the filtered host bus socket (ADR 0019).
     pub host_bus_dir: Option<PathBuf>,
+}
+
+/// The host's NVIDIA setup (ADR 0016).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Nvidia {
+    pub cdi: NvidiaCdi,
+    /// The host's GBM backend, resolved (`…/gbm/nvidia-drm_gbm.so` → real file).
+    pub gbm: Option<PathBuf>,
+}
+
+/// State of the NVIDIA CDI spec (`nvidia-ctk cdi generate`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NvidiaCdi {
+    Missing,
+    Current,
+    /// Names libraries of another driver version than the one loaded (driver
+    /// updated since the spec was generated).
+    Outdated,
 }
 
 /// How a path inside the container is filled.
@@ -205,19 +224,35 @@ impl Parts<'_> {
         if host.dri {
             self.devices.push("/dev/dri".to_owned());
         }
-        if host.nvidia_cdi {
-            self.devices.push("nvidia.com/gpu=all".to_owned());
-            match &host.nvidia_gbm {
-                Some(gbm) => {
-                    let target = Path::new(IMAGE_GBM_DIR).join("nvidia-drm_gbm.so");
-                    self.mounts.push(bind(gbm, target, true));
+        let mut nvidia_usable = false;
+        if let Some(nvidia) = &host.nvidia {
+            match nvidia.cdi {
+                NvidiaCdi::Missing => self.notes.push(format!(
+                    "gpu: NVIDIA GPU without a CDI spec, so this context cannot use it – \
+                     run: {NVIDIA_CDI_GENERATE}"
+                )),
+                NvidiaCdi::Outdated => self.notes.push(format!(
+                    "gpu: the NVIDIA CDI spec is for another driver version – regenerate it: \
+                     {NVIDIA_CDI_GENERATE}"
+                )),
+                NvidiaCdi::Current => {}
+            }
+            // An outdated spec may still work partly; the note says what to do.
+            if nvidia.cdi != NvidiaCdi::Missing {
+                nvidia_usable = true;
+                self.devices.push("nvidia.com/gpu=all".to_owned());
+                match &nvidia.gbm {
+                    Some(gbm) => {
+                        let target = Path::new(IMAGE_GBM_DIR).join("nvidia-drm_gbm.so");
+                        self.mounts.push(bind(gbm, target, true));
+                    }
+                    None => self
+                        .notes
+                        .push("gpu: NVIDIA GBM backend not found on the host".to_owned()),
                 }
-                None => self
-                    .notes
-                    .push("gpu: NVIDIA GBM backend not found on the host".to_owned()),
             }
         }
-        if !host.dri && !host.nvidia_cdi {
+        if !host.dri && !nvidia_usable {
             self.notes.push("gpu: no GPU found on the host".to_owned());
         }
     }
@@ -318,8 +353,10 @@ mod tests {
             pulse_socket: Some("/run/user/1000/pulse/native".into()),
             cups_socket: Some("/run/cups/cups.sock".into()),
             dri: true,
-            nvidia_cdi: true,
-            nvidia_gbm: Some("/usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.595.91.07".into()),
+            nvidia: Some(Nvidia {
+                cdi: NvidiaCdi::Current,
+                gbm: Some("/usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.595.91.07".into()),
+            }),
             host_bus_dir: Some("/run/user/1000/koje/kp/host-bus".into()),
         }
     }
@@ -474,7 +511,10 @@ mod tests {
             ]
         );
         let nvidia_without_gbm = HostEnv {
-            nvidia_gbm: None,
+            nvidia: Some(Nvidia {
+                cdi: NvidiaCdi::Current,
+                gbm: None,
+            }),
             ..host()
         };
         let b = built(
@@ -484,6 +524,44 @@ mod tests {
             &nvidia_without_gbm,
         );
         assert_eq!(b.notes, ["gpu: NVIDIA GBM backend not found on the host"]);
+    }
+
+    #[test]
+    fn nvidia_hints() {
+        let no_cdi = HostEnv {
+            nvidia: Some(Nvidia {
+                cdi: NvidiaCdi::Missing,
+                gbm: None,
+            }),
+            ..host()
+        };
+        let b = built(Profile::Full.access(), &Limits::default(), &[], &no_cdi);
+        assert_eq!(b.notes.len(), 1, "{:?}", b.notes);
+        assert!(
+            b.notes[0].contains("without a CDI spec")
+                && b.notes[0].contains("nvidia-ctk cdi generate")
+        );
+        assert!(!b.spec.devices.iter().any(|d| d.starts_with("nvidia")));
+
+        let outdated = HostEnv {
+            nvidia: Some(Nvidia {
+                cdi: NvidiaCdi::Outdated,
+                gbm: Some("/x".into()),
+            }),
+            ..host()
+        };
+        let b = built(Profile::Full.access(), &Limits::default(), &[], &outdated);
+        assert!(
+            b.notes[0].contains("another driver version"),
+            "{:?}",
+            b.notes
+        );
+        // Still passed: an outdated spec may work partly; the note says what to do.
+        assert!(b.spec.devices.contains(&"nvidia.com/gpu=all".to_owned()));
+
+        // Without the gpu switch no hint at all.
+        let b = built(Profile::Desktop.access(), &Limits::default(), &[], &no_cdi);
+        assert_eq!(b.notes, Vec::<String>::new());
     }
 
     #[test]

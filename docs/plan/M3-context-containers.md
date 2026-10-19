@@ -24,7 +24,7 @@ yet. Break down further using the M2.3–M2.5 reports.
 - [ ] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)
 - [ ] **M3.11 Stale sockets** after a host PipeWire/compositor restart (ADR 0015): detect and restart or remount
   - Notes: seen in M2.4 – after restarting the nested Hyprland, a running context kept the old `wayland-1` socket; mounting the socket's directory (as for the host bus proxy) would avoid it. Solved for Wayland by ADR 0022 (kojed recreates the socket in the mounted directory); PipeWire/PulseAudio still open.
-- [ ] **M3.12 NVIDIA CDI detection** (ADR 0016): find the CDI spec and the host's GBM backend; hint when missing or outdated
+- [~] **M3.12 NVIDIA CDI detection** (ADR 0016): find the CDI spec and the host's GBM backend; hint when missing or outdated
 - [ ] **M3.13 Apply access changes to a running context** (ADR 0017): on `koje edit`/config change ask "now (recreate, restore windows) or at next `up`"
 - [ ] **M3.14 Host interfaces per context** (ADR 0019): start `xdg-dbus-proxy` with filters from the effective access; forwarder in the context (Rust) started before anything activates the image's portal; own keyring per context
   - Notes: forwarder design from M2.10 – one host connection per client, translate request/session path segments in paths and bodies, no blocking work in GDBus-style filters, reconnect when the proxy restarts. Proxy filter as in `docs/spikes/setup/host-bus-proxy.sh`. Mount the CUPS socket for `print`.

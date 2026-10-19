@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use koje_core::config::ContextConfig;
 use koje_core::mount::{HostDirs, check_resolved};
-use koje_core::spec::HostEnv;
+use koje_core::spec::{HostEnv, Nvidia, NvidiaCdi};
 
 /// Where distributions keep NVIDIA's GBM backend (ADR 0016).
 const NVIDIA_GBM: &[&str] = &[
@@ -50,12 +50,7 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
         pulse_socket: socket(runtime.join("pulse/native")),
         cups_socket: socket(at("run/cups/cups.sock")),
         dri: at("dev/dri").is_dir(),
-        nvidia_cdi: NVIDIA_CDI.iter().any(|p| at(p).is_file()),
-        nvidia_gbm: NVIDIA_GBM
-            .iter()
-            .map(|p| at(p))
-            .find(|p| p.exists())
-            .and_then(|p| std::fs::canonicalize(p).ok()),
+        nvidia: nvidia(root),
         // Started per context by koje (M3.14); not part of host detection.
         host_bus_dir: None,
     }
@@ -106,6 +101,56 @@ pub fn resolve_mounts(cfg: &ContextConfig, dirs: &HostDirs) -> koje_core::Result
         .collect()
 }
 
+/// The host's NVIDIA setup: a GPU (or at least a CDI spec), the spec's state
+/// compared with the loaded driver, and the GBM backend.
+fn nvidia(root: &Path) -> Option<Nvidia> {
+    let at = |p: &str| root.join(p);
+    let spec = NVIDIA_CDI
+        .iter()
+        .find_map(|p| std::fs::read_to_string(at(p)).ok());
+    if spec.is_none() && !nvidia_gpu(&at("sys/class/drm")) {
+        return None;
+    }
+    let cdi = match (
+        spec,
+        nvidia_driver_version(&at("proc/driver/nvidia/version")),
+    ) {
+        (None, _) => NvidiaCdi::Missing,
+        (Some(spec), Some(version)) if !spec.contains(&version) => NvidiaCdi::Outdated,
+        (Some(_), _) => NvidiaCdi::Current,
+    };
+    let gbm = NVIDIA_GBM
+        .iter()
+        .map(|p| at(p))
+        .find(|p| p.exists())
+        .and_then(|p| std::fs::canonicalize(p).ok());
+    Some(Nvidia { cdi, gbm })
+}
+
+/// Any DRM card with NVIDIA's PCI vendor id.
+fn nvidia_gpu(drm: &Path) -> bool {
+    std::fs::read_dir(drm).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            std::fs::read_to_string(e.path().join("device/vendor"))
+                .is_ok_and(|v| v.trim() == "0x10de")
+        })
+    })
+}
+
+/// The loaded NVIDIA kernel driver's version, e.g. `595.91.07`, from
+/// `/proc/driver/nvidia/version` ("NVRM version: … Kernel Module … 595.91.07 …").
+fn nvidia_driver_version(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let line = text.lines().find(|l| l.starts_with("NVRM version"))?;
+    line.split_whitespace()
+        .find(|w| {
+            w.split('.').count() >= 2
+                && w.split('.')
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .map(String::from)
+}
+
 fn is_socket(p: &Path) -> bool {
     std::fs::metadata(p).is_ok_and(|m| m.file_type().is_socket())
 }
@@ -139,7 +184,25 @@ mod tests {
         .iter()
         .map(|s| UnixListener::bind(r.join(s)).unwrap())
         .collect();
-        std::fs::write(r.join("etc/cdi/nvidia.yaml"), "").unwrap();
+        std::fs::write(
+            r.join("etc/cdi/nvidia.yaml"),
+            "hostPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.595.91.07\n",
+        )
+        .unwrap();
+        for d in [
+            "sys/class/drm/card1/device",
+            "sys/class/drm/card2/device",
+            "proc/driver/nvidia",
+        ] {
+            std::fs::create_dir_all(r.join(d)).unwrap();
+        }
+        std::fs::write(r.join("sys/class/drm/card1/device/vendor"), "0x10de\n").unwrap();
+        std::fs::write(r.join("sys/class/drm/card2/device/vendor"), "0x1002\n").unwrap();
+        std::fs::write(
+            r.join("proc/driver/nvidia/version"),
+            "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  595.91.07  Release Build  (dvs-builder@U22)  Tue Jul 29 2026\nGCC version:  gcc version 15.2.0\n",
+        )
+        .unwrap();
         std::fs::write(
             r.join("usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.595"),
             "",
@@ -161,9 +224,23 @@ mod tests {
         assert_eq!(h.pipewire_socket, Some(r.join("run/user/1000/pipewire-0")));
         assert_eq!(h.pulse_socket, Some(r.join("run/user/1000/pulse/native")));
         assert_eq!(h.cups_socket, Some(r.join("run/cups/cups.sock")));
-        assert!(h.dri && h.nvidia_cdi);
+        assert!(h.dri);
+        let nvidia = h.nvidia.clone().unwrap();
+        assert_eq!(
+            nvidia.cdi,
+            NvidiaCdi::Current,
+            "spec matches driver 595.91.07"
+        );
+        // After a driver update the spec still names the old libraries.
+        std::fs::write(
+            r.join("proc/driver/nvidia/version"),
+            "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  600.10  Release Build\n",
+        )
+        .unwrap();
+        let h2 = detect_with(1000, r, |k| vars.get(k).map(|v| (*v).to_owned()));
+        assert_eq!(h2.nvidia.unwrap().cdi, NvidiaCdi::Outdated);
         // The GBM backend link is resolved to the real file (mounted read-only).
-        let gbm = h.nvidia_gbm.unwrap();
+        let gbm = nvidia.gbm.unwrap();
         assert!(
             gbm.ends_with("usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.595"),
             "{}",
@@ -237,7 +314,7 @@ mod tests {
         });
         assert_eq!(h.wayland_socket, None);
         assert_eq!(h.pipewire_socket, None);
-        assert!(!h.dri && !h.nvidia_cdi);
-        assert_eq!(h.nvidia_gbm, None);
+        assert!(!h.dri);
+        assert_eq!(h.nvidia, None);
     }
 }
