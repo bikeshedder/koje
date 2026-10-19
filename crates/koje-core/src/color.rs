@@ -21,6 +21,15 @@ impl Color {
         Self { r, g, b }
     }
 
+    /// The border color of unfocused windows (ADR 0018): halfway to a dark
+    /// grey, so a context stays recognizable but the focused window stands out.
+    #[must_use]
+    pub fn dimmed(self) -> Self {
+        const BASE: u8 = 0x28;
+        let mix = |c: u8| u8::midpoint(c, BASE);
+        Self::rgb(mix(self.r), mix(self.g), mix(self.b))
+    }
+
     /// Hyprland's color notation, e.g. `rgb(2e7d5b)`.
     pub fn to_hyprland(self) -> String {
         format!("rgb({:02x}{:02x}{:02x})", self.r, self.g, self.b)
@@ -76,6 +85,19 @@ mod tests {
         assert_eq!(c.to_hyprland(), "rgb(2e7d5b)");
         assert_eq!(format!("{c:<8}|"), "#2E7D5B |");
         assert_eq!("#2e7d5b".parse::<Color>().unwrap(), c);
+    }
+
+    #[test]
+    fn dimmed() {
+        assert_eq!(
+            Color::rgb(0x2e, 0x7d, 0x5b).dimmed(),
+            Color::rgb(0x2b, 0x52, 0x41)
+        );
+        assert_eq!(
+            Color::rgb(255, 255, 255).dimmed(),
+            Color::rgb(0x93, 0x93, 0x93)
+        );
+        assert_eq!(Color::rgb(0, 0, 0).dimmed(), Color::rgb(0x14, 0x14, 0x14));
     }
 
     #[test]

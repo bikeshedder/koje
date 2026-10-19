@@ -30,5 +30,6 @@ pub mod size;
 pub mod spec;
 pub mod state;
 pub mod states;
+pub mod windows;
 
 pub use error::{Error, Result};

@@ -10,9 +10,15 @@ publish.workspace = true
 
 [dependencies]
 koje-core.workspace = true
+koje-hyprland.workspace = true
+koje-podman.workspace = true
 anyhow.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

@@ -1,6 +1,6 @@
 //! Hyprland's event socket (`.socket2.sock`): a pure line parser and a reader
-//! that reconnects when Hyprland goes away (restart, crash) and reports that
-//! as [`CompositorEvent::Reconnected`].
+//! that reconnects when Hyprland goes away (restart, crash). Every connection,
+//! the first one included, is reported as [`CompositorEvent::Connected`].
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -52,8 +52,6 @@ pub fn parse_line(line: &str) -> Option<CompositorEvent> {
 pub struct Events {
     fixed: Option<PathBuf>,
     reader: Option<BufReader<UnixStream>>,
-    /// Connected before: the next connection is a reconnect.
-    was_connected: bool,
     retry: Duration,
 }
 
@@ -70,7 +68,6 @@ impl Events {
         Self {
             fixed,
             reader: None,
-            was_connected: false,
             retry: FIRST_RETRY,
         }
     }
@@ -102,12 +99,8 @@ impl Events {
         let mut line = Vec::new();
         loop {
             if self.reader.is_none() {
-                let r = self.connect().await;
-                self.reader = Some(r);
-                if self.was_connected {
-                    return CompositorEvent::Reconnected;
-                }
-                self.was_connected = true;
+                self.reader = Some(self.connect().await);
+                return CompositorEvent::Connected;
             }
             let Some(reader) = &mut self.reader else {
                 continue;

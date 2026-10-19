@@ -8,10 +8,12 @@ Goal: a running service that knows every window's context and colors it.
   - Notes: port shape and request syntax per M2.2 report (0.53 syntax); all request strings in one place.
   - Done: crate `koje-hyprland` – `requests` (all strings, argument check against `;`/`,`), `clients` (`j/clients` + `j/monitors` → `WindowInfo`, placement relative to the monitor), instance discovery (signature, else newest; rediscovered when the socket goes away). Port: `Compositor::windows()` + `apply(&[CompositorCommand])` as one `[[BATCH]]`. Live check of the strings: M4.8.
 - [x] **M4.3 Event stream** from socket2 with reconnect
-  - Done: `koje_hyprland::events` – pure `parse_line` (open/close/focus/title/configreloaded, addresses normalized to `0x…`), `Events::next()` reconnects with backoff and yields `Reconnected`. Tested against fake sockets.
-- [ ] **M4.4 Window → context mapping** (PID → cgroup → container label), cached
+  - Done: `koje_hyprland::events` – pure `parse_line` (open/close/focus/title/configreloaded, addresses normalized to `0x…`), `Events::next()` reconnects with backoff and yields `Connected` on every connection (kojed resyncs). Tested against fake sockets.
+- [~] **M4.4 Window → context mapping** (PID → cgroup → container label), cached
+  - Done in code (awaiting host test): `koje_core::windows::WindowMap` (pure; pid cache lives as long as one of the process's windows), `kojed::daemon` resolves via `ContainerRuntime::context_of_pid` in `spawn_blocking`, resyncs on every `Connected`.
 - [ ] **M4.5 Border colors per context** (active/inactive), reapplied on reconnect
   - Notes: ADR 0018 – tag rule per context, re-add on `configreloaded`; check how to replace a rule on color change.
+  - Done in code (awaiting host test): rule `koje-<context>` with `Color::dimmed()` as inactive color; rules + tags again on `configreloaded`; a context created after start gets its rule with its first window. Color change: the rule is added again (later rules win) – to verify on the host; kojed picks it up on the next resync until `koje edit` tells kojed (M4.7).
 - [ ] **M4.6 One workspace per context per monitor**; `koje focus <context>`
 - [ ] **M4.7 systemd user unit for kojed**; `koje` talks to kojed, clear error when it is not running
 - [ ] **M4.8 Ignored integration tests against a live Hyprland**

@@ -455,6 +455,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "koje-core",
+ "koje-hyprland",
+ "koje-podman",
+ "tempfile",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]

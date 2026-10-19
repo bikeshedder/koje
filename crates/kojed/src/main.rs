@@ -2,35 +2,40 @@
 //!
 //! Responsibilities (see the concept, section "Architektur"):
 //! - follow Hyprland's event socket and assign each new window to its context
-//!   (PID → cgroup → container label),
-//! - set border colors per context,
+//!   (PID → cgroup → container label) – M4.4,
+//! - set border colors per context – M4.5,
 //! - apply layouts and keep autosaving layouts in sync,
 //! - write the crash recovery file,
 //! - watch memory usage and enforce soft/hard limits,
-//! - serve `koje` and the UI over D-Bus or a Unix socket.
+//! - serve `koje` and the UI over D-Bus (ADR 0027).
 //!
-//! Nothing of this exists yet; the first real code arrives with milestone M4.
-//! Whether the service is async (tokio) or thread-based is still open.
+//! One current-thread tokio runtime (ADR 0026).
 
-use std::process::ExitCode;
+mod daemon;
 
+use anyhow::{Context as _, Result};
+use koje_core::paths::Paths;
+use koje_hyprland::Hyprland;
+use koje_podman::Podman;
 use tracing_subscriber::EnvFilter;
 
-fn main() -> ExitCode {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
-    match koje_core::paths::Paths::from_env() {
-        Ok(paths) => tracing::info!(config = %paths.global_config().display(), "kojed starting"),
-        Err(err) => {
-            tracing::error!("{err}");
-            return ExitCode::FAILURE;
+    let paths = Paths::from_env().context("finding koje's directories")?;
+    tracing::info!(config = %paths.global_config().display(), "kojed starting");
+    let hyprland = Hyprland::from_env();
+    let mut events = hyprland.events();
+    let mut daemon = daemon::Daemon::new(hyprland, Podman::new(), paths);
+    loop {
+        let event = events.next().await;
+        if let Err(e) = daemon.handle(event).await {
+            tracing::warn!("{e:#}");
         }
     }
-
-    tracing::error!("kojed is not implemented yet – planned for milestone M4 (see docs/plan/)");
-    ExitCode::FAILURE
 }

@@ -85,8 +85,9 @@ pub enum CompositorEvent {
     },
     /// The compositor reloaded its config: runtime rules are gone (ADR 0018).
     ConfigReloaded,
-    /// The event connection was lost and is back: state may have changed.
-    Reconnected,
+    /// The event connection is up, first or again after it was lost (the
+    /// compositor restarted): windows may have changed unseen, resync.
+    Connected,
 }
 
 /// Window manager operations koje needs (implemented for Hyprland).

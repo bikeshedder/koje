@@ -121,6 +121,7 @@ async fn events_reconnect() {
             .await
             .unwrap()
     };
+    assert_eq!(next().await, CompositorEvent::Connected);
     assert!(matches!(
         next().await,
         CompositorEvent::WindowOpened { address, .. } if address == "0xab"
@@ -131,7 +132,7 @@ async fn events_reconnect() {
             address: "0xab".into()
         }
     );
-    assert_eq!(next().await, CompositorEvent::Reconnected);
+    assert_eq!(next().await, CompositorEvent::Connected);
     assert_eq!(next().await, CompositorEvent::ConfigReloaded);
     drop(server.await.unwrap());
 }
