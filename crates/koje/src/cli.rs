@@ -126,8 +126,9 @@ pub enum Command {
     Shell {
         #[command(flatten)]
         ctx: Ctx,
-        #[arg(long)]
-        dev: bool,
+        /// Enter a dev container instead: the only running one, or the named one.
+        #[arg(long, value_name = "CONTAINER", num_args = 0..=1, default_missing_value = "")]
+        dev: Option<String>,
     },
     /// Create a new context.
     New {
@@ -281,6 +282,17 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn shell_dev_takes_an_optional_name() {
+        let dev = |args: &[&str]| match parse(args).unwrap().command {
+            Command::Shell { dev, .. } => dev,
+            _ => unreachable!(),
+        };
+        assert_eq!(dev(&["shell", "kp"]), None);
+        assert_eq!(dev(&["shell", "kp", "--dev"]), Some(String::new()));
+        assert_eq!(dev(&["shell", "kp", "--dev", "web"]), Some("web".into()));
     }
 
     #[test]

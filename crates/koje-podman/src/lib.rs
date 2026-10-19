@@ -151,6 +151,47 @@ fn read(path: &Path) -> Result<String> {
     })
 }
 
+impl<R: Runner> Podman<R> {
+    /// Run a command in the context container with the terminal attached
+    /// (`podman exec -i [-t]`); returns whether it succeeded.
+    pub fn exec_attached(&self, ctx: &ContextName, command: &[&str], tty: bool) -> Result<bool> {
+        let name = container_name(ctx);
+        let mut args = vec!["exec", "-i"];
+        if tty {
+            args.push("-t");
+        }
+        args.push(&name);
+        args.extend_from_slice(command);
+        self.runner.run_attached(&args).map_err(Error::Spawn)
+    }
+
+    /// Start a command in the context container in the background (`podman exec -d`).
+    pub fn exec_detached(&self, ctx: &ContextName, command: &[&str]) -> Result<()> {
+        let name = container_name(ctx);
+        let mut args = vec!["exec", "-d", &name];
+        args.extend_from_slice(command);
+        self.podman(&args).map(drop)
+    }
+
+    /// Names of the dev containers running in the context (its nested Podman).
+    pub fn dev_containers(&self, ctx: &ContextName) -> Result<Vec<String>> {
+        let out = self.podman(&[
+            "exec",
+            &container_name(ctx),
+            "podman",
+            "ps",
+            "--format",
+            "{{.Names}}",
+        ])?;
+        Ok(out
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect())
+    }
+}
+
 /// `koje/…` images are built locally (M3.3); Podman needs `localhost/` for them
 /// to skip short-name resolution against registries.
 pub fn image_ref(image: &str) -> String {
@@ -548,6 +589,28 @@ mod tests {
             calls[0]
         );
         assert_eq!(calls[1], "rm koje-kp");
+    }
+
+    #[test]
+    fn exec_and_dev_containers() {
+        let fake = Fake::default()
+            .answer(true, "", "")
+            .answer(true, "", "")
+            .answer(true, "web\ndb\n", "");
+        let podman = Podman::with_runner(&fake, "/x", "/x");
+        assert!(podman.exec_attached(&kp(), &["bash", "-l"], true).unwrap());
+        podman
+            .exec_detached(&kp(), &["xdg-open", "https://example.org"])
+            .unwrap();
+        assert_eq!(podman.dev_containers(&kp()).unwrap(), ["web", "db"]);
+        assert_eq!(
+            *fake.calls.borrow(),
+            [
+                "exec -i -t koje-kp bash -l",
+                "exec -d koje-kp xdg-open https://example.org",
+                "exec koje-kp podman ps --format {{.Names}}"
+            ]
+        );
     }
 
     #[test]

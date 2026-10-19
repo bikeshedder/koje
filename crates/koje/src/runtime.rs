@@ -5,7 +5,9 @@
 use anyhow::{Context as _, Result, bail};
 use koje_core::config::{ContextConfig, GlobalConfig};
 use koje_core::context;
-use koje_core::lifecycle::{DownPlan, UpPlan, plan_down, plan_up};
+use koje_core::lifecycle::{
+    DownPlan, UpPlan, pick_dev_container, plan_down, plan_up, require_running,
+};
 use koje_core::name::{ContextName, StateName};
 use koje_core::paths::Paths;
 use koje_core::ports::ContainerRuntime as _;
@@ -73,6 +75,35 @@ pub fn down(paths: &Paths, context: &str, no_save: bool) -> Result<()> {
         DownPlan::AlreadyStopped => println!("{name} is not running"),
         DownPlan::NotCreated => println!("{name} has not been started yet"),
     }
+    Ok(())
+}
+
+/// `koje shell <context> [--dev [name]]`: an interactive shell in the running
+/// context, or in one of its dev containers.
+pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
+    use std::io::IsTerminal as _;
+    let name = ContextName::new(context)?;
+    context::load(paths, &name)?;
+    let podman = Podman::new();
+    require_running(podman.status(&name)?, name.as_str()).map_err(anyhow::Error::msg)?;
+    let tty = std::io::stdin().is_terminal();
+    // Prefer a login bash, fall back to sh (dev containers may lack bash).
+    let login = "command -v bash >/dev/null && exec bash -l || exec sh -l";
+    match dev {
+        None => podman.exec_attached(&name, &["sh", "-c", login], tty)?,
+        Some(requested) => {
+            let running = podman.dev_containers(&name)?;
+            let requested = (!requested.is_empty()).then_some(requested);
+            let dev = pick_dev_container(&running, requested).map_err(anyhow::Error::msg)?;
+            let mut inner = vec!["podman", "exec", "-i"];
+            if tty {
+                inner.push("-t");
+            }
+            inner.extend([dev.as_str(), "sh", "-c", login]);
+            podman.exec_attached(&name, &inner, tty)?
+        }
+    };
+    // The shell's own exit status (last command in it) is not an error of koje.
     Ok(())
 }
 

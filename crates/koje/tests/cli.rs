@@ -72,6 +72,7 @@ case "$1" in
   start) echo running > {status} ;;
   stop) echo exited > {status} ;;
   unpause) echo running > {status} ;;
+  exec) case "$*" in *"podman ps"*) echo web ;; esac ;;
 esac
 "#,
         log = log.display(),
@@ -421,6 +422,38 @@ fn up_creates_once_then_starts_and_down_stops() {
 }
 
 #[test]
+fn shell_needs_a_running_context_and_execs_into_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let out = koje_fake(tmp.path(), &path, &["shell", "kp"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp -s empty"));
+
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&koje_fake(tmp.path(), &path, &["shell", "kp"]));
+    // stdin is not a terminal in tests: no -t.
+    assert!(
+        podman_log(tmp.path()).contains("exec -i koje-kp sh -c command -v bash"),
+        "{}",
+        podman_log(tmp.path())
+    );
+
+    stdout(&koje_fake(tmp.path(), &path, &["shell", "kp", "--dev"]));
+    let log = podman_log(tmp.path());
+    assert!(
+        log.contains("exec koje-kp podman ps --format {{.Names}}"),
+        "{log}"
+    );
+    assert!(
+        log.contains("exec -i koje-kp podman exec -i web sh -c"),
+        "{log}"
+    );
+    let out = koje_fake(tmp.path(), &path, &["shell", "kp", "--dev", "db"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("running: web"));
+}
+
+#[test]
 fn up_and_down_need_m5_for_states() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
@@ -447,9 +480,9 @@ fn up_and_down_need_m5_for_states() {
 #[test]
 fn unimplemented_commands_name_their_milestone() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = koje(tmp.path(), &["shell", "kp"]);
+    let out = koje(tmp.path(), &["focus", "kp"]);
     assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M3"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M4"));
 }
 
 #[test]
