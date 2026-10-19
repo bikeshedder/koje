@@ -43,6 +43,24 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
             active.to_hyprland(),
             inactive.to_hyprland()
         )],
+        // Proven in M2.2: both properties, or the other state keeps the default.
+        C::BorderColors {
+            address,
+            active,
+            inactive,
+        } => {
+            let address = arg(address)?;
+            vec![
+                format!(
+                    "dispatch setprop address:{address} active_border_color {}",
+                    active.to_hyprland()
+                ),
+                format!(
+                    "dispatch setprop address:{address} inactive_border_color {}",
+                    inactive.to_hyprland()
+                ),
+            ]
+        }
         C::TagWindow { address, tag } => vec![format!(
             "dispatch tagwindow +{} address:{}",
             arg(tag)?,
@@ -165,6 +183,17 @@ mod tests {
                 tag: "koje-work".into()
             }),
             ["dispatch tagwindow +koje-work address:0x63b2"]
+        );
+        assert_eq!(
+            one(CompositorCommand::BorderColors {
+                address: "0x63b2".into(),
+                active: Color::rgb(0xff, 0, 0),
+                inactive: Color::rgb(0x80, 0, 0),
+            }),
+            [
+                "dispatch setprop address:0x63b2 active_border_color rgb(ff0000)",
+                "dispatch setprop address:0x63b2 inactive_border_color rgb(800000)"
+            ]
         );
         assert_eq!(
             one(CompositorCommand::FocusWindow {

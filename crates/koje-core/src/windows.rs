@@ -151,6 +151,20 @@ impl WindowMap {
             .collect()
     }
 
+    /// Border colors for the open windows of `ctx` (after a color change: the
+    /// rule reaches only windows opened later).
+    pub fn recolor(&self, ctx: &ContextName, color: Color) -> Vec<CompositorCommand> {
+        self.windows
+            .iter()
+            .filter(|(_, w)| w.context.as_ref() == Some(ctx))
+            .map(|(address, _)| CompositorCommand::BorderColors {
+                address: address.clone(),
+                active: color,
+                inactive: color.dimmed(),
+            })
+            .collect()
+    }
+
     /// Windows per context, for status output.
     pub fn counts(&self) -> BTreeMap<&ContextName, usize> {
         let mut counts = BTreeMap::new();
@@ -220,6 +234,16 @@ mod tests {
         assert_eq!(m.known_pid(9), Some(None));
         assert_eq!(m.known_pid(0), None, "pid 0 is unknown, never cached");
         assert_eq!(m.tags(), [tag_cmd("0xa", "koje-work")]);
+        let blue = Color::rgb(0, 0, 0xff);
+        assert_eq!(
+            m.recolor(&ctx("work"), blue),
+            [CompositorCommand::BorderColors {
+                address: "0xa".into(),
+                active: blue,
+                inactive: blue.dimmed()
+            }]
+        );
+        assert_eq!(m.recolor(&ctx("other"), blue), []);
         assert_eq!(m.context_of("0xa"), Some(&ctx("work")));
         assert_eq!(m.counts(), BTreeMap::from([(&ctx("work"), 1)]));
 

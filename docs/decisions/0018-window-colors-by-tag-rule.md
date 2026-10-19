@@ -32,4 +32,8 @@ kojed colors windows with **one window rule per context**, matching the tag
   Hyprland.
 - Rules added at runtime accumulate; replacing a context's color has to remove
   or override the old rule (to check in M4.5).
+- Update (M4.5 host test): a rule colors only windows opened after it. On a
+  color change kojed adds the rule again (for new windows) and sets both
+  border properties on the context's open windows (`setprop`, the fallback
+  below).
 - Fallback if tags or rules change again: per-window `setprop` for both colors.

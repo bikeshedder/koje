@@ -40,6 +40,13 @@ pub enum CompositorCommand {
         active: Color,
         inactive: Color,
     },
+    /// Border colors of one window, overriding rules. Rules apply only when a
+    /// window opens, so a context's color change reaches its open windows this way.
+    BorderColors {
+        address: String,
+        active: Color,
+        inactive: Color,
+    },
     /// Give a window a tag (it then gets the tag's rule).
     TagWindow {
         address: String,

@@ -81,21 +81,25 @@ where
 
     /// Show a context's workspace (`koje focus`).
     pub async fn focus(&mut self, ctx: &ContextName) -> Result<()> {
+        let mut commands = Vec::new();
         if !self.colors.contains_key(ctx) {
-            self.load_colors();
+            commands = self.load_colors();
         }
         if !self.colors.contains_key(ctx) {
             anyhow::bail!("no context named {ctx}");
         }
-        self.apply(&[windows::focus(ctx)]).await
+        commands.push(windows::focus(ctx));
+        self.apply(&commands).await
     }
 
     /// Read the contexts again (after `koje new`/`koje edit`) and send their
     /// rules. Without a compositor that is fine: rules follow on `Connected`.
     pub async fn reload(&mut self) -> Result<()> {
         let list = koje_core::context::list(&self.paths).context("reading the contexts")?;
-        self.colors = list.into_iter().map(|c| (c.name, c.color)).collect();
-        if let Err(e) = self.apply(&self.rules()).await {
+        let recolor = self.set_colors(list.into_iter().map(|c| (c.name, c.color)).collect());
+        let mut commands = self.rules();
+        commands.extend(recolor);
+        if let Err(e) = self.apply(&commands).await {
             tracing::info!("rules not sent: {e:#}");
         }
         Ok(())
@@ -133,7 +137,7 @@ where
 
     /// Start and every (re)connection: contexts, rules, all windows.
     async fn sync(&mut self) -> Result<Vec<Change>> {
-        self.load_colors();
+        let mut recolor = self.load_colors();
         let present = self
             .compositor
             .windows()
@@ -166,10 +170,11 @@ where
             .iter()
             .any(|c| !self.colors.contains_key(*c))
         {
-            self.load_colors();
+            recolor.extend(self.load_colors());
         }
         let mut commands = self.rules();
         commands.extend(self.windows.tags());
+        commands.extend(recolor);
         commands.extend(moves);
         tracing::info!(
             windows = present.len(),
@@ -199,7 +204,7 @@ where
             && !self.colors.contains_key(c)
         {
             // A context created after kojed started.
-            self.load_colors();
+            commands.extend(self.load_colors());
             commands.extend(self.colors.get(c).map(|color| windows::rule(c, *color)));
         }
         tracing::debug!(address, pid = w.pid, context = ?ctx.as_ref().map(ContextName::as_str), "window opened");
@@ -240,11 +245,27 @@ where
     }
 
     /// Context colors from the config files; on error the old ones stay.
-    fn load_colors(&mut self) {
+    /// Returns the commands for windows whose context changed color.
+    fn load_colors(&mut self) -> Vec<CompositorCommand> {
         match koje_core::context::list(&self.paths) {
-            Ok(list) => self.colors = list.into_iter().map(|c| (c.name, c.color)).collect(),
-            Err(e) => tracing::warn!("reading the contexts: {e}"),
+            Ok(list) => self.set_colors(list.into_iter().map(|c| (c.name, c.color)).collect()),
+            Err(e) => {
+                tracing::warn!("reading the contexts: {e}");
+                Vec::new()
+            }
         }
+    }
+
+    /// New context colors. A rule only colors windows opened after it, so the
+    /// open windows of a context whose color changed get their colors set
+    /// directly (host test of M4.5).
+    fn set_colors(&mut self, colors: BTreeMap<ContextName, Color>) -> Vec<CompositorCommand> {
+        let old = std::mem::replace(&mut self.colors, colors);
+        self.colors
+            .iter()
+            .filter(|(ctx, color)| old.get(*ctx).is_some_and(|o| o != *color))
+            .flat_map(|(ctx, color)| self.windows.recolor(ctx, *color))
+            .collect()
     }
 
     fn rules(&self) -> Vec<CompositorCommand> {
@@ -524,6 +545,39 @@ mod tests {
                 mv("0xn", "new")
             ]
         );
+    }
+
+    /// Host test of M4.5: after `koje edit` only new windows had the new color.
+    #[tokio::test(flavor = "current_thread")]
+    async fn color_change_reaches_open_windows() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+
+        let blue = Color::rgb(0, 0, 0xff);
+        let path = s.paths.context_config(&ctx("work"));
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("#FF0000", "#0000FF");
+        koje_core::context::replace_config(&s.paths, &ctx("work"), &text).unwrap();
+        d.reload().await.unwrap();
+        assert_eq!(
+            comp.take(),
+            [
+                windows::rule(&ctx("work"), blue),
+                CompositorCommand::BorderColors {
+                    address: "0xa".into(),
+                    active: blue,
+                    inactive: blue.dimmed()
+                }
+            ]
+        );
+        // Unchanged colors: only the rules again.
+        d.reload().await.unwrap();
+        assert_eq!(comp.take(), [windows::rule(&ctx("work"), blue)]);
     }
 
     #[tokio::test(flavor = "current_thread")]
