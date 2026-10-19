@@ -21,12 +21,15 @@ yet. Break down further using the M2.3–M2.5 reports.
   - Notes: stops, removes container, then home volume, config last; works without Podman (koje files only). Host test 2026-10-19: nothing left.
 - [x] **M3.9 Ignored integration tests against real Podman** (label `io.koje.test=true`, cleanup)
   - Notes: `crates/koje-podman/tests/podman.rs` – lifecycle/memory/pid mapping, create from spec, context from `koje/base`. All pass on the host (2026-10-19). Dev container: M0.8.
-- [ ] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)
-- [ ] **M3.11 Stale sockets** after a host PipeWire/compositor restart (ADR 0015): detect and restart or remount
+- [-] **M3.10 Context `global`** for overlays: created and started at login (systemd user unit?)
+  - Dropped here: moved to M7.6 (with the overlays).
+- [-] **M3.11 Stale sockets** after a host PipeWire/compositor restart (ADR 0015): detect and restart or remount
   - Notes: seen in M2.4 – after restarting the nested Hyprland, a running context kept the old `wayland-1` socket; mounting the socket's directory (as for the host bus proxy) would avoid it. Solved for Wayland by ADR 0022 (kojed recreates the socket in the mounted directory); PipeWire/PulseAudio still open.
+  - Dropped here: moved to M4.11 (kojed watches the sockets).
 - [x] **M3.12 NVIDIA CDI detection** (ADR 0016): find the CDI spec and the host's GBM backend; hint when missing or outdated
   - Notes: `HostEnv::nvidia` (`NvidiaCdi::{Missing, Current, Outdated}`, driver version from `/proc/driver/nvidia/version` vs. the spec); notes name `nvidia-ctk cdi generate`.
-- [ ] **M3.13 Apply access changes to a running context** (ADR 0017): on `koje edit`/config change ask "now (recreate, restore windows) or at next `up`"
+- [-] **M3.13 Apply access changes to a running context** (ADR 0017): on `koje edit`/config change ask "now (recreate, restore windows) or at next `up`"
+  - Dropped here: moved to M5.11 (needs window restore).
 - [~] **M3.14 Host interfaces per context** (ADR 0019, ADR 0025; steps M3.15–M3.17): start `xdg-dbus-proxy` with filters from the effective access; forwarder in the context (Rust) started before anything activates the image's portal; own keyring per context
   - Notes: forwarder design from M2.10 – one host connection per client, translate request/session path segments in paths and bodies, no blocking work in GDBus-style filters, reconnect when the proxy restarts. Proxy filter as in `docs/spikes/setup/host-bus-proxy.sh`. Mount the CUPS socket for `print`.
 - [x] **M3.15 Proxy filter from the effective access** (ADR 0025): pure function `koje_core::hostbus::proxy_args(access)` reproducing `docs/spikes/setup/host-bus-proxy.sh` per switch; tests

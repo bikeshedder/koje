@@ -13,3 +13,4 @@ Goal: koje remembers and restores the work environment.
 - [ ] **M5.8 Crash recovery**: continuous recovery file; `up` prompt, `--recover`/`--no-recover`
 - [ ] **M5.9 State switching in a running context** (uses M1.9)
 - [ ] **M5.10 Matching several windows of the same program** (open question → spike/ADR)
+- [ ] **M5.11 Apply access changes to a running context** (from M3.13, ADR 0017): on `koje edit`/config change ask "now (save state, recreate, restore windows) or at next `up`"; note that recreating loses what was installed in the container
