@@ -3,7 +3,7 @@
 ```
 M0 Foundation ─► M1 Model & files ─────────────┐
                  M2 Spikes (host) ─► M3 Context containers ─► M4 kojed + Hyprland ─► M5 States & layouts ─► M7 Desktop extras
-                                                └────────────────────────────────► M6 Memory            └► M8 UI
+                                                └────────────────────────────────► M6 Memory            └► M8 UI ─► M9 Integrations
 ```
 
 M1 and M2 can run in parallel: M1 is pure code in the dev container, M2 is
@@ -20,6 +20,7 @@ experiments on the host.
 | [M6 Memory](M6-memory.md) | Limits and visibility | soft/hard limits with notifications; `koje stats`, `koje limit` |
 | [M7 Desktop extras](M7-desktop-extras.md) | Overlays, pinning, snap zones | `mail`/`chat` overlays, `pin`/`unpin`, `snap` |
 | [M8 UI](M8-ui.md) | Launcher, bar module, panel | Stage 1 and 2 usable daily; panel prototype |
+| [M9 Integrations](M9-integrations.md) | Per-application tuning once koje works | `devcontainer` integration; program-specific restore details (tabs, …) |
 
 Outlook (not scheduled): CRIU hibernation, Hyprland plugins for animations,
 drag-into-zone and colored title bars – see `docs/architecture.md`.
