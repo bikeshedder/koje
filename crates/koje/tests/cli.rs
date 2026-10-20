@@ -690,27 +690,39 @@ fn up_starts_proxy_and_forwarder_down_stops_the_proxy() {
 }
 
 #[test]
-fn up_and_down_need_m5_for_states() {
+fn up_falls_back_to_empty_and_restores_through_kojed() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    for (args, hint) in [
-        (&["up", "kp"][..], "koje up kp -s empty"),
-        (&["up", "kp", "-s", "default"], "koje up kp -s empty"),
-        (&["down", "kp"], "koje down kp --no-save"),
-    ] {
-        let out = koje_fake(tmp.path(), &path, args);
-        assert!(!out.status.success(), "{args:?}");
-        let err = String::from_utf8_lossy(&out.stderr);
-        assert!(err.contains("milestone M5") && err.contains(hint), "{err}");
-    }
     assert!(
         !koje_fake(tmp.path(), &path, &["up", "nope", "-s", "empty"])
             .status
             .success()
     );
-    // Nothing reached podman.
-    assert_eq!(podman_log(tmp.path()), "");
+    assert_eq!(podman_log(tmp.path()), "", "nothing reached podman");
+
+    // No state yet: `default` → `fresh` → `empty`.
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp"]));
+    assert!(
+        out.contains("no state default yet – starting kp without windows"),
+        "{out}"
+    );
+    let out = koje_fake(tmp.path(), &path, &["down", "kp"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("koje down kp --no-save"));
+    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+
+    // A stored state with windows is restored by kojed (not running here).
+    let states = tmp.path().join("data/koje/kp/states");
+    std::fs::create_dir_all(&states).unwrap();
+    std::fs::write(
+        states.join("default.toml"),
+        "active_layout = \"main\"\n[[windows]]\nid = \"term\"\ncommand = \"foot\"\n",
+    )
+    .unwrap();
+    let out = koje_fake(tmp.path(), &path, &["up", "kp"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("restoring state default of kp"), "{err}");
 }
 
 #[test]

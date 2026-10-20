@@ -148,8 +148,35 @@ pub fn spec(id: WindowId, w: &Observed, integrations: &[Integration]) -> WindowS
         id,
         integration: found.map(|i| i.name.clone()),
         command,
+        app_id: Some(w.app_id.clone()),
         where_: Where::Context,
         remembered,
+    }
+}
+
+/// The first word of a command line, unquoted (`'my app' x` → `my app`).
+pub fn program(command: &str) -> String {
+    let c = command.trim_start();
+    if let Some(rest) = c.strip_prefix('\'') {
+        return rest.split('\'').next().unwrap_or_default().to_owned();
+    }
+    c.split_whitespace().next().unwrap_or_default().to_owned()
+}
+
+/// Whether the restored window `p` waits for a window with `app_id`: by app id;
+/// for states written before app ids were stored, by integration or by the
+/// program's name.
+fn waits_for(p: &WindowSpec, app_id: &str, integration: Option<&str>) -> bool {
+    match &p.app_id {
+        Some(a) => a == app_id,
+        None => match (&p.integration, integration) {
+            (Some(want), Some(got)) => want == got,
+            (Some(_), None) | (None, Some(_)) => false,
+            (None, None) => p
+                .command
+                .as_deref()
+                .is_some_and(|c| base_id(None, basename(&program(c))) == base_id(None, app_id)),
+        },
     }
 }
 
@@ -166,6 +193,16 @@ pub struct Live {
     pub state: State,
     /// Compositor address → window.
     pub windows: BTreeMap<String, LiveWindow>,
+    /// Windows of a restored state that have not appeared yet, in start order.
+    pub pending: Vec<WindowSpec>,
+}
+
+/// A window that joined the live state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Added {
+    pub id: WindowId,
+    /// Where the active layout wants it: a restored window (M5.3).
+    pub place: Option<Placement>,
 }
 
 impl Live {
@@ -173,24 +210,80 @@ impl Live {
         Self {
             state: State::new(LayoutName::initial()),
             windows: BTreeMap::new(),
+            pending: Vec::new(),
+        }
+    }
+
+    /// The live state while `state` is being restored: its windows wait for
+    /// their windows to appear ([`Live::add`]).
+    pub fn restoring(state: State) -> Self {
+        let mut state = state;
+        let pending = std::mem::take(&mut state.windows);
+        Self {
+            state,
+            windows: BTreeMap::new(),
+            pending,
         }
     }
 
     fn taken(&self) -> BTreeSet<WindowId> {
-        self.windows.values().map(|w| w.id.clone()).collect()
+        self.windows
+            .values()
+            .map(|w| w.id.clone())
+            .chain(self.pending.iter().map(|p| p.id.clone()))
+            .collect()
     }
 
-    /// A window of the context appeared: give it an id and put it into the
-    /// active layout (ADR 0004). Returns its id.
+    /// Restored windows that did not appear (their program failed or opened
+    /// fewer windows): they leave the state and its layouts.
+    pub fn expire_pending(&mut self) -> Vec<WindowId> {
+        let gone: Vec<WindowId> = self.pending.drain(..).map(|p| p.id).collect();
+        for layout in self.state.layout.values_mut() {
+            for id in &gone {
+                layout.windows.remove(id);
+            }
+        }
+        gone
+    }
+
+    /// A window of the context appeared. A restored window waiting with the
+    /// same app id takes it (first in start order) and gets its place from the
+    /// active layout; otherwise it gets a new id and joins the active layout
+    /// where it is (ADR 0004).
     pub fn add(
         &mut self,
         address: &str,
         app_id: &str,
         integrations: &[Integration],
         placement: Placement,
-    ) -> Option<WindowId> {
+    ) -> Option<Added> {
         if let Some(w) = self.windows.get(address) {
-            return Some(w.id.clone());
+            return Some(Added {
+                id: w.id.clone(),
+                place: None,
+            });
+        }
+        let integration = integration::find(integrations, app_id).map(|i| i.name.as_str());
+        if let Some(i) = self
+            .pending
+            .iter()
+            .position(|p| waits_for(p, app_id, integration))
+        {
+            let spec = self.pending.remove(i);
+            self.windows.insert(
+                address.to_owned(),
+                LiveWindow {
+                    id: spec.id.clone(),
+                    app_id: app_id.to_owned(),
+                },
+            );
+            let place = self
+                .state
+                .layout
+                .get(&self.state.active_layout)
+                .and_then(|l| l.windows.get(&spec.id))
+                .cloned();
+            return Some(Added { id: spec.id, place });
         }
         let name = integration::find(integrations, app_id).map(|i| i.name.as_str());
         let id = new_id(&self.taken(), &base_id(name, app_id))?;
@@ -208,7 +301,7 @@ impl Live {
             .or_default()
             .windows
             .insert(id.clone(), placement);
-        Some(id)
+        Some(Added { id, place: None })
     }
 
     /// A window closed: it leaves the state and every layout (ADR 0004).
@@ -243,6 +336,8 @@ impl Live {
                 *p = placement;
             }
         }
+        // Restored windows still on their way stay part of the state.
+        specs.extend(self.pending.iter().cloned());
         specs.sort_by(|a, b| a.id.cmp(&b.id));
         self.state.windows = specs;
         self.state.clone()
@@ -382,16 +477,112 @@ mod tests {
     }
 
     #[test]
+    fn restore_matches_windows_by_app_id() {
+        let all = integration::built_in();
+        let main = LayoutName::initial();
+        let spec_of = |i: &str, app: &str| WindowSpec {
+            id: id(i),
+            integration: None,
+            command: Some(app.into()),
+            app_id: Some(app.into()),
+            where_: Where::Context,
+            remembered: BTreeMap::new(),
+        };
+        let mut saved = State::new(main.clone());
+        saved.windows = vec![
+            spec_of("foot", "foot"),
+            spec_of("foot-2", "foot"),
+            spec_of("viewer", "evince"),
+        ];
+        for (i, w) in ["foot", "foot-2", "viewer"].iter().enumerate() {
+            saved.layout[&main]
+                .windows
+                .insert(id(w), at(i32::try_from(i).unwrap() * 100));
+        }
+        let mut live = Live::restoring(saved);
+        // A new program's window while restoring: a fresh id that avoids the waiting ones.
+        assert_eq!(
+            live.add("0x1", "org.mozilla.firefox", &all, at(9)).unwrap(),
+            Added {
+                id: id("browser"),
+                place: None
+            }
+        );
+        let a = live.add("0x2", "foot", &all, at(5)).unwrap();
+        assert_eq!(
+            a,
+            Added {
+                id: id("foot"),
+                place: Some(at(0))
+            },
+            "first waiting foot, placed from the layout"
+        );
+        let b = live.add("0x3", "foot", &all, at(5)).unwrap();
+        assert_eq!(
+            b,
+            Added {
+                id: id("foot-2"),
+                place: Some(at(100))
+            }
+        );
+        let c = live.add("0x4", "foot", &all, at(5)).unwrap();
+        assert_eq!(c.id, id("terminal"), "no foot waiting any more");
+        // Saved meanwhile: the window still on its way stays in the state.
+        let state = live.snapshot(&all, |_| None);
+        assert!(state.windows.iter().any(|w| w.id == id("viewer")));
+        assert_eq!(live.expire_pending(), [id("viewer")]);
+        assert!(!live.state.layout[&main].windows.contains_key(&id("viewer")));
+    }
+
+    #[test]
+    fn states_without_app_ids_still_match() {
+        let all = integration::built_in();
+        let old = |i: &str, integration: Option<&str>, command: &str| WindowSpec {
+            id: id(i),
+            integration: integration.map(str::to_owned),
+            command: Some(command.into()),
+            app_id: None,
+            where_: Where::Context,
+            remembered: BTreeMap::new(),
+        };
+        let mut saved = State::new(LayoutName::initial());
+        saved.windows = vec![
+            old("terminal", Some("terminal"), "foot -D /home/mj"),
+            old("nautilus", None, "nautilus"),
+        ];
+        let mut live = Live::restoring(saved);
+        assert_eq!(
+            live.add("0x1", "org.gnome.Nautilus", &all, at(0))
+                .unwrap()
+                .id,
+            id("nautilus")
+        );
+        assert_eq!(
+            live.add("0x2", "kitty", &all, at(0)).unwrap().id,
+            id("terminal"),
+            "any terminal"
+        );
+        assert_eq!(program("'my app' --x"), "my app");
+        assert_eq!(
+            program("/usr/lib64/firefox/firefox"),
+            "/usr/lib64/firefox/firefox"
+        );
+    }
+
+    #[test]
     fn live_state() {
         let all = integration::built_in();
         let mut live = Live::new();
-        assert_eq!(live.add("0xa", "foot", &all, at(0)), Some(id("terminal")));
         assert_eq!(
-            live.add("0xb", "foot", &all, at(100)),
+            live.add("0xa", "foot", &all, at(0)).map(|a| a.id),
+            Some(id("terminal"))
+        );
+        assert_eq!(
+            live.add("0xb", "foot", &all, at(100)).map(|a| a.id),
             Some(id("terminal-2"))
         );
         assert_eq!(
-            live.add("0xa", "foot", &all, at(5)),
+            live.add("0xa", "foot", &all, at(5)).map(|a| a.id),
             Some(id("terminal")),
             "known window keeps its id"
         );
@@ -428,7 +619,7 @@ mod tests {
                 .contains_key(&id("terminal-2"))
         );
         assert_eq!(
-            live.add("0xc", "foot", &all, at(0)),
+            live.add("0xc", "foot", &all, at(0)).map(|a| a.id),
             Some(id("terminal-2")),
             "a freed id is reused"
         );

@@ -29,6 +29,14 @@ would change between saves.
   the compositor when the state is taken (until autosave, M5.7).
 - When kojed restarts, it rebuilds the live state from the windows that are
   there (ids are assigned again).
+- **Restoring** (M5.3): `koje up` sends the loaded state to kojed (`Restore`),
+  which starts the programs (`podman exec` with the integration's launch
+  template, in a remembered `cwd`; `launch_once` integrations once). The state's
+  windows wait for their windows: a new window takes the first waiting id with
+  the same app id (stored per window; older states match by integration or
+  program name) and is placed from the active layout. Waiting windows that do
+  not appear within 60 s leave the state. Several windows of one program are
+  matched in start order until M5.10 decides better.
 
 ## Consequences
 

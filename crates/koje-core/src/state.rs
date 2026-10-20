@@ -32,6 +32,13 @@ pub enum Where {
     Dev,
 }
 
+impl Where {
+    #[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if
+    fn is_context(&self) -> bool {
+        *self == Self::Context
+    }
+}
+
 /// One window of a state: how to start it again.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowSpec {
@@ -39,10 +46,13 @@ pub struct WindowSpec {
     /// Integration that knows how to launch and remember this program (e.g. `editor`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integration: Option<String>,
-    /// Fallback: the original command line (`generic` integration).
+    /// The original command line (what `generic` starts again).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
-    #[serde(default, rename = "where")]
+    /// The window's Wayland app id: how a restored window is recognized (M5.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_id: Option<String>,
+    #[serde(default, rename = "where", skip_serializing_if = "Where::is_context")]
     pub where_: Where,
     /// Values an integration remembered, e.g. `path` or `cwd`.
     #[serde(flatten)]

@@ -362,6 +362,16 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
             })
     }
 
+    fn launch(&self, ctx: &ContextName, command: &str, workdir: Option<&str>) -> Result<()> {
+        let name = container_name(ctx);
+        let mut args = vec!["exec", "-d"];
+        if let Some(w) = workdir {
+            args.extend(["--workdir", w]);
+        }
+        args.extend([name.as_str(), "sh", "-c", command]);
+        self.podman(&args).map(drop)
+    }
+
     fn context_of_pid(&self, pid: u32) -> Result<Option<ContextName>> {
         let path = self.proc_root.join(pid.to_string()).join("cgroup");
         let text = match std::fs::read_to_string(&path) {
@@ -612,6 +622,17 @@ mod tests {
             calls[0]
         );
         assert_eq!(calls[1], "rm koje-kp");
+    }
+
+    #[test]
+    fn launch_execs_detached_in_the_workdir() {
+        let fake = Fake::default();
+        let podman = Podman::with_runner(&fake, "/x", "/x");
+        podman.launch(&kp(), "foot", Some("/tmp")).unwrap();
+        podman.launch(&kp(), "evince 'a b.pdf'", None).unwrap();
+        let calls = fake.calls.borrow();
+        assert_eq!(calls[0], "exec -d --workdir /tmp koje-kp sh -c foot");
+        assert_eq!(calls[1], "exec -d koje-kp sh -c evince 'a b.pdf'");
     }
 
     #[test]

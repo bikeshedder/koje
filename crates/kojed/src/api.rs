@@ -14,6 +14,9 @@ use zbus::object_server::SignalEmitter;
 use crate::daemon::{Change, Daemon};
 use crate::wayland::Sockets;
 
+/// How long restored windows may take to appear.
+const RESTORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub type Shared = Arc<Mutex<Daemon<Hyprland, Podman>>>;
 
 #[derive(Debug)]
@@ -124,6 +127,29 @@ impl Api {
         state
             .to_toml(std::path::Path::new("live state"))
             .map_err(|e| fdo::Error::Failed(e.to_string()))
+    }
+
+    /// Start the windows of a state (TOML, as a state file) in a context that
+    /// was just started (`koje up`, M5.3); the number of programs started.
+    /// Windows that do not appear within a minute leave the live state.
+    async fn restore(&self, context: &str, state: &str) -> fdo::Result<u32> {
+        let ctx = context_arg(context)?;
+        let state = koje_core::state::State::parse(state, std::path::Path::new("state from koje"))
+            .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?
+            .state;
+        let plan = self
+            .daemon
+            .lock()
+            .await
+            .restore(&ctx, state)
+            .await
+            .map_err(|e| failed(&e))?;
+        let daemon = Arc::clone(&self.daemon);
+        tokio::spawn(async move {
+            tokio::time::sleep(RESTORE_TIMEOUT).await;
+            daemon.lock().await.expire_pending(&ctx);
+        });
+        Ok(u32::try_from(plan.launches.len()).unwrap_or(u32::MAX))
     }
 
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).

@@ -22,16 +22,11 @@ use koje_podman::image::BASE_IMAGE;
 pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
-    let wants_empty = state
-        .map(StateName::new)
-        .transpose()?
-        .is_some_and(|s| s.is_empty_state());
-    if !wants_empty {
-        bail!(
-            "restoring windows from a state comes with milestone M5 – \
-             start {name} without windows: koje up {name} -s empty"
-        );
-    }
+    let requested = match state {
+        Some(s) => StateName::new(s)?,
+        None => cfg.states.default.clone(),
+    };
+    let to_load = state_to_load(paths, &name, &cfg, &requested)?;
     let global = GlobalConfig::load(&paths.global_config())?;
     let access = cfg.effective_access(&global);
     let podman = Podman::new();
@@ -77,7 +72,14 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
             podman.start(&name)?;
             println!("started {name}");
         }
-        UpPlan::AlreadyRunning => println!("{name} is already running"),
+        UpPlan::AlreadyRunning => {
+            println!("{name} is already running");
+            if to_load.as_ref().is_some_and(|(_, s)| !s.windows.is_empty()) {
+                println!(
+                    "note: switching states in a running context comes with M5.9 – windows left as they are"
+                );
+            }
+        }
         UpPlan::Paused => unreachable!("handled above"),
     }
     if host.host_bus_dir.is_some()
@@ -86,11 +88,59 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
     {
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
+    if plan != UpPlan::AlreadyRunning
+        && let Some((state_name, state)) = to_load
+        && !state.windows.is_empty()
+    {
+        let text = state.to_toml(Path::new("state"))?;
+        let started: u32 = crate::kojed::call("Restore", &(name.as_str(), text.as_str()))
+            .with_context(|| format!("restoring state {state_name} of {name}"))?;
+        println!(
+            "restoring state {state_name}: {} window(s), {started} program(s) started",
+            state.windows.len()
+        );
+    }
     // Its windows go to its workspace (kojed, M4.6): show it.
     if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
         tracing::debug!("not focusing {name}: {e:#}");
     }
     Ok(())
+}
+
+/// The state `up` loads: requested → `fresh` → `empty` (ADR 0005); `None` for
+/// `empty`. Says so when it falls back and what was repaired.
+fn state_to_load(
+    paths: &Paths,
+    name: &ContextName,
+    cfg: &ContextConfig,
+    requested: &StateName,
+) -> Result<Option<(StateName, koje_core::state::State)>> {
+    use koje_core::state::{Resolved, resolve_load};
+    match resolve_load(requested, &cfg.states, |s| {
+        koje_core::states::exists(paths, name, s)
+    }) {
+        Resolved::Empty { fell_back } => {
+            if fell_back && !requested.is_empty_state() {
+                println!("no state {requested} yet – starting {name} without windows");
+            }
+            Ok(None)
+        }
+        Resolved::Load {
+            name: state_name,
+            fell_back,
+        } => {
+            if fell_back {
+                println!("no state {requested} yet – loading {state_name}");
+            }
+            let Some(loaded) = koje_core::states::read(paths, name, &state_name)? else {
+                return Ok(None);
+            };
+            for issue in &loaded.repaired {
+                println!("note: state {state_name}: repaired: {issue}");
+            }
+            Ok(Some((state_name, loaded.state)))
+        }
+    }
 }
 
 /// The live state of a running context from kojed (ADR 0030).

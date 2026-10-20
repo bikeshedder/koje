@@ -14,6 +14,7 @@ use koje_core::name::ContextName;
 use koje_core::paths::Paths;
 use koje_core::ports::WindowInfo;
 use koje_core::ports::{Compositor, CompositorCommand, CompositorEvent, ContainerRuntime};
+use koje_core::restore;
 use koje_core::state::State;
 use koje_core::windows::{self, WindowMap};
 
@@ -51,6 +52,8 @@ pub struct Daemon<C, R> {
     integrations: Vec<Integration>,
     /// `/proc` (a fake one in tests).
     proc_root: PathBuf,
+    /// The user's home (also the context's): expands `~` in remembered paths.
+    home: String,
 }
 
 impl<C, R> Daemon<C, R>
@@ -69,6 +72,7 @@ where
             live: BTreeMap::new(),
             integrations: koje_core::integration::built_in(),
             proc_root: PathBuf::from("/proc"),
+            home: std::env::var("HOME").unwrap_or_default(),
         }
     }
 
@@ -87,15 +91,69 @@ where
     }
 
     /// A context window appeared: into its live state (ADR 0030).
-    fn track(&mut self, ctx: &ContextName, w: &WindowInfo) {
-        let id = self.live.entry(ctx.clone()).or_default().add(
+    /// Returns the command placing a restored window from its layout (M5.3).
+    fn track(&mut self, ctx: &ContextName, w: &WindowInfo) -> Option<CompositorCommand> {
+        let added = self.live.entry(ctx.clone()).or_default().add(
             &w.address,
             &w.app_id,
             &self.integrations,
             w.placement.clone(),
         );
-        if id.is_none() {
+        let Some(added) = added else {
             tracing::warn!(address = %w.address, app_id = %w.app_id, "no window id");
+            return None;
+        };
+        tracing::debug!(context = %ctx, id = %added.id, restored = added.place.is_some(), "window tracked");
+        added.place.map(|placement| CompositorCommand::Place {
+            address: w.address.clone(),
+            placement,
+        })
+    }
+
+    /// Start the windows of `state` in the freshly started `ctx` (`koje up`,
+    /// M5.3). Windows appearing for them take their ids and places.
+    pub async fn restore(&mut self, ctx: &ContextName, state: State) -> Result<restore::Plan> {
+        self.require(ctx)?;
+        if self.live.get(ctx).is_some_and(|l| !l.windows.is_empty()) {
+            anyhow::bail!(
+                "{ctx} already has windows – switching states in a running context comes with M5.9"
+            );
+        }
+        let live = Live::restoring(state);
+        let plan = restore::plan(&live.pending, &self.integrations, &self.home);
+        self.live.insert(ctx.clone(), live);
+        for l in &plan.launches {
+            let runtime = self.runtime.clone();
+            let (c, command, workdir) = (ctx.clone(), l.command.clone(), l.workdir.clone());
+            let started = tokio::task::spawn_blocking(move || {
+                runtime.launch(&c, &command, workdir.as_deref())
+            })
+            .await;
+            let error = match started {
+                Ok(Ok(())) => None,
+                Ok(Err(e)) => Some(e.to_string()),
+                Err(e) => Some(e.to_string()),
+            };
+            match error {
+                None => tracing::info!(context = %ctx, id = %l.id, command = %l.command, "started"),
+                Some(e) => {
+                    tracing::warn!(context = %ctx, id = %l.id, "starting {}: {e}", l.command);
+                }
+            }
+        }
+        for (id, why) in &plan.skipped {
+            tracing::info!(context = %ctx, %id, "not started: {why}");
+        }
+        Ok(plan)
+    }
+
+    /// Restored windows of `ctx` that did not appear leave its state.
+    pub fn expire_pending(&mut self, ctx: &ContextName) {
+        if let Some(live) = self.live.get_mut(ctx) {
+            let gone = live.expire_pending();
+            if !gone.is_empty() {
+                tracing::info!(context = %ctx, ?gone, "restored windows did not appear");
+            }
         }
     }
 
@@ -246,8 +304,9 @@ where
         for w in present.iter().filter(|w| diff.added.contains(&w.address)) {
             let ctx = self.resolve(w.pid).await;
             if let Some(context) = &ctx {
-                self.track(context, w);
+                let place = self.track(context, w);
                 moves.extend(windows::move_to_context(&w.address, &w.workspace, context));
+                moves.extend(place);
                 changes.push(Change::WindowAdded {
                     address: w.address.clone(),
                     context: context.clone(),
@@ -306,12 +365,11 @@ where
             commands.extend(self.colors.get(c).map(|color| windows::rule(c, *color)));
         }
         tracing::debug!(address, pid = w.pid, context = ?ctx.as_ref().map(ContextName::as_str), "window opened");
-        if let Some(c) = &ctx {
-            self.track(c, &w);
-        }
+        let place = ctx.as_ref().and_then(|c| self.track(c, &w));
         let change = ctx.clone().map(|context| {
             commands.push(windows::tag_window(address, &context));
             commands.extend(windows::move_to_context(address, &w.workspace, &context));
+            commands.extend(place);
             Change::WindowAdded {
                 address: address.to_owned(),
                 context,
@@ -450,11 +508,15 @@ mod tests {
         }
     }
 
+    type Launched = (String, Option<String>);
+
     /// pid → context; counts lookups.
     #[derive(Debug, Clone, Default)]
     struct FakeRuntime {
         pids: Arc<Mutex<HashMap<u32, ContextName>>>,
         lookups: Arc<Mutex<u32>>,
+        /// `(command, workdir)` of every launch.
+        launched: Arc<Mutex<Vec<Launched>>>,
     }
 
     impl ContainerRuntime for FakeRuntime {
@@ -483,6 +545,18 @@ mod tests {
         }
         fn memory_usage(&self, _: &ContextName) -> std::io::Result<ByteSize> {
             Ok(ByteSize(0))
+        }
+        fn launch(
+            &self,
+            _: &ContextName,
+            command: &str,
+            workdir: Option<&str>,
+        ) -> std::io::Result<()> {
+            self.launched
+                .lock()
+                .unwrap()
+                .push((command.to_owned(), workdir.map(str::to_owned)));
+            Ok(())
         }
         fn context_of_pid(&self, pid: u32) -> std::io::Result<Option<ContextName>> {
             *self.lookups.lock().unwrap() += 1;
@@ -734,6 +808,96 @@ mod tests {
         let state = d.state(&ctx("work")).await.unwrap();
         assert!(state.windows.is_empty() && state.layout[&main].windows.is_empty());
         assert!(d.state(&ctx("nope")).await.is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restore_starts_programs_and_places_their_windows() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.home = "/home/mj".into();
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+
+        let saved = State::parse(
+            r#"
+active_layout = "main"
+[[windows]]
+id = "term"
+integration = "terminal"
+command = "foot"
+app_id = "foot"
+cwd = "~/src/kp"
+[[windows]]
+id = "web"
+integration = "browser"
+command = "firefox"
+app_id = "firefox"
+[[windows]]
+id = "web-2"
+integration = "browser"
+command = "firefox"
+app_id = "firefox"
+[layout.main.windows]
+term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
+"#,
+            std::path::Path::new("default.toml"),
+        )
+        .unwrap()
+        .state;
+        let plan = d.restore(&ctx("work"), saved).await.unwrap();
+        assert_eq!(
+            plan.launches.len(),
+            2,
+            "one firefox for both browser windows"
+        );
+        assert_eq!(
+            *s.runtime.launched.lock().unwrap(),
+            [
+                ("foot".to_owned(), Some("/home/mj/src/kp".to_owned())),
+                ("firefox".to_owned(), None)
+            ]
+        );
+
+        // The terminal's window appears: it takes `term` and its place.
+        comp.open("0xt", 10);
+        d.handle(CompositorEvent::WindowOpened {
+            address: "0xt".into(),
+            workspace: "1".into(),
+            class: "foot".into(),
+            title: String::new(),
+        })
+        .await
+        .unwrap();
+        let place = comp
+            .take()
+            .into_iter()
+            .find(|c| matches!(c, CompositorCommand::Place { .. }));
+        assert_eq!(
+            place,
+            Some(CompositorCommand::Place {
+                address: "0xt".into(),
+                placement: koje_core::layout::Placement {
+                    monitor: "DP-1".into(),
+                    rect: koje_core::layout::Rect {
+                        x: 10,
+                        y: 20,
+                        w: 300,
+                        h: 200
+                    },
+                },
+            })
+        );
+        assert!(
+            d.restore(
+                &ctx("work"),
+                State::new(koje_core::name::LayoutName::initial())
+            )
+            .await
+            .is_err(),
+            "has windows now"
+        );
+        d.expire_pending(&ctx("work"));
     }
 
     #[tokio::test(flavor = "current_thread")]

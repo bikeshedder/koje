@@ -133,6 +133,14 @@ pub trait ContainerRuntime {
     fn unpause(&self, ctx: &ContextName) -> Result<(), Self::Error>;
     /// Current memory usage of the context's cgroup.
     fn memory_usage(&self, ctx: &ContextName) -> Result<ByteSize, Self::Error>;
+    /// Start `command` (for `sh -c`) in the running context, detached, in
+    /// `workdir` if given (restoring a state, M5.3).
+    fn launch(
+        &self,
+        ctx: &ContextName,
+        command: &str,
+        workdir: Option<&str>,
+    ) -> Result<(), Self::Error>;
     /// Map a host PID to the context whose container owns it, if any.
     fn context_of_pid(&self, pid: u32) -> Result<Option<ContextName>, Self::Error>;
 }
