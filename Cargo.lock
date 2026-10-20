@@ -416,6 +416,7 @@ dependencies = [
  "anyhow",
  "clap",
  "koje-core",
+ "koje-hyprland",
  "koje-podman",
  "serde",
  "serde_json",

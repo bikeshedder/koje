@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 koje-core.workspace = true
 koje-podman.workspace = true
+koje-hyprland.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true

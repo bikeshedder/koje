@@ -61,6 +61,44 @@ impl Paths {
         })
     }
 
+    /// `$XDG_DATA_HOME` (koje's data root is `$XDG_DATA_HOME/koje`).
+    fn data_home(&self) -> PathBuf {
+        self.data
+            .parent()
+            .map_or_else(|| self.data.clone(), Path::to_path_buf)
+    }
+
+    /// `$XDG_CONFIG_HOME`.
+    fn config_home(&self) -> PathBuf {
+        self.config
+            .parent()
+            .map_or_else(|| self.config.clone(), Path::to_path_buf)
+    }
+
+    /// koje's Hyprland snippet (ADR 0021), sourced from `hyprland.conf`.
+    pub fn hyprland_snippet(&self) -> PathBuf {
+        self.data.join("hyprland/koje.conf")
+    }
+
+    /// The user's Hyprland config.
+    pub fn hyprland_conf(&self) -> PathBuf {
+        self.config_home().join("hypr/hyprland.conf")
+    }
+
+    /// The icon font's directory (ADR 0020).
+    pub fn font_dir(&self) -> PathBuf {
+        self.data_home().join("fonts/koje")
+    }
+
+    /// kojed's systemd user unit.
+    pub fn kojed_unit(&self) -> PathBuf {
+        self.config_home().join("systemd/user/kojed.service")
+    }
+
+    pub fn waybar_dir(&self) -> PathBuf {
+        self.config_home().join("waybar")
+    }
+
     pub fn global_config(&self) -> PathBuf {
         self.config.join("config.toml")
     }
@@ -123,5 +161,28 @@ mod tests {
             PathBuf::from("/d/kp/states/fresh.toml")
         );
         assert_eq!(p.recovery_file(&kp), PathBuf::from("/s/kp/recovery.toml"));
+    }
+
+    #[test]
+    fn setup_targets() {
+        let p = Paths::with_roots(
+            "/h/.config/koje".into(),
+            "/h/.local/share/koje".into(),
+            "/h/.local/state/koje".into(),
+        );
+        assert_eq!(
+            p.hyprland_snippet(),
+            PathBuf::from("/h/.local/share/koje/hyprland/koje.conf")
+        );
+        assert_eq!(
+            p.hyprland_conf(),
+            PathBuf::from("/h/.config/hypr/hyprland.conf")
+        );
+        assert_eq!(p.font_dir(), PathBuf::from("/h/.local/share/fonts/koje"));
+        assert_eq!(
+            p.kojed_unit(),
+            PathBuf::from("/h/.config/systemd/user/kojed.service")
+        );
+        assert_eq!(p.waybar_dir(), PathBuf::from("/h/.config/waybar"));
     }
 }

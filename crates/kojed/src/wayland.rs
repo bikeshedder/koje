@@ -62,6 +62,7 @@ enum Msg {
     Ensure(ContextName, Reply),
     Release(ContextName),
     Reset,
+    Probe(oneshot::Sender<Result<(), String>>),
 }
 
 /// Handle to the worker thread.
@@ -98,6 +99,18 @@ impl Sockets {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(Msg::Ensure(ctx.clone(), reply))
+            .map_err(|_| anyhow!("the Wayland thread is gone"))?;
+        rx.await
+            .map_err(|_| anyhow!("the Wayland thread is gone"))?
+            .map_err(|e| anyhow!(e))
+    }
+
+    /// Whether kojed reaches the compositor and it offers security contexts
+    /// (`koje doctor`).
+    pub async fn probe(&self) -> Result<()> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(Msg::Probe(reply))
             .map_err(|_| anyhow!("the Wayland thread is gone"))?;
         rx.await
             .map_err(|_| anyhow!("the Wayland thread is gone"))?
@@ -188,6 +201,14 @@ impl Worker {
                     tracing::info!(context = %ctx, "Wayland socket released");
                 }
                 Msg::Reset => self.reset(),
+                Msg::Probe(reply) => {
+                    // A stale connection fails the roundtrip: connect anew.
+                    if self.roundtrip().is_err() {
+                        self.wl = None;
+                    }
+                    let result = self.connect().map(drop).map_err(|e| format!("{e:#}"));
+                    let _ = reply.send(result);
+                }
             }
         }
     }
@@ -300,6 +321,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("no compositor"), "{err}");
+        assert!(sockets.probe().await.is_err());
     }
 
     /// M4.8: a security-context socket from the running compositor accepts a

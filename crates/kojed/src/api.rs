@@ -95,6 +95,15 @@ impl Api {
             .map_err(|e| fdo::Error::Failed(format!("sound links for {ctx}: {e}")))
     }
 
+    /// Empty when the compositor offers security contexts (ADR 0022), else
+    /// why not (`koje doctor`).
+    async fn wayland_status(&self) -> String {
+        match self.sockets.probe().await {
+            Ok(()) => String::new(),
+            Err(e) => format!("{e:#}"),
+        }
+    }
+
     /// Stop serving the context's Wayland socket (`koje down`).
     fn release_wayland_socket(&self, context: &str) -> fdo::Result<()> {
         self.sockets.release(&context_arg(context)?);

@@ -2,9 +2,10 @@
 //! They never touch the real user configuration, Podman, Hyprland or kojed
 //! (the session bus points nowhere).
 
-#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::io::Write as _;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -764,4 +765,91 @@ fn usage_errors_exit_with_code_2() {
     let tmp = tempfile::tempdir().unwrap();
     let out = koje(tmp.path(), &["down", "kp", "-s", "x", "--no-save"]);
     assert_eq!(out.status.code(), Some(2));
+}
+
+/// `koje setup` in a temporary home (fake podman: the image exists).
+fn setup_cmd(tmp: &Path, path: &str, args: &[&str]) -> Output {
+    let mut all = vec!["setup"];
+    all.extend_from_slice(args);
+    command(tmp, &all)
+        .env("HOME", tmp)
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn setup_installs_then_has_nothing_to_do() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = fake_podman(t);
+
+    let out = stdout(&setup_cmd(t, &path, &["--dry-run"]));
+    assert!(out.contains("+ Hyprland snippet"), "{out}");
+    assert!(out.contains("dry run – nothing changed"), "{out}");
+    assert!(!t.join("data/koje/hyprland/koje.conf").exists());
+
+    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
+    assert!(out.contains("done: Hyprland snippet"), "{out}");
+    let snippet = std::fs::read_to_string(t.join("data/koje/hyprland/koje.conf")).unwrap();
+    assert!(snippet.contains("exec-once = systemctl --user start kojed"));
+    assert!(t.join("data/fonts/koje/lucide.ttf").exists());
+    assert!(t.join("config/systemd/user/kojed.service").exists());
+    let picker = t.join(".local/lib/koje/koje-window-picker");
+    assert_eq!(
+        std::fs::metadata(&picker).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
+    let conf = std::fs::read_to_string(t.join("config/hypr/hyprland.conf")).unwrap();
+    assert!(
+        conf.contains(&format!(
+            "source = {}",
+            t.join("data/koje/hyprland/koje.conf").display()
+        )),
+        "{conf}"
+    );
+    assert!(t.join("config/waybar/config.jsonc").exists());
+
+    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
+    assert!(out.contains("nothing to do"), "{out}");
+}
+
+#[test]
+fn setup_leaves_an_own_waybar_and_appends_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = fake_podman(t);
+    std::fs::create_dir_all(t.join("config/waybar")).unwrap();
+    std::fs::write(t.join("config/waybar/config"), "{ \"layer\": \"top\" }").unwrap();
+    std::fs::create_dir_all(t.join("config/hypr")).unwrap();
+    std::fs::write(
+        t.join("config/hypr/hyprland.conf"),
+        "monitor = ,preferred,auto,1\n",
+    )
+    .unwrap();
+
+    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
+    assert!(out.contains("- Waybar: your own config"), "{out}");
+    assert!(out.contains("~ Hyprland config"), "{out}");
+    assert!(!t.join("config/waybar/config.jsonc").exists());
+    let conf = std::fs::read_to_string(t.join("config/hypr/hyprland.conf")).unwrap();
+    assert!(
+        conf.starts_with("monitor = ,preferred,auto,1\n"),
+        "never rewritten: {conf}"
+    );
+    stdout(&setup_cmd(t, &path, &["--yes"]));
+    let again = std::fs::read_to_string(t.join("config/hypr/hyprland.conf")).unwrap();
+    assert_eq!(again.matches("source = ").count(), 1, "{again}");
+}
+
+#[test]
+fn setup_asks_and_stdin_closed_means_no() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = fake_podman(t);
+    let out = setup_cmd(t, &path, &[]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("nothing changed"));
+    assert!(!t.join("data/koje/hyprland/koje.conf").exists());
 }

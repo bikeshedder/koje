@@ -9,8 +9,11 @@ dev containers. Every window carries its context's color, named layouts rearrang
 windows instantly, and a context can be paused, stopped and restored exactly as you
 left it. The programs themselves stay unchanged.
 
-> **Status:** early development. Only `koje list` works; every other command tells
-> you which milestone delivers it. See [the roadmap](docs/plan/roadmap.md).
+> **Status:** early development. Contexts start and stop (`koje up -s empty`,
+> `down`, `shell`, `open`, `sleep`, `wake`), kojed colors their windows and keeps
+> them on their workspace (`koje focus`); states and layouts are next. Commands
+> that are not there yet name the milestone that delivers them. See
+> [the roadmap](docs/plan/roadmap.md).
 
 ## Install (on the host)
 
@@ -19,13 +22,15 @@ left it. The programs themselves stay unchanged.
 ./install.sh              # install (asks once before changing anything)
 ```
 
-The installer checks dependencies (and prints the `apt install` line for missing
-ones – it never runs `sudo`), builds `koje` and `kojed` into `~/.local/bin` and the static `koje-forward`
-into `~/.local/lib/koje/`,
-installs koje's icon font and Hyprland snippet below `~/.local/share`, adds one
-`source` line to `~/.config/hypr/hyprland.conf`, and installs koje's Waybar
-config only if you have none. Running it again updates koje's files and leaves
-yours alone. Details: [ADR 0021](docs/decisions/0021-installer.md).
+The installer builds `koje` and `kojed` into `~/.local/bin` and the static
+`koje-forward` into `~/.local/lib/koje/`, then runs `koje setup`: it shows its
+plan and asks once, installs koje's icon font and Hyprland snippet below
+`~/.local/share` and kojed's systemd user unit, adds one `source` line to
+`~/.config/hypr/hyprland.conf`, installs koje's Waybar config only if you have
+none, and builds the base image. Running it again updates koje's files and
+leaves yours alone. `koje doctor` checks the result and lists missing system
+packages with the `apt install` line (koje never runs `sudo`). Details:
+[ADR 0021](docs/decisions/0021-installer.md).
 
 ## Documentation
 

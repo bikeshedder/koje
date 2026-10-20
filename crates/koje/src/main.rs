@@ -6,10 +6,12 @@
 
 mod cli;
 mod commands;
+mod doctor;
 mod hostbus;
 mod kojed;
 mod prompt;
 mod runtime;
+mod setup;
 
 use std::process::ExitCode;
 

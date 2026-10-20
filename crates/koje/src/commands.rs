@@ -17,6 +17,8 @@ pub fn run(command: &Command) -> Result<()> {
     let paths = Paths::from_env()?;
     match command {
         Command::List { json } => list(&paths, *json),
+        Command::Setup { dry_run, yes } => crate::setup::run(&paths, *dry_run, *yes),
+        Command::Doctor => crate::doctor::run(&paths),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
         Command::Edit(ctx) => edit(&paths, ctx),
@@ -213,7 +215,7 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
 }
 
 /// `koje image build`: build `koje/base` for the current user (ADR 0023).
-fn image_build(no_cache: bool) -> Result<()> {
+pub fn image_build(no_cache: bool) -> Result<()> {
     let user = koje_podman::host::image_user().context("finding the current user")?;
     println!(
         "building {} for {} (uid {}, home {}) – this takes a few minutes",

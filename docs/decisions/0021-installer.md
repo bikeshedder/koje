@@ -35,6 +35,12 @@ before koje itself can do it.
   floating windows, Super+mouse, snapping, overlays, stash. Personal and machine
   settings (monitor, keyboard layout, GPU) stay in the user's `hyprland.conf`.
 
+- Update (M4.9): the steps now live in **`koje setup`** (plan in
+  `koje_core::setup`, koje's files embedded in the binary) and **`koje doctor`**
+  checks the host; it also installs kojed's systemd user unit. `install.sh` only
+  builds and installs `koje`, `kojed` and `koje-forward`, restarts a running
+  kojed, and runs `koje setup` with the same flags.
+
 ## Consequences
 
 + One command for a new machine; repeatable updates.

@@ -160,6 +160,18 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Install koje's files for this user (font, Hyprland snippet, kojed's
+    /// unit, Waybar if you have none, base image); shows the plan first.
+    Setup {
+        /// Only show the plan.
+        #[arg(long)]
+        dry_run: bool,
+        /// Do not ask.
+        #[arg(long, short)]
+        yes: bool,
+    },
+    /// Check what koje needs on this host and how to fix what is missing.
+    Doctor,
 }
 
 #[derive(Debug, Subcommand)]

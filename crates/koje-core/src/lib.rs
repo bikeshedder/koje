@@ -27,6 +27,7 @@ pub mod open;
 pub mod paths;
 pub mod ports;
 pub mod recovery;
+pub mod setup;
 pub mod size;
 pub mod spec;
 pub mod state;
