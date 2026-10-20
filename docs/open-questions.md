@@ -30,8 +30,6 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 
 ## Tool and UI
 
-- **Integrations** – declarative TOML enough, or do some need executable hooks? How does `terminal` detect the cwd reliably?
-- **Window IDs** – naming rule and stability across restarts.
 - **Podman binding** – when to switch from CLI calls to the REST API?
 - **UI toolkit** – iced, egui or Slint for the panel? *(M8.3)*
 - **Language** – CLI text and messages in English, German or both?

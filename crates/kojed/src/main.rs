@@ -13,6 +13,7 @@
 
 mod api;
 mod daemon;
+mod procfs;
 mod sound;
 mod wayland;
 

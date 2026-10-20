@@ -1,0 +1,6 @@
+# Editors: open the folder again in a new window.
+name     = "editor"
+match    = { app_id = ["code", "code-oss", "codium", "VSCodium", "dev.zed.Zed", "zed"] }
+launch   = "{program} --new-window {path}"
+remember = ["path"]
+detect   = { path = "argv-last" }

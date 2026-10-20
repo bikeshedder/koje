@@ -10,6 +10,7 @@
 
 pub mod access;
 pub mod api;
+pub mod capture;
 pub mod color;
 pub mod config;
 pub mod container;
@@ -17,6 +18,7 @@ pub mod context;
 pub mod error;
 pub mod fsutil;
 pub mod hostbus;
+pub mod integration;
 pub mod layout;
 pub mod layouts;
 pub mod lifecycle;

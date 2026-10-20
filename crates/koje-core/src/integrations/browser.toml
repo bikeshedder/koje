@@ -1,0 +1,5 @@
+# Browsers restore their own windows and tabs: start the program once.
+name        = "browser"
+match       = { app_id = ["firefox", "org.mozilla.firefox", "chromium", "org.chromium.Chromium", "google-chrome", "brave-browser"] }
+launch      = "{program}"
+launch_once = true

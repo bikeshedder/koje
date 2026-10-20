@@ -110,6 +110,22 @@ impl Api {
         Ok(())
     }
 
+    /// The live state of a running context as TOML (ADR 0030), the format of
+    /// a state file.
+    async fn state(&self, context: &str) -> fdo::Result<String> {
+        let ctx = context_arg(context)?;
+        let state = self
+            .daemon
+            .lock()
+            .await
+            .state(&ctx)
+            .await
+            .map_err(|e| failed(&e))?;
+        state
+            .to_toml(std::path::Path::new("live state"))
+            .map_err(|e| fdo::Error::Failed(e.to_string()))
+    }
+
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
     async fn reload(&self) -> fdo::Result<()> {
         self.daemon

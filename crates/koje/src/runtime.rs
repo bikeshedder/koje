@@ -2,6 +2,8 @@
 //! (M3.4). Decisions come from `koje_core::lifecycle`; this module only
 //! gathers the inputs and executes the steps.
 
+use std::path::Path;
+
 use anyhow::{Context as _, Result, bail};
 use koje_core::config::{ContextConfig, GlobalConfig};
 use koje_core::context;
@@ -11,7 +13,7 @@ use koje_core::lifecycle::{
 };
 use koje_core::name::{ContextName, StateName};
 use koje_core::paths::Paths;
-use koje_core::ports::ContainerRuntime as _;
+use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
 use koje_core::spec::{Built, ContextInputs, build};
 use koje_podman::Podman;
 use koje_podman::image::BASE_IMAGE;
@@ -88,6 +90,39 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
     if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
         tracing::debug!("not focusing {name}: {e:#}");
     }
+    Ok(())
+}
+
+/// The live state of a running context from kojed (ADR 0030).
+fn live_state(name: &ContextName) -> Result<koje_core::state::State> {
+    let text: String = crate::kojed::call("State", &(name.as_str(),))
+        .with_context(|| format!("getting the windows of {name} from kojed"))?;
+    Ok(koje_core::state::State::from_toml(
+        &text,
+        Path::new("kojed's live state"),
+    )?)
+}
+
+/// `koje save <context> [-s <state>]`: write the running windows and layouts
+/// into a state (default: the `default` role).
+pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
+    let name = ContextName::new(context)?;
+    let cfg = context::load(paths, &name)?;
+    let target = match state {
+        Some(s) => StateName::new(s)?,
+        None => cfg.states.default.clone(),
+    };
+    koje_core::state::ensure_writable(&target)?;
+    let podman = Podman::new();
+    if !matches!(podman.status(&name)?, ContainerStatus::Running) {
+        bail!("{name} is not running – nothing to save (start it with: koje up {name})");
+    }
+    let live = live_state(&name)?;
+    koje_core::states::write(paths, &name, &target, &live)?;
+    println!(
+        "saved {} window(s) of {name} into state {target}",
+        live.windows.len()
+    );
     Ok(())
 }
 

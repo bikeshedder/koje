@@ -2,8 +2,10 @@
 
 Goal: koje remembers and restores the work environment.
 
-- [ ] **M5.1 Capture**: running windows of a context → `State` (window IDs, commands, geometry)
-- [ ] **M5.2 Integrations**: file format, loader, built-ins `generic`, `terminal`, `editor`, `devcontainer`, `browser`
+- [~] **M5.1 Capture**: running windows of a context → `State` (window IDs, commands, geometry)
+  - Done in code (awaiting host test), ADR 0030: kojed's live state per context (`koje_core::capture::Live`; ids from integration or app id + counter), specs from `/proc` (`kojed::procfs`), D-Bus `State(context)`, `koje save <context> [-s <state>]` (the save half of M5.4).
+- [~] **M5.2 Integrations**: file format, loader, built-ins `generic`, `terminal`, `editor`, `devcontainer`, `browser`
+  - Done in code, ADR 0031: `koje_core::integration` (TOML, `detect` = `argv-last` / `cwd` / `shell-cwd`), built-ins terminal/editor/browser, user files in `~/.config/koje/integrations/`. Left: `devcontainer` (with dev container windows in states), launching (M5.3).
 - [ ] **M5.3 Restore on `up`**: resolve state, launch windows, match new windows to IDs, place them
 - [ ] **M5.4 `down` / `save` with `-s`**, ordered window close
 - [ ] **M5.5 Layout switching** using `plan_switch`; stash as special workspace; focus handling

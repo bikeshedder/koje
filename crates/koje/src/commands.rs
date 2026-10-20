@@ -41,10 +41,10 @@ pub fn run(command: &Command) -> Result<()> {
 
         Command::Focus(ctx) => focus(&paths, ctx),
 
-        Command::Save { .. }
-        | Command::Stash
-        | Command::Unstash { .. }
-        | Command::Layout { .. } => todo_in("M5"),
+        Command::Save { ctx, state } => {
+            crate::runtime::save(&paths, &ctx.context, state.as_deref())
+        }
+        Command::Stash | Command::Unstash { .. } | Command::Layout { .. } => todo_in("M5"),
 
         Command::Stats { .. } | Command::Limit { .. } => todo_in("M6"),
 

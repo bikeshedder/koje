@@ -1,0 +1,6 @@
+# Terminals: start again in the shell's working directory (ADR 0031).
+name     = "terminal"
+match    = { app_id = ["foot", "footclient", "kitty", "Alacritty", "org.wezfurlong.wezterm", "com.mitchellh.ghostty", "org.gnome.Console", "org.gnome.Terminal", "org.kde.konsole", "xterm"] }
+launch   = "{program}"
+remember = ["cwd"]
+detect   = { cwd = "shell-cwd" }

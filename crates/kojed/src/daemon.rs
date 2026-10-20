@@ -4,12 +4,17 @@
 //! `koje_core::windows`; this module does the I/O around them.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
+use koje_core::capture::{Live, Observed};
 use koje_core::color::Color;
+use koje_core::integration::Integration;
 use koje_core::name::ContextName;
 use koje_core::paths::Paths;
+use koje_core::ports::WindowInfo;
 use koje_core::ports::{Compositor, CompositorCommand, CompositorEvent, ContainerRuntime};
+use koje_core::state::State;
 use koje_core::windows::{self, WindowMap};
 
 /// What clients hear about (D-Bus signals, ADR 0027).
@@ -41,6 +46,11 @@ pub struct Daemon<C, R> {
     colors: BTreeMap<ContextName, Color>,
     windows: WindowMap,
     focused: Option<String>,
+    /// Live state per running context (ADR 0030).
+    live: BTreeMap<ContextName, Live>,
+    integrations: Vec<Integration>,
+    /// `/proc` (a fake one in tests).
+    proc_root: PathBuf,
 }
 
 impl<C, R> Daemon<C, R>
@@ -56,7 +66,68 @@ where
             colors: BTreeMap::new(),
             windows: WindowMap::new(),
             focused: None,
+            live: BTreeMap::new(),
+            integrations: koje_core::integration::built_in(),
+            proc_root: PathBuf::from("/proc"),
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_proc_root(mut self, root: PathBuf) -> Self {
+        self.proc_root = root;
+        self
+    }
+
+    fn load_integrations(&mut self) {
+        let (all, errors) = koje_core::integration::load(&self.paths.integrations_dir());
+        for e in errors {
+            tracing::warn!("integration skipped: {e}");
+        }
+        self.integrations = all;
+    }
+
+    /// A context window appeared: into its live state (ADR 0030).
+    fn track(&mut self, ctx: &ContextName, w: &WindowInfo) {
+        let id = self.live.entry(ctx.clone()).or_default().add(
+            &w.address,
+            &w.app_id,
+            &self.integrations,
+            w.placement.clone(),
+        );
+        if id.is_none() {
+            tracing::warn!(address = %w.address, app_id = %w.app_id, "no window id");
+        }
+    }
+
+    fn untrack(&mut self, ctx: &ContextName, address: &str) {
+        if let Some(live) = self.live.get_mut(ctx) {
+            live.remove(address);
+        }
+    }
+
+    /// The live state of `ctx` (`koje save`): specs from what the windows'
+    /// processes show now, placements of the active layout refreshed.
+    pub async fn state(&mut self, ctx: &ContextName) -> Result<State> {
+        self.require(ctx)?;
+        let present = self
+            .compositor
+            .windows()
+            .await
+            .map_err(anyhow::Error::new)?;
+        let by_address: BTreeMap<&str, &WindowInfo> =
+            present.iter().map(|w| (w.address.as_str(), w)).collect();
+        let proc_root = self.proc_root.clone();
+        let integrations = &self.integrations;
+        let live = self.live.entry(ctx.clone()).or_default();
+        Ok(live.snapshot(integrations, |address| {
+            let w = by_address.get(address)?;
+            let observed = Observed {
+                app_id: w.app_id.clone(),
+                title: w.title.clone(),
+                process: crate::procfs::observe(&proc_root, w.pid),
+            };
+            Some((observed, w.placement.clone()))
+        }))
     }
 
     /// Known contexts with their window counts.
@@ -107,6 +178,7 @@ where
     /// Read the contexts again (after `koje new`/`koje edit`) and send their
     /// rules. Without a compositor that is fine: rules follow on `Connected`.
     pub async fn reload(&mut self) -> Result<()> {
+        self.load_integrations();
         let list = koje_core::context::list(&self.paths).context("reading the contexts")?;
         let recolor = self.set_colors(list.into_iter().map(|c| (c.name, c.color)).collect());
         let mut commands = self.rules();
@@ -133,12 +205,16 @@ where
                 self.apply(&commands).await.map(|()| Vec::new())
             }
             CompositorEvent::WindowOpened { address, .. } => self.opened(&address).await,
-            CompositorEvent::WindowClosed { address } => Ok(self
-                .windows
-                .remove(&address)
-                .map(|context| Change::WindowRemoved { address, context })
-                .into_iter()
-                .collect()),
+            CompositorEvent::WindowClosed { address } => {
+                let context = self.windows.remove(&address);
+                if let Some(ctx) = &context {
+                    self.untrack(ctx, &address);
+                }
+                Ok(context
+                    .map(|context| Change::WindowRemoved { address, context })
+                    .into_iter()
+                    .collect())
+            }
             CompositorEvent::WindowFocused { address } => {
                 self.focused = address;
                 Ok(Vec::new())
@@ -158,6 +234,9 @@ where
         let diff = self
             .windows
             .retain(present.iter().map(|w| w.address.as_str()));
+        for (address, ctx) in &diff.removed {
+            self.untrack(ctx, address);
+        }
         let mut changes: Vec<Change> = diff
             .removed
             .into_iter()
@@ -167,6 +246,7 @@ where
         for w in present.iter().filter(|w| diff.added.contains(&w.address)) {
             let ctx = self.resolve(w.pid).await;
             if let Some(context) = &ctx {
+                self.track(context, w);
                 moves.extend(windows::move_to_context(&w.address, &w.workspace, context));
                 changes.push(Change::WindowAdded {
                     address: w.address.clone(),
@@ -226,6 +306,9 @@ where
             commands.extend(self.colors.get(c).map(|color| windows::rule(c, *color)));
         }
         tracing::debug!(address, pid = w.pid, context = ?ctx.as_ref().map(ContextName::as_str), "window opened");
+        if let Some(c) = &ctx {
+            self.track(c, &w);
+        }
         let change = ctx.clone().map(|context| {
             commands.push(windows::tag_window(address, &context));
             commands.extend(windows::move_to_context(address, &w.workspace, &context));
@@ -416,7 +499,7 @@ mod tests {
     }
 
     struct Setup {
-        _tmp: tempfile::TempDir,
+        tmp: tempfile::TempDir,
         paths: Paths,
         runtime: FakeRuntime,
     }
@@ -429,7 +512,7 @@ mod tests {
         let runtime = FakeRuntime::default();
         runtime.pids.lock().unwrap().insert(10, ctx("work"));
         Setup {
-            _tmp: tmp,
+            tmp,
             paths,
             runtime,
         }
@@ -596,6 +679,61 @@ mod tests {
         // Unchanged colors: only the rules again.
         d.reload().await.unwrap();
         assert_eq!(comp.take(), [windows::rule(&ctx("work"), blue)]);
+    }
+
+    /// A fake `/proc`: pid 10 is foot with one shell in `/home/mj/src/kp`.
+    fn fake_proc(root: &std::path::Path) {
+        for (pid, cmdline, cwd) in [
+            (10, &b"foot\0"[..], "/home/mj"),
+            (11, &b"-bash\0"[..], "/home/mj/src/kp"),
+        ] {
+            let d = root.join(pid.to_string());
+            std::fs::create_dir_all(d.join("task").join(pid.to_string())).unwrap();
+            std::fs::write(d.join("cmdline"), cmdline).unwrap();
+            std::os::unix::fs::symlink(cwd, d.join("cwd")).unwrap();
+        }
+        std::fs::write(root.join("10/task/10/children"), "11").unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn live_state_of_a_context() {
+        let s = setup();
+        let proc_root = s.tmp.path().join("proc");
+        fake_proc(&proc_root);
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        comp.open("0xh", 99);
+        let mut d =
+            Daemon::new(&comp, s.runtime.clone(), s.paths.clone()).with_proc_root(proc_root);
+        d.handle(CompositorEvent::Connected).await.unwrap();
+
+        let state = d.state(&ctx("work")).await.unwrap();
+        assert_eq!(state.windows.len(), 1, "host windows are not part of it");
+        let w = &state.windows[0];
+        assert_eq!(
+            (w.id.as_str(), w.integration.as_deref()),
+            ("terminal", Some("terminal"))
+        );
+        assert_eq!(w.remembered["cwd"].as_str(), Some("/home/mj/src/kp"));
+        assert_eq!(w.command.as_deref(), Some("foot"));
+        let main = koje_core::name::LayoutName::initial();
+        assert!(state.layout[&main].windows.contains_key(&w.id));
+        // The state file format round-trips.
+        let text = state.to_toml(std::path::Path::new("x")).unwrap();
+        assert_eq!(
+            State::from_toml(&text, std::path::Path::new("x")).unwrap(),
+            state
+        );
+
+        d.handle(CompositorEvent::WindowClosed {
+            address: "0xa".into(),
+        })
+        .await
+        .unwrap();
+        comp.close("0xa");
+        let state = d.state(&ctx("work")).await.unwrap();
+        assert!(state.windows.is_empty() && state.layout[&main].windows.is_empty());
+        assert!(d.state(&ctx("nope")).await.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]

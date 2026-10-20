@@ -34,3 +34,5 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0027 | [Client API: kojed on the session bus](0027-dbus-client-api.md) | Accepted |
 | 0028 | [One named workspace per context](0028-context-workspaces.md) | Accepted |
 | 0029 | [Sound sockets as links in a mounted directory](0029-sound-socket-links.md) | Accepted |
+| 0030 | [kojed holds the live state of running contexts](0030-live-state-in-kojed.md) | Accepted |
+| 0031 | [Integrations are declarative](0031-declarative-integrations.md) | Accepted |

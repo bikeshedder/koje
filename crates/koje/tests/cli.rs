@@ -744,6 +744,29 @@ fn up_with_wayland_needs_kojed() {
 }
 
 #[test]
+fn save_needs_a_running_context_and_a_writable_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let save = |args: &[&str]| {
+        command(tmp.path(), args)
+            .env("PATH", &path)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let out = save(&["save", "kp", "-s", "empty"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("empty"));
+    // Not created yet (fake podman: no such container): nothing to save.
+    let out = save(&["save", "kp"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("not running"), "{err}");
+    assert!(!tmp.path().join("data/koje/kp/states/default.toml").exists());
+}
+
+#[test]
 fn focus_needs_the_context_and_kojed() {
     let tmp = tempfile::tempdir().unwrap();
     let out = koje(tmp.path(), &["focus", "kp"]);
