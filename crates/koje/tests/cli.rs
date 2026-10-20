@@ -893,3 +893,50 @@ fn setup_asks_and_stdin_closed_means_no() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("nothing changed"));
     assert!(!t.join("data/koje/hyprland/koje.conf").exists());
 }
+
+#[test]
+fn run_starts_a_program_in_the_running_context() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let shared = tmp.path().join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    let cfg = config_of(tmp.path(), "kp");
+    let text = std::fs::read_to_string(&cfg).unwrap();
+    std::fs::write(
+        &cfg,
+        text.replace(
+            "mounts = []",
+            &format!("mounts = [{:?}]", shared.display().to_string()),
+        ),
+    )
+    .unwrap();
+    let run = |dir: &Path, args: &[&str]| {
+        command(tmp.path(), args)
+            .env("PATH", &path)
+            .current_dir(dir)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let out = run(tmp.path(), &["run", "kp", "foot"]);
+    assert!(!out.status.success(), "not running yet");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp"));
+
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&run(&shared, &["run", "kp", "foot", "--app-id=x y"]));
+    stdout(&run(tmp.path(), &["run", "kp", "firefox"]));
+    let log = podman_log(tmp.path());
+    let shared = std::fs::canonicalize(&shared).unwrap();
+    assert!(
+        log.contains(&format!(
+            "exec -d --workdir {} koje-kp sh -c exec foot '--app-id=x y'",
+            shared.display()
+        )),
+        "in the mounted folder: {log}"
+    );
+    assert!(
+        log.contains("exec -d koje-kp sh -c exec firefox"),
+        "elsewhere: home: {log}"
+    );
+}

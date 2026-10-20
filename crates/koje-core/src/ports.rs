@@ -65,6 +65,12 @@ pub enum CompositorCommand {
     FocusWindow {
         address: String,
     },
+    /// Keep a workspace while empty (a running context's workspace) or let the
+    /// compositor remove it again when empty.
+    KeepWorkspace {
+        workspace: String,
+        keep: bool,
+    },
     /// Ask a window to close (the program may ask to save first).
     CloseWindow {
         address: String,

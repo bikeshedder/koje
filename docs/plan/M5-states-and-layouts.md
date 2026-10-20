@@ -21,3 +21,7 @@ Goal: koje remembers and restores the work environment.
 - [x] **M5.12 File manager windows reopen in their folders** (wish, 2026-10-20): Nautilus runs one process for all windows, so `/proc` cannot tell a window's folder. Idea: a detect method that reads `org.freedesktop.FileManager1.OpenWindowsWithLocations` on the context's bus (`podman exec … dbus-send`), matches windows by title (= folder name), and launches `nautilus --new-window <folder>` per window; ADR 0031 update. First check on the host that the property lists every window's folder.
   - Done (host-tested 2026-10-20: two windows reopen in Home and Downloads, in place; only the active tab comes back): built-in `files`, detect `file-manager` (ADR 0031), `ContainerRuntime::query`; the property lists every tab, the title picks the active one.
 - [-] **M5.13 Nautilus tabs** – moved to M9.2
+- [~] **M5.14 `koje run <context> <program> [args…]`** (wish 2026-10-20): start a program in a running context without `podman exec` and container names; detached, no shell, in the current directory if the context mounts it
+  - Done in code (awaiting host test); CLI test with fake podman.
+- [~] **M5.15 A running context's workspace stays while empty** (wish 2026-10-20: it vanished from Waybar): kojed keeps it persistent (`keyword workspace name:<ctx>, persistent:true`) from `koje up` (D-Bus `Started`) to `koje down` (`Stopped`); re-applied after reloads, reconnects and kojed restarts (running contexts asked from Podman)
+  - Done in code (awaiting host test); syntax also checked by the live test (M4.8).

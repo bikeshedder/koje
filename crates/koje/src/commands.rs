@@ -39,6 +39,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Shell { ctx, dev } => crate::runtime::shell(&paths, &ctx.context, dev.as_deref()),
 
         Command::Open { ctx, target } => crate::runtime::open(&paths, &ctx.context, target),
+        Command::Run { ctx, command } => crate::runtime::run(&paths, &ctx.context, command),
 
         Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),
         Command::Wake(ctx) => crate::runtime::wake(&paths, &ctx.context),

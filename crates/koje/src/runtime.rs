@@ -100,7 +100,10 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
             state.windows.len()
         );
     }
-    // Its windows go to its workspace (kojed, M4.6): show it.
+    // Its workspace stays while empty, and its windows go there (M4.6): show it.
+    if let Err(e) = crate::kojed::call::<_, ()>("Started", &(name.as_str(),)) {
+        tracing::debug!("not telling kojed that {name} started: {e:#}");
+    }
     if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
         tracing::debug!("not focusing {name}: {e:#}");
     }
@@ -214,6 +217,9 @@ pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) ->
         DownPlan::NotCreated => println!("{name} has not been started yet"),
     }
     crate::hostbus::stop_proxy(&name);
+    if let Err(e) = crate::kojed::call::<_, ()>("Stopped", &(name.as_str(),)) {
+        tracing::debug!("not telling kojed that {name} stopped: {e:#}");
+    }
     if let Err(e) = crate::kojed::call::<_, ()>("ReleaseWaylandSocket", &(name.as_str(),)) {
         tracing::debug!("not releasing the Wayland socket of {name}: {e:#}");
     }
@@ -282,6 +288,26 @@ pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
 /// `koje open <context> <url|file>`: open in the running context with
 /// `xdg-open` (links go to the context's browser). Files must lie in one of the
 /// context's mounted folders – only there the context sees host files.
+/// `koje run <context> <program> [args…]`: start a program in the running
+/// context, detached; in the current directory if the context mounts it, else
+/// in the home directory.
+pub fn run(paths: &Paths, context: &str, command: &[String]) -> Result<()> {
+    let name = ContextName::new(context)?;
+    let cfg = context::load(paths, &name)?;
+    let podman = Podman::new();
+    require_running(podman.status(&name)?, name.as_str()).map_err(anyhow::Error::msg)?;
+    let cwd = std::env::current_dir().ok();
+    let mounts = koje_podman::host::resolve_mounts(&cfg, &paths.host_dirs()?)?;
+    let workdir = cwd
+        .filter(|d| koje_core::open::visible_in(d, &mounts))
+        .map(|d| d.display().to_string());
+    // `exec` so the program replaces the shell that starts it.
+    let line = format!("exec {}", koje_core::capture::shell_join(command));
+    podman.launch(&name, &line, workdir.as_deref())?;
+    println!("started {} in {name}", command.join(" "));
+    Ok(())
+}
+
 pub fn open(paths: &Paths, context: &str, target: &str) -> Result<()> {
     use koje_core::open::{Target, classify, visible_in};
     let name = ContextName::new(context)?;

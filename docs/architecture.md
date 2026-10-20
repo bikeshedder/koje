@@ -142,6 +142,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje sleep \| wake <context>` | pause / resume (CPU 0, memory kept) |
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
+| `koje run <context> <program> [args…]` | start a program in the running context, detached (in the current directory if mounted) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |

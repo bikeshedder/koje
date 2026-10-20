@@ -122,6 +122,20 @@ pub enum Command {
         ctx: Ctx,
         target: String,
     },
+    /// Start a program in a running context, detached (e.g. `koje run kp foot`).
+    /// It starts in the current directory if the context mounts it.
+    Run {
+        #[command(flatten)]
+        ctx: Ctx,
+        /// The program and its arguments, passed as they are (no shell).
+        #[arg(
+            required = true,
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            value_name = "PROGRAM"
+        )]
+        command: Vec<String>,
+    },
     /// Open a shell in a context (or its dev container).
     Shell {
         #[command(flatten)]

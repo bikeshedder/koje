@@ -52,6 +52,15 @@ pub fn move_to_context(
     })
 }
 
+/// Keep a running context's workspace while it is empty (bars keep showing
+/// it); `keep = false` when the context stops.
+pub fn keep_workspace(ctx: &ContextName, keep: bool) -> CompositorCommand {
+    CompositorCommand::KeepWorkspace {
+        workspace: workspace(ctx),
+        keep,
+    }
+}
+
 /// Show a context: its workspace (created by the compositor if empty).
 pub fn focus(ctx: &ContextName) -> CompositorCommand {
     CompositorCommand::FocusWorkspace {

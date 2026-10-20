@@ -174,6 +174,28 @@ impl Api {
         }
     }
 
+    /// `koje up` started the context: its workspace stays while empty.
+    async fn started(&self, context: &str) -> fdo::Result<()> {
+        let ctx = context_arg(context)?;
+        self.daemon
+            .lock()
+            .await
+            .started(&ctx)
+            .await
+            .map_err(|e| failed(&e))
+    }
+
+    /// `koje down` stopped the context.
+    async fn stopped(&self, context: &str) -> fdo::Result<()> {
+        let ctx = context_arg(context)?;
+        self.daemon
+            .lock()
+            .await
+            .stopped(&ctx)
+            .await
+            .map_err(|e| failed(&e))
+    }
+
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
     async fn reload(&self) -> fdo::Result<()> {
         self.daemon

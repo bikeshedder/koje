@@ -3,7 +3,7 @@
 //! process belongs to and sends tag rules and tags. Decisions live in
 //! `koje_core::windows`; this module does the I/O around them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
@@ -13,7 +13,9 @@ use koje_core::integration::Integration;
 use koje_core::name::ContextName;
 use koje_core::paths::Paths;
 use koje_core::ports::WindowInfo;
-use koje_core::ports::{Compositor, CompositorCommand, CompositorEvent, ContainerRuntime};
+use koje_core::ports::{
+    Compositor, CompositorCommand, CompositorEvent, ContainerRuntime, ContainerStatus,
+};
 use koje_core::restore;
 use koje_core::state::State;
 use koje_core::windows::{self, WindowMap};
@@ -58,6 +60,9 @@ pub struct Daemon<C, R> {
     /// until they are gone, not just their windows (Firefox writes its
     /// session after closing its windows – host test).
     quitting: BTreeMap<ContextName, Vec<u32>>,
+    /// Running contexts: their workspaces stay while empty. `None` until the
+    /// first sync asked the container runtime.
+    running: Option<BTreeSet<ContextName>>,
 }
 
 impl<C, R> Daemon<C, R>
@@ -78,6 +83,7 @@ where
             proc_root: PathBuf::from("/proc"),
             home: std::env::var("HOME").unwrap_or_default(),
             quitting: BTreeMap::new(),
+            running: None,
         }
     }
 
@@ -150,6 +156,46 @@ where
             tracing::info!(context = %ctx, %id, "not started: {why}");
         }
         Ok(plan)
+    }
+
+    /// `koje up` started `ctx`: keep its workspace.
+    pub async fn started(&mut self, ctx: &ContextName) -> Result<()> {
+        self.require(ctx)?;
+        self.running.get_or_insert_default().insert(ctx.clone());
+        self.apply(&[windows::keep_workspace(ctx, true)]).await
+    }
+
+    /// `koje down` stopped `ctx`: its workspace may go, its live state is over.
+    pub async fn stopped(&mut self, ctx: &ContextName) -> Result<()> {
+        if let Some(r) = self.running.as_mut() {
+            r.remove(ctx);
+        }
+        self.live.remove(ctx);
+        self.quitting.remove(ctx);
+        self.apply(&[windows::keep_workspace(ctx, false)]).await
+    }
+
+    /// Workspace rules for the running contexts (runtime rules are gone after
+    /// a reload or a compositor restart). Asks the runtime the first time.
+    async fn keep_running_workspaces(&mut self) -> Vec<CompositorCommand> {
+        if self.running.is_none() {
+            let mut found = BTreeSet::new();
+            for ctx in self.colors.keys() {
+                let runtime = self.runtime.clone();
+                let c = ctx.clone();
+                if let Ok(Ok(ContainerStatus::Running | ContainerStatus::Paused)) =
+                    tokio::task::spawn_blocking(move || runtime.status(&c)).await
+                {
+                    found.insert(ctx.clone());
+                }
+            }
+            self.running = Some(found);
+        }
+        self.running
+            .iter()
+            .flatten()
+            .map(|c| windows::keep_workspace(c, true))
+            .collect()
     }
 
     /// End the programs of `ctx` in order (`koje down`, M5.4): close their
@@ -385,6 +431,7 @@ where
                 // set again too, which is idempotent.
                 let mut commands = self.rules();
                 commands.extend(self.windows.tags());
+                commands.extend(self.keep_running_workspaces().await);
                 self.apply(&commands).await.map(|()| Vec::new())
             }
             CompositorEvent::WindowOpened { address, .. } => self.opened(&address).await,
@@ -452,6 +499,7 @@ where
         commands.extend(self.windows.tags());
         commands.extend(recolor);
         commands.extend(moves);
+        commands.extend(self.keep_running_workspaces().await);
         tracing::info!(
             windows = present.len(),
             contexts = %self
@@ -573,7 +621,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use koje_core::layout::{Placement, Rect};
-    use koje_core::ports::{ContainerStatus, WindowInfo};
+    use koje_core::ports::WindowInfo;
     use koje_core::size::ByteSize;
     use koje_core::spec::ContainerSpec;
 
@@ -755,7 +803,8 @@ mod tests {
             [
                 windows::rule(&ctx("work"), red()),
                 tag("0xa", "koje-work"),
-                mv("0xa", "work")
+                mv("0xa", "work"),
+                windows::keep_workspace(&ctx("work"), true)
             ]
         );
         assert_eq!(
@@ -799,7 +848,8 @@ mod tests {
             [
                 windows::rule(&ctx("work"), red()),
                 tag("0xa", "koje-work"),
-                tag("0xb", "koje-work")
+                tag("0xb", "koje-work"),
+                windows::keep_workspace(&ctx("work"), true)
             ]
         );
 
@@ -1137,6 +1187,42 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
                 ("files-2", Some("/home/mj/Old Data"))
             ]
         );
+    }
+
+    /// Wish 2026-10-20: an empty context workspace vanished from the bar.
+    #[tokio::test(flavor = "current_thread")]
+    async fn running_contexts_keep_their_workspace() {
+        let s = setup();
+        koje_core::context::create(&s.paths, &ctx("home"), None, None).unwrap();
+        let comp = FakeCompositor::default();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let keep: Vec<CompositorCommand> = comp
+            .take()
+            .into_iter()
+            .filter(|c| matches!(c, CompositorCommand::KeepWorkspace { .. }))
+            .collect();
+        assert_eq!(
+            keep,
+            [
+                windows::keep_workspace(&ctx("home"), true),
+                windows::keep_workspace(&ctx("work"), true)
+            ],
+            "at start: what the runtime reports running"
+        );
+
+        d.stopped(&ctx("home")).await.unwrap();
+        assert_eq!(comp.take(), [windows::keep_workspace(&ctx("home"), false)]);
+        d.handle(CompositorEvent::ConfigReloaded).await.unwrap();
+        let after: Vec<CompositorCommand> = comp
+            .take()
+            .into_iter()
+            .filter(|c| matches!(c, CompositorCommand::KeepWorkspace { .. }))
+            .collect();
+        assert_eq!(after, [windows::keep_workspace(&ctx("work"), true)]);
+        d.started(&ctx("home")).await.unwrap();
+        assert_eq!(comp.take(), [windows::keep_workspace(&ctx("home"), true)]);
+        assert!(d.started(&ctx("nope")).await.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]

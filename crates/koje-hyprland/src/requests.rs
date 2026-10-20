@@ -93,6 +93,12 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
         C::FocusWindow { address } => {
             vec![format!("dispatch focuswindow address:{}", arg(address)?)]
         }
+        // A runtime workspace rule; Hyprland keeps persistent workspaces even
+        // when empty (bars keep showing them).
+        C::KeepWorkspace { workspace, keep } => vec![format!(
+            "keyword workspace {}, persistent:{keep}",
+            workspace_selector(workspace)?
+        )],
         C::CloseWindow { address } => {
             vec![format!("dispatch closewindow address:{}", arg(address)?)]
         }
@@ -203,6 +209,13 @@ mod tests {
                 address: "0x63b2".into()
             }),
             ["dispatch focuswindow address:0x63b2"]
+        );
+        assert_eq!(
+            one(CompositorCommand::KeepWorkspace {
+                workspace: "work".into(),
+                keep: true
+            }),
+            ["keyword workspace name:work, persistent:true"]
         );
         assert_eq!(
             one(CompositorCommand::CloseWindow {

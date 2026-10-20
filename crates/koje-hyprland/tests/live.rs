@@ -113,6 +113,10 @@ async fn requests_and_events_against_hyprland() {
             address: address.clone(),
             workspace: workspace.clone(),
         },
+        CompositorCommand::KeepWorkspace {
+            workspace: workspace.clone(),
+            keep: true,
+        },
     ])
     .await
     .unwrap();
@@ -143,6 +147,12 @@ async fn requests_and_events_against_hyprland() {
             .is_ok_and(|r| r.trim() != "ok")
     );
 
+    h.apply(&[CompositorCommand::KeepWorkspace {
+        workspace: workspace.clone(),
+        keep: false,
+    }])
+    .await
+    .unwrap();
     drop(child);
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
