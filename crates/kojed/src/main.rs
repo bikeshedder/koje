@@ -13,7 +13,7 @@
 
 mod api;
 mod daemon;
-mod stale;
+mod sound;
 mod wayland;
 
 use std::sync::Arc;
@@ -58,6 +58,7 @@ async fn main() -> Result<()> {
             api::Api {
                 daemon: Arc::clone(&daemon),
                 sockets: sockets.clone(),
+                runtime: runtime.clone(),
             },
         )?
         .build()
@@ -66,7 +67,7 @@ async fn main() -> Result<()> {
             format!("owning {BUS_NAME} on the session bus (is kojed running already?)")
         })?;
     tracing::info!("serving {BUS_NAME}");
-    tokio::spawn(watch_sound(runtime, Arc::clone(&daemon), conn.clone()));
+    tokio::spawn(relink_sound(runtime));
     loop {
         let event = events.next().await;
         if event == koje_core::ports::CompositorEvent::Connected {
@@ -87,53 +88,19 @@ async fn main() -> Result<()> {
     }
 }
 
-/// M4.11: tell the user when the sound sockets were replaced under running
-/// contexts.
-async fn watch_sound(runtime: std::path::PathBuf, daemon: api::Shared, conn: zbus::Connection) {
-    let sockets = stale::sound_sockets(&runtime);
-    let mut watch = stale::Watch::default();
-    let mut tick = tokio::time::interval(stale::INTERVAL);
+/// M4.11 (ADR 0029): keep the contexts' sound links on the current sockets.
+async fn relink_sound(runtime: std::path::PathBuf) {
+    let mut tick = tokio::time::interval(sound::INTERVAL);
     loop {
         tick.tick().await;
-        let replaced = watch.update(sockets.iter().map(|p| (p.clone(), stale::identity(p))));
-        if replaced.is_empty() {
-            continue;
-        }
-        tracing::info!(?replaced, "sound sockets replaced");
-        let affected = match daemon.lock().await.running_with_sound().await {
-            Ok(a) => a,
-            Err(e) => {
-                tracing::warn!("finding the contexts with sound: {e:#}");
-                continue;
+        for dir in sound::dirs(&runtime) {
+            match sound::sync(&runtime, &dir) {
+                Ok(made) if !made.is_empty() => {
+                    tracing::info!(?made, "sound sockets replaced, links updated");
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(dir = %dir.display(), "updating sound links: {e}"),
             }
-        };
-        if let Some((summary, body)) = stale::message(&affected)
-            && let Err(e) = notify(&conn, &summary, &body).await
-        {
-            tracing::warn!("notifying: {e}");
         }
     }
-}
-
-async fn notify(conn: &zbus::Connection, summary: &str, body: &str) -> zbus::Result<()> {
-    let hints: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> =
-        std::collections::HashMap::new();
-    conn.call_method(
-        Some("org.freedesktop.Notifications"),
-        "/org/freedesktop/Notifications",
-        Some("org.freedesktop.Notifications"),
-        "Notify",
-        &(
-            "koje",
-            0u32,
-            "",
-            summary,
-            body,
-            Vec::<&str>::new(),
-            hints,
-            -1i32,
-        ),
-    )
-    .await
-    .map(drop)
 }

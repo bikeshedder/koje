@@ -20,6 +20,8 @@ pub type Shared = Arc<Mutex<Daemon<Hyprland, Podman>>>;
 pub struct Api {
     pub daemon: Shared,
     pub sockets: Sockets,
+    /// The host's `XDG_RUNTIME_DIR`.
+    pub runtime: std::path::PathBuf,
 }
 
 fn context_arg(context: &str) -> fdo::Result<ContextName> {
@@ -79,6 +81,18 @@ impl Api {
         }
         let path = self.sockets.ensure(&ctx).await.map_err(|e| failed(&e))?;
         Ok(path.display().to_string())
+    }
+
+    /// The context's sound directory with links to the host's sound sockets
+    /// (ADR 0029), kept current by kojed; `koje up` mounts it.
+    async fn sound_sockets(&self, context: &str) -> fdo::Result<String> {
+        let ctx = context_arg(context)?;
+        if !self.daemon.lock().await.knows(&ctx) {
+            return Err(fdo::Error::InvalidArgs(format!("no context named {ctx}")));
+        }
+        crate::sound::ensure(&self.runtime, &ctx)
+            .map(|d| d.display().to_string())
+            .map_err(|e| fdo::Error::Failed(format!("sound links for {ctx}: {e}")))
     }
 
     /// Stop serving the context's Wayland socket (`koje down`).

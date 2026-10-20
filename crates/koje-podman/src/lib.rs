@@ -524,6 +524,7 @@ mod tests {
             wayland_socket: Some("/run/user/1000/koje/kp/wayland/wayland-0".into()),
             pipewire_socket: Some("/run/user/1000/pipewire-0".into()),
             pulse_socket: Some("/run/user/1000/pulse/native".into()),
+            sound_dir: Some("/run/user/1000/koje/kp/sound".into()),
             dri: true,
             ..HostEnv::default()
         };
@@ -552,12 +553,12 @@ mod tests {
             "create --name koje-kp --hostname kp --init --userns=keep-id",
             "--label io.koje.context=kp",
             "--security-opt label=disable --security-opt unmask=/proc/sys",
-            "--env PULSE_SERVER=unix:/run/user/1000/pulse-native",
+            "--env PULSE_SERVER=unix:/run/user/1000/koje-sound/pulse-native",
             "--env WAYLAND_DISPLAY=/run/user/1000/koje-wayland/wayland-0",
             "--volume koje-kp-home:/home/mj:U",
             "--mount type=tmpfs,destination=/run/user/1000,tmpfs-mode=0700,U=true",
             "--volume /run/user/1000/koje/kp/wayland:/run/user/1000/koje-wayland",
-            "--volume /run/user/1000/pulse/native:/run/user/1000/pulse-native",
+            "--volume /run/user/1000/koje/kp/sound:/run/user/1000/koje-sound",
             "--volume /home/mj/src/kp:/home/mj/src/kp",
             "--device /dev/dri --device /dev/fuse --device /dev/net/tun",
             "--shm-size 1073741824",

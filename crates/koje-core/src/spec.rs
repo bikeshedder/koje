@@ -29,6 +29,12 @@ pub const WAYLAND_DIR: &str = "koje-wayland";
 /// The socket's name in kojed's per-context directory.
 pub const WAYLAND_SOCKET: &str = "wayland-0";
 
+/// Directory in the context's `XDG_RUNTIME_DIR` holding its sound sockets.
+pub const SOUND_DIR: &str = "koje-sound";
+/// Link names in kojed's sound directory (ADR 0029).
+pub const PIPEWIRE_LINK: &str = "pipewire-0";
+pub const PULSE_LINK: &str = "pulse-native";
+
 /// `/dev/shm` size (ADR 0015): a limit, not reserved memory.
 pub const SHM_SIZE: ByteSize = ByteSize(1 << 30);
 
@@ -47,6 +53,9 @@ pub struct HostEnv {
     pub wayland_socket: Option<PathBuf>,
     pub pipewire_socket: Option<PathBuf>,
     pub pulse_socket: Option<PathBuf>,
+    /// kojed's per-context directory with hard links to the sound sockets
+    /// (ADR 0029); mounted, so a restarted sound server reaches the context.
+    pub sound_dir: Option<PathBuf>,
     pub cups_socket: Option<PathBuf>,
     /// `/dev/dri` exists.
     pub dri: bool,
@@ -200,15 +209,31 @@ impl Parts<'_> {
 
     fn sound(&mut self, on: bool) {
         let host = self.host;
-        if let Some(socket) = self.need(on, host.pipewire_socket.as_ref(), "sound (PipeWire)") {
-            self.mounts
-                .push(bind(&socket, self.run.join("pipewire-0"), false));
+        let pipewire = self.need(on, host.pipewire_socket.as_ref(), "sound (PipeWire)");
+        let pulse = self.need(on, host.pulse_socket.as_ref(), "sound (PulseAudio)");
+        if pipewire.is_none() && pulse.is_none() {
+            return;
         }
-        if let Some(socket) = self.need(on, host.pulse_socket.as_ref(), "sound (PulseAudio)") {
-            // Its own path: below a root-owned mount point libpulse refuses it (M2.3).
-            let target = self.run.join("pulse-native");
-            self.set("PULSE_SERVER", format!("unix:{}", target.display()));
-            self.mounts.push(bind(&socket, target, false));
+        let Some(host_dir) = &host.sound_dir else {
+            self.notes
+                .push("sound: no socket directory from kojed".to_owned());
+            return;
+        };
+        // A directory, not the socket files: kojed re-links replaced sockets.
+        let dir = self.run.join(SOUND_DIR);
+        self.mounts.push(bind(host_dir, &dir, false));
+        if pipewire.is_some() {
+            self.set(
+                "PIPEWIRE_REMOTE",
+                dir.join(PIPEWIRE_LINK).display().to_string(),
+            );
+        }
+        if pulse.is_some() {
+            // Not below a root-owned mount point: libpulse refuses that (M2.3).
+            self.set(
+                "PULSE_SERVER",
+                format!("unix:{}", dir.join(PULSE_LINK).display()),
+            );
         }
     }
 
@@ -379,6 +404,7 @@ mod tests {
             wayland_socket: Some("/run/user/1000/koje/kp/wayland/wayland-0".into()),
             pipewire_socket: Some("/run/user/1000/pipewire-0".into()),
             pulse_socket: Some("/run/user/1000/pulse/native".into()),
+            sound_dir: Some("/run/user/1000/koje/kp/sound".into()),
             cups_socket: Some("/run/cups/cups.sock".into()),
             dri: true,
             nvidia: Some(Nvidia {
@@ -433,7 +459,14 @@ mod tests {
         );
         assert_eq!(s.env["XDG_SESSION_TYPE"], "wayland");
         assert_eq!(s.env["GTK_USE_PORTAL"], "1");
-        assert_eq!(s.env["PULSE_SERVER"], "unix:/run/user/1000/pulse-native");
+        assert_eq!(
+            s.env["PULSE_SERVER"],
+            "unix:/run/user/1000/koje-sound/pulse-native"
+        );
+        assert_eq!(
+            s.env["PIPEWIRE_REMOTE"],
+            "/run/user/1000/koje-sound/pipewire-0"
+        );
         assert_eq!(s.env["CUPS_SERVER"], "/run/cups/cups.sock");
         assert_eq!(
             s.env["KOJE_HOST_BUS"],
@@ -449,8 +482,7 @@ mod tests {
                 "/home/mj",
                 "/run/user/1000",
                 "/run/user/1000/koje-wayland",
-                "/run/user/1000/pipewire-0",
-                "/run/user/1000/pulse-native",
+                "/run/user/1000/koje-sound",
                 "/run/cups/cups.sock",
                 "/usr/local/libexec/koje/koje-forward",
                 "/run/user/1000/koje-host",
@@ -610,5 +642,16 @@ mod tests {
         );
         let s = built(Profile::Full.access(), &Limits::default(), &[], &host()).spec;
         assert_eq!(s.memory_max, None);
+    }
+
+    #[test]
+    fn sound_needs_kojeds_directory() {
+        let host = HostEnv {
+            sound_dir: None,
+            ..host()
+        };
+        let b = built(Profile::Full.access(), &Limits::default(), &[], &host);
+        assert!(!b.spec.env.contains_key("PULSE_SERVER"));
+        assert!(b.notes.iter().any(|n| n.contains("sound")), "{:?}", b.notes);
     }
 }

@@ -45,3 +45,6 @@ M2.1 and the final checks of M2.7/M2.9 in a real Hyprland session.
 - [x] **M2.11 Remaining host interface checks** *(host)*
   - Done when: Firefox in a context prints to a host printer through the mounted CUPS socket (`/run/cups/cups.sock`); `SettingChanged` reaches the context when dark mode changes; an inhibit disappears from the host's inhibitor list when the calling program exits.
   - Notes: [report](../spikes/M2.11-host-interface-checks.md). CUPS printing, `SettingChanged`, inhibit release all work.
+- [ ] **M2.12 Mounts on a running context** *(host)*
+  - Done when: a host folder bind-mounted after the context started is visible inside it, rootless, without restarting the container – e.g. a per-context directory mounted with `rslave` propagation and `podman unshare mount --bind <folder> <dir>/<name>` – or it is shown not to work; the report says where such folders can appear (fixed directory vs. their own path) and what unmounting does to open files.
+  - Notes: needed for M5.11 (apply access and mount changes without recreating); ADR 0029 solved the simpler case (changing files in a mounted directory).

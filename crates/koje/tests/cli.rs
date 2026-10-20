@@ -63,12 +63,12 @@ fn editor(dir: &Path, body: &str) -> String {
 /// start → running, stop → exited), like Podman for one container.
 /// Written by a child process, so no fd of this test process points at the
 /// script while other tests fork ("text file busy").
-/// A fake `podman` on `PATH`. Contexts get no Wayland (global config), as the
-/// socket would come from kojed (ADR 0022), which these tests do not run.
+/// A fake `podman` on `PATH`. Contexts get no Wayland and no sound (global
+/// config): both come from kojed (ADR 0022, 0029), which these tests do not run.
 fn fake_podman(tmp: &Path) -> String {
     let global = tmp.join("config/koje/config.toml");
     std::fs::create_dir_all(global.parent().expect("config dir")).expect("config dir");
-    std::fs::write(&global, "[access]\nwayland = false\n").expect("global config");
+    std::fs::write(&global, "[access]\nwayland = false\nsound = false\n").expect("global config");
     let bin = tmp.join("bin");
     std::fs::create_dir_all(&bin).expect("bin dir");
     let (log, status) = (tmp.join("podman.log"), tmp.join("podman.status"));

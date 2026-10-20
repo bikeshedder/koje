@@ -46,6 +46,12 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
             .context("getting the context's Wayland socket from kojed")?;
         host.wayland_socket = Some(socket.into());
     }
+    // Sound through kojed's directory of socket links (ADR 0029).
+    if access.sound && (host.pipewire_socket.is_some() || host.pulse_socket.is_some()) {
+        let dir: String = crate::kojed::call("SoundSockets", &(name.as_str(),))
+            .context("getting the context's sound sockets from kojed")?;
+        host.sound_dir = Some(dir.into());
+    }
     // The proxy first: its directory must exist when the container starts.
     if koje_core::hostbus::needed(&access) {
         host.forwarder = crate::hostbus::forwarder_binary();

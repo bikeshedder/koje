@@ -42,6 +42,8 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
         wayland_socket: None,
         pipewire_socket: socket(runtime.join("pipewire-0")),
         pulse_socket: socket(runtime.join("pulse/native")),
+        // kojed's per-context directory (ADR 0029), asked for by the CLI.
+        sound_dir: None,
         cups_socket: socket(at("run/cups/cups.sock")),
         dri: at("dev/dri").is_dir(),
         nvidia: nvidia(root),
