@@ -173,6 +173,14 @@ impl Forwarder {
             tracing::trace!(kind = ?msg.message_type(), reply_serial = ?h.reply_serial(), sender = ?h.sender(), "host message");
             match msg.message_type() {
                 Type::MethodReturn | Type::Error => {
+                    if msg.message_type() == Type::Error {
+                        let text = msg
+                            .body()
+                            .deserialize::<(String,)>()
+                            .map(|(t,)| t)
+                            .unwrap_or_default();
+                        tracing::debug!(error = ?h.error_name().map(|e| e.as_str()), text, sender = ?h.sender(), "error from the host");
+                    }
                     let waiting = h.reply_serial().and_then(|s| {
                         #[allow(clippy::unwrap_used)]
                         up.pending.lock().unwrap().remove(&s.get())
