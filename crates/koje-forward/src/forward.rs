@@ -179,7 +179,7 @@ impl Forwarder {
                             .deserialize::<(String,)>()
                             .map(|(t,)| t)
                             .unwrap_or_default();
-                        tracing::debug!(error = ?h.error_name().map(|e| e.as_str()), text, sender = ?h.sender(), "error from the host");
+                        tracing::debug!(error = ?h.error_name().map(zbus::names::ErrorName::as_str), text, sender = ?h.sender(), "error from the host");
                     }
                     let waiting = h.reply_serial().and_then(|s| {
                         #[allow(clippy::unwrap_used)]
