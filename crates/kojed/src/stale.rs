@@ -58,13 +58,11 @@ pub fn message(affected: &[ContextName]) -> Option<(String, String)> {
         return None;
     }
     let names: Vec<&str> = affected.iter().map(ContextName::as_str).collect();
-    let restart: Vec<String> = names
-        .iter()
-        .map(|n| format!("koje down {n} --no-save && koje up {n} -s empty"))
-        .collect();
+    // One line: notification daemons often show only the first (host test).
     Some((
         format!("Sound restarted: {} lost sound", names.join(", ")),
-        format!("Restart to get sound back:\n{}", restart.join("\n")),
+        "Restart to get it back: koje down <context> --no-save, then koje up <context> -s empty"
+            .to_owned(),
     ))
 }
 
@@ -120,6 +118,7 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(summary, "Sound restarted: a, b lost sound");
-        assert!(body.contains("koje down a --no-save && koje up a -s empty"));
+        assert!(!body.contains('\n'), "one line: {body}");
+        assert!(body.contains("koje down <context> --no-save"));
     }
 }
