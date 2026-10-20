@@ -39,3 +39,6 @@ and `sleep infinity` as PID 1 delayed every stop by 10 s.
 - Sockets are bind-mounted files: if the host's PipeWire or compositor restarts,
   the context keeps a stale socket and must be restarted (or koje must remount;
   follow-up in M3).
+  Update: the Wayland socket no longer has this problem (a mounted directory,
+  ADR 0022). For sound, kojed checks the sockets every 5 s and notifies which
+  running contexts lost sound (M4.11).

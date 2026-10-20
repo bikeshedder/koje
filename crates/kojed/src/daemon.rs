@@ -9,7 +9,9 @@ use anyhow::{Context as _, Result};
 use koje_core::color::Color;
 use koje_core::name::ContextName;
 use koje_core::paths::Paths;
-use koje_core::ports::{Compositor, CompositorCommand, CompositorEvent, ContainerRuntime};
+use koje_core::ports::{
+    Compositor, CompositorCommand, CompositorEvent, ContainerRuntime, ContainerStatus,
+};
 use koje_core::windows::{self, WindowMap};
 
 /// What clients hear about (D-Bus signals, ADR 0027).
@@ -95,6 +97,27 @@ where
     /// Whether `ctx` is a context.
     pub fn knows(&mut self, ctx: &ContextName) -> bool {
         self.require(ctx).is_ok()
+    }
+
+    /// Running (or paused) contexts with sound access: they hold the sound
+    /// sockets that were mounted when they started (M4.11).
+    pub async fn running_with_sound(&self) -> Result<Vec<ContextName>> {
+        let global = koje_core::config::GlobalConfig::load(&self.paths.global_config())?;
+        let mut found = Vec::new();
+        for cfg in koje_core::context::list(&self.paths)? {
+            if !cfg.effective_access(&global).sound {
+                continue;
+            }
+            let runtime = self.runtime.clone();
+            let name = cfg.name.clone();
+            let status = tokio::task::spawn_blocking(move || runtime.status(&name)).await?;
+            match status {
+                Ok(ContainerStatus::Running | ContainerStatus::Paused) => found.push(cfg.name),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(context = %cfg.name, "status: {e}"),
+            }
+        }
+        Ok(found)
     }
 
     /// Show a context's workspace (`koje focus`).
@@ -307,7 +330,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use koje_core::layout::{Placement, Rect};
-    use koje_core::ports::{ContainerStatus, WindowInfo};
+    use koje_core::ports::WindowInfo;
     use koje_core::size::ByteSize;
     use koje_core::spec::ContainerSpec;
 
@@ -377,8 +400,12 @@ mod tests {
     impl ContainerRuntime for FakeRuntime {
         type Error = std::io::Error;
 
-        fn status(&self, _: &ContextName) -> std::io::Result<ContainerStatus> {
-            Ok(ContainerStatus::Running)
+        fn status(&self, ctx: &ContextName) -> std::io::Result<ContainerStatus> {
+            Ok(if ctx.as_str() == "stopped" {
+                ContainerStatus::Stopped
+            } else {
+                ContainerStatus::Running
+            })
         }
         fn create(&self, _: &ContainerSpec) -> std::io::Result<()> {
             Ok(())
@@ -596,6 +623,19 @@ mod tests {
         // Unchanged colors: only the rules again.
         d.reload().await.unwrap();
         assert_eq!(comp.take(), [windows::rule(&ctx("work"), blue)]);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn running_contexts_with_sound() {
+        let s = setup();
+        koje_core::context::create(&s.paths, &ctx("stopped"), None, None).unwrap();
+        koje_core::context::create(&s.paths, &ctx("quiet"), None, None).unwrap();
+        let quiet = s.paths.context_config(&ctx("quiet"));
+        let text = std::fs::read_to_string(&quiet).unwrap() + "\n[access]\nsound = false\n";
+        koje_core::context::replace_config(&s.paths, &ctx("quiet"), &text).unwrap();
+        let comp = FakeCompositor::default();
+        let d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        assert_eq!(d.running_with_sound().await.unwrap(), [ctx("work")]);
     }
 
     #[tokio::test(flavor = "current_thread")]
