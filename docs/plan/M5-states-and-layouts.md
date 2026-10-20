@@ -9,7 +9,7 @@ Goal: koje remembers and restores the work environment.
 - [~] **M5.3 Restore on `up`**: resolve state, launch windows, match new windows to IDs, place them
   - Done in code (awaiting host test): `koje up` resolves (requested → `fresh` → `empty`) and sends the state to kojed (`Restore`); `koje_core::restore::plan` (launch templates, `cwd`, `launch_once`), `ContainerRuntime::launch`, matching by app id in `Live::add`, placement from the active layout, 60 s expiry. Not yet: stash for windows outside the active layout (M5.5), dev container windows.
 - [~] **M5.4 `down` / `save` with `-s`**, ordered window close
-  - Done in code (awaiting host test): `koje down [-s]` saves first, then kojed ends the programs (`CloseWindows`: close windows, or SIGTERM per process for `quit = "signal"`), waits 10 s, asks before stopping if windows stay open; without kojed it stops directly (`--no-save`) or refuses (would lose the state).
+  - Done in code (awaiting host test): `koje down [-s]` saves first, then kojed ends the programs (`CloseWindows`: close windows, or SIGTERM per process for `quit = "signal"`), waits up to 10 s for the windows and the signalled processes (Firefox writes its session after closing its windows – first host test showed the restore prompt), asks before stopping if something stays; without kojed it stops directly (`--no-save`) or refuses (would lose the state).
 - [ ] **M5.5 Layout switching** using `plan_switch`; stash as special workspace; focus handling
 - [ ] **M5.6 `stash` / `unstash`**; new/closed windows update layouts
 - [ ] **M5.7 Autosave** of geometry changes into the active layout (debounced)

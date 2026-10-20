@@ -54,6 +54,10 @@ pub struct Daemon<C, R> {
     proc_root: PathBuf,
     /// The user's home (also the context's): expands `~` in remembered paths.
     home: String,
+    /// Processes sent SIGTERM by `close_windows`, per context: `down` waits
+    /// until they are gone, not just their windows (Firefox writes its
+    /// session after closing its windows – host test).
+    quitting: BTreeMap<ContextName, Vec<u32>>,
 }
 
 impl<C, R> Daemon<C, R>
@@ -73,6 +77,7 @@ where
             integrations: koje_core::integration::built_in(),
             proc_root: PathBuf::from("/proc"),
             home: std::env::var("HOME").unwrap_or_default(),
+            quitting: BTreeMap::new(),
         }
     }
 
@@ -170,6 +175,8 @@ where
             })
             .collect();
         self.apply(&close).await?;
+        self.quitting
+            .insert(ctx.clone(), plan.signal.iter().copied().collect());
         for pid in plan.signal {
             let runtime = self.runtime.clone();
             match tokio::task::spawn_blocking(move || runtime.terminate(pid)).await {
@@ -181,9 +188,11 @@ where
         Ok(mine.len())
     }
 
-    /// The context's windows that are still open: `id (app id)`.
+    /// What of `ctx` has not ended yet: open windows (`id (app id)`) and
+    /// signalled processes still running (`process <pid>`).
     pub fn open_windows(&self, ctx: &ContextName) -> Vec<String> {
-        self.live
+        let mut open: Vec<String> = self
+            .live
             .get(ctx)
             .map(|l| {
                 l.windows
@@ -191,7 +200,13 @@ where
                     .map(|w| format!("{} ({})", w.id, w.app_id))
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        for pid in self.quitting.get(ctx).into_iter().flatten() {
+            if self.proc_root.join(pid.to_string()).exists() {
+                open.push(format!("process {pid} (still quitting)"));
+            }
+        }
+        open
     }
 
     /// Restored windows of `ctx` that did not appear leave its state.
@@ -966,7 +981,10 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
                 w.app_id = "firefox".into();
             }
         }
-        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        let proc_root = s.tmp.path().join("proc");
+        std::fs::create_dir_all(&proc_root).unwrap();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone())
+            .with_proc_root(proc_root.clone());
         d.handle(CompositorEvent::Connected).await.unwrap();
         comp.take();
         assert_eq!(d.open_windows(&ctx("work")).len(), 3);
@@ -988,6 +1006,13 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
                 .await
                 .unwrap();
         }
+        // Its windows are gone, the process still writes its session.
+        std::fs::create_dir_all(proc_root.join("20")).unwrap();
+        assert_eq!(
+            d.open_windows(&ctx("work")),
+            ["process 20 (still quitting)"]
+        );
+        std::fs::remove_dir(proc_root.join("20")).unwrap();
         assert_eq!(d.open_windows(&ctx("work")), Vec::<String>::new());
     }
 
