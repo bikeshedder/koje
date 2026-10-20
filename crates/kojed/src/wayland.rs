@@ -301,4 +301,36 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("no compositor"), "{err}");
     }
+
+    /// M4.8: a security-context socket from the running compositor accepts a
+    /// Wayland client, and dies with the worker's close pipe.
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "needs a running Hyprland with security-context-v1"]
+    async fn live_socket_serves_clients() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sockets = Sockets::start(tmp.path().to_owned(), || {
+            Ok(koje_hyprland::instance::wayland_from_env()?)
+        })
+        .unwrap();
+        let ctx = ContextName::new("koje-test").unwrap();
+        let socket = sockets.ensure(&ctx).await.unwrap();
+        assert_eq!(socket, dir(tmp.path(), &ctx).join(SOCKET_NAME));
+        // A client on the socket: the registry answers.
+        let conn = Connection::from_socket(UnixStream::connect(&socket).unwrap()).unwrap();
+        let (globals, _queue) = registry_queue_init::<State>(&conn).unwrap();
+        assert!(
+            globals
+                .contents()
+                .with_list(|l| l.iter().any(|g| g.interface == "wl_compositor")),
+            "the compositor's globals are offered"
+        );
+        // Sandboxed clients do not get the security-context manager themselves.
+        assert!(
+            !globals.contents().with_list(|l| l
+                .iter()
+                .any(|g| g.interface == "wp_security_context_manager_v1")),
+            "a sandboxed client must not create security contexts"
+        );
+        sockets.release(&ctx);
+    }
 }
