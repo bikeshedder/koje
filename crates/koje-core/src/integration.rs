@@ -22,6 +22,18 @@ pub enum Detect {
     ShellCwd,
 }
 
+/// How `koje down` ends a program (M5.4).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Quit {
+    /// Close its windows; it may ask to save first.
+    #[default]
+    Close,
+    /// SIGTERM to its process: quits with all windows at once, so programs
+    /// that restore their own session (browsers) remember every window.
+    Signal,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Match {
@@ -49,6 +61,8 @@ pub struct Integration {
     /// One start restores all windows (browsers with session restore).
     #[serde(default)]
     pub launch_once: bool,
+    #[serde(default)]
+    pub quit: Quit,
 }
 
 fn default_launch() -> String {
@@ -131,6 +145,8 @@ mod tests {
         assert_eq!(find(&all, "foot").unwrap().name, "terminal");
         assert_eq!(find(&all, "code").unwrap().detect["path"], Detect::ArgvLast);
         assert!(find(&all, "firefox").unwrap().launch_once);
+        assert_eq!(find(&all, "firefox").unwrap().quit, Quit::Signal);
+        assert_eq!(find(&all, "foot").unwrap().quit, Quit::Close);
         assert_eq!(find(&all, "org.gnome.Nautilus"), None, "generic");
     }
 

@@ -65,6 +65,10 @@ pub enum CompositorCommand {
     FocusWindow {
         address: String,
     },
+    /// Ask a window to close (the program may ask to save first).
+    CloseWindow {
+        address: String,
+    },
     FocusWorkspace {
         workspace: String,
     },
@@ -141,6 +145,8 @@ pub trait ContainerRuntime {
         command: &str,
         workdir: Option<&str>,
     ) -> Result<(), Self::Error>;
+    /// Ask a context's process (host pid) to quit: SIGTERM (M5.4).
+    fn terminate(&self, pid: u32) -> Result<(), Self::Error>;
     /// Map a host PID to the context whose container owns it, if any.
     fn context_of_pid(&self, pid: u32) -> Result<Option<ContextName>, Self::Error>;
 }

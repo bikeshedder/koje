@@ -152,6 +152,28 @@ impl Api {
         Ok(u32::try_from(plan.launches.len()).unwrap_or(u32::MAX))
     }
 
+    /// End the context's programs in order (`koje down`, M5.4) and wait up
+    /// to `timeout` seconds for their windows to go; the windows still open
+    /// (`id (app id)`), e.g. a program asking to save.
+    async fn close_windows(&self, context: &str, timeout: u32) -> fdo::Result<Vec<String>> {
+        let ctx = context_arg(context)?;
+        self.daemon
+            .lock()
+            .await
+            .close_windows(&ctx)
+            .await
+            .map_err(|e| failed(&e))?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout.into());
+        loop {
+            // Unlocked meanwhile: the event loop sees the windows close.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let open = self.daemon.lock().await.open_windows(&ctx);
+            if open.is_empty() || tokio::time::Instant::now() >= deadline {
+                return Ok(open);
+            }
+        }
+    }
+
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
     async fn reload(&self) -> fdo::Result<()> {
         self.daemon

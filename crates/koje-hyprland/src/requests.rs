@@ -93,6 +93,9 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
         C::FocusWindow { address } => {
             vec![format!("dispatch focuswindow address:{}", arg(address)?)]
         }
+        C::CloseWindow { address } => {
+            vec![format!("dispatch closewindow address:{}", arg(address)?)]
+        }
         C::FocusWorkspace { workspace } => {
             vec![format!(
                 "dispatch workspace {}",
@@ -200,6 +203,12 @@ mod tests {
                 address: "0x63b2".into()
             }),
             ["dispatch focuswindow address:0x63b2"]
+        );
+        assert_eq!(
+            one(CompositorCommand::CloseWindow {
+                address: "0x63b2".into()
+            }),
+            ["dispatch closewindow address:0x63b2"]
         );
     }
 

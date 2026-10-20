@@ -147,6 +147,53 @@ where
         Ok(plan)
     }
 
+    /// End the programs of `ctx` in order (`koje down`, M5.4): close their
+    /// windows, or SIGTERM programs whose integration says `quit = "signal"`.
+    /// The number of windows asked to go.
+    pub async fn close_windows(&mut self, ctx: &ContextName) -> Result<usize> {
+        let present = self
+            .compositor
+            .windows()
+            .await
+            .map_err(anyhow::Error::new)?;
+        let mine: Vec<(String, String, u32)> = present
+            .into_iter()
+            .filter(|w| self.windows.context_of(&w.address) == Some(ctx))
+            .map(|w| (w.address, w.app_id, w.pid))
+            .collect();
+        let plan = koje_core::capture::plan_quit(&mine, &self.integrations);
+        let close: Vec<CompositorCommand> = plan
+            .close
+            .iter()
+            .map(|address| CompositorCommand::CloseWindow {
+                address: address.clone(),
+            })
+            .collect();
+        self.apply(&close).await?;
+        for pid in plan.signal {
+            let runtime = self.runtime.clone();
+            match tokio::task::spawn_blocking(move || runtime.terminate(pid)).await {
+                Ok(Ok(())) => tracing::info!(context = %ctx, pid, "asked to quit"),
+                Ok(Err(e)) => tracing::warn!(context = %ctx, pid, "SIGTERM: {e}"),
+                Err(e) => tracing::warn!(context = %ctx, pid, "SIGTERM: {e}"),
+            }
+        }
+        Ok(mine.len())
+    }
+
+    /// The context's windows that are still open: `id (app id)`.
+    pub fn open_windows(&self, ctx: &ContextName) -> Vec<String> {
+        self.live
+            .get(ctx)
+            .map(|l| {
+                l.windows
+                    .values()
+                    .map(|w| format!("{} ({})", w.id, w.app_id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Restored windows of `ctx` that did not appear leave its state.
     pub fn expire_pending(&mut self, ctx: &ContextName) {
         if let Some(live) = self.live.get_mut(ctx) {
@@ -517,6 +564,7 @@ mod tests {
         lookups: Arc<Mutex<u32>>,
         /// `(command, workdir)` of every launch.
         launched: Arc<Mutex<Vec<Launched>>>,
+        terminated: Arc<Mutex<Vec<u32>>>,
     }
 
     impl ContainerRuntime for FakeRuntime {
@@ -556,6 +604,10 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((command.to_owned(), workdir.map(str::to_owned)));
+            Ok(())
+        }
+        fn terminate(&self, pid: u32) -> std::io::Result<()> {
+            self.terminated.lock().unwrap().push(pid);
             Ok(())
         }
         fn context_of_pid(&self, pid: u32) -> std::io::Result<Option<ContextName>> {
@@ -898,6 +950,45 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
             "has windows now"
         );
         d.expire_pending(&ctx("work"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn close_windows_in_order() {
+        let s = setup();
+        s.runtime.pids.lock().unwrap().insert(20, ctx("work"));
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10); // foot
+        comp.open("0xh", 99); // a host window: untouched
+        comp.open("0xf", 20);
+        comp.open("0xg", 20);
+        for w in comp.windows.lock().unwrap().iter_mut() {
+            if w.pid == 20 {
+                w.app_id = "firefox".into();
+            }
+        }
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+        assert_eq!(d.open_windows(&ctx("work")).len(), 3);
+
+        assert_eq!(d.close_windows(&ctx("work")).await.unwrap(), 3);
+        assert_eq!(
+            comp.take(),
+            [CompositorCommand::CloseWindow {
+                address: "0xa".into()
+            }]
+        );
+        assert_eq!(
+            *s.runtime.terminated.lock().unwrap(),
+            [20],
+            "Firefox: one SIGTERM"
+        );
+        for a in ["0xa", "0xf", "0xg"] {
+            d.handle(CompositorEvent::WindowClosed { address: a.into() })
+                .await
+                .unwrap();
+        }
+        assert_eq!(d.open_windows(&ctx("work")), Vec::<String>::new());
     }
 
     #[tokio::test(flavor = "current_thread")]

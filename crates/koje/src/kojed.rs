@@ -17,12 +17,21 @@ where
     B: serde::Serialize + DynamicType + Sync,
     R: for<'d> serde::Deserialize<'d> + Type,
 {
+    call_within(method, body, TIMEOUT)
+}
+
+/// [`call`] for methods that wait (`CloseWindows`).
+pub fn call_within<B, R>(method: &str, body: &B, timeout: Duration) -> Result<R>
+where
+    B: serde::Serialize + DynamicType + Sync,
+    R: for<'d> serde::Deserialize<'d> + Type,
+{
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("starting the D-Bus client")?;
     runtime.block_on(async {
-        tokio::time::timeout(TIMEOUT, async {
+        tokio::time::timeout(timeout, async {
             let conn = zbus::Connection::session()
                 .await
                 .context("connecting to the session bus")?;
@@ -37,7 +46,7 @@ where
             Ok(reply.body().deserialize()?)
         })
         .await
-        .with_context(|| format!("kojed did not answer {method} within {TIMEOUT:?}"))?
+        .with_context(|| format!("kojed did not answer {method} within {timeout:?}"))?
     })
 }
 

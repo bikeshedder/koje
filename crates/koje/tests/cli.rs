@@ -709,7 +709,12 @@ fn up_falls_back_to_empty_and_restores_through_kojed() {
     );
     let out = koje_fake(tmp.path(), &path, &["down", "kp"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("koje down kp --no-save"));
-    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    let out = stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    assert!(
+        out.contains("programs not closed in order") && out.contains("stopped kp"),
+        "{out}"
+    );
+    assert!(podman_log(tmp.path()).contains("stop --time 10 koje-kp"));
 
     // A stored state with windows is restored by kojed (not running here).
     let states = tmp.path().join("data/koje/kp/states");

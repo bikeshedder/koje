@@ -179,6 +179,29 @@ fn waits_for(p: &WindowSpec, app_id: &str, integration: Option<&str>) -> bool {
     }
 }
 
+/// How `koje down` ends a context's programs (M5.4).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct QuitPlan {
+    /// Windows to close (their programs may ask to save first).
+    pub close: Vec<String>,
+    /// Processes to send SIGTERM, once each (`quit = "signal"`).
+    pub signal: BTreeSet<u32>,
+}
+
+/// `windows`: `(address, app_id, pid)` of the context's windows.
+pub fn plan_quit(windows: &[(String, String, u32)], integrations: &[Integration]) -> QuitPlan {
+    let mut plan = QuitPlan::default();
+    for (address, app_id, pid) in windows {
+        let quit = integration::find(integrations, app_id).map(|i| i.quit);
+        if quit == Some(integration::Quit::Signal) && *pid != 0 {
+            plan.signal.insert(*pid);
+        } else {
+            plan.close.push(address.clone());
+        }
+    }
+    plan
+}
+
 /// A window in the live state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LiveWindow {
@@ -614,6 +637,32 @@ mod tests {
         assert_eq!(
             program("/usr/lib64/firefox/firefox"),
             "/usr/lib64/firefox/firefox"
+        );
+    }
+
+    #[test]
+    fn quit_plan() {
+        let all = integration::built_in();
+        let w = |a: &str, app: &str, pid: u32| (a.to_owned(), app.to_owned(), pid);
+        let plan = plan_quit(
+            &[
+                w("0x1", "firefox", 40),
+                w("0x2", "firefox", 40),
+                w("0x3", "foot", 41),
+                w("0x4", "org.gnome.Nautilus", 42),
+                w("0x5", "firefox", 0),
+            ],
+            &all,
+        );
+        assert_eq!(
+            plan.signal,
+            BTreeSet::from([40]),
+            "Firefox quits once, with all its windows"
+        );
+        assert_eq!(
+            plan.close,
+            ["0x3", "0x4", "0x5"],
+            "unknown pid: close the window"
         );
     }
 

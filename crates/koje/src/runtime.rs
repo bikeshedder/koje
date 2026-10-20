@@ -177,32 +177,75 @@ pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
 }
 
 /// `koje down <context> --no-save`: stop the context container.
-pub fn down(paths: &Paths, context: &str, no_save: bool) -> Result<()> {
+pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) -> Result<()> {
     let name = ContextName::new(context)?;
-    context::load(paths, &name)?;
-    if !no_save {
-        bail!(
-            "saving the windows into a state comes with milestone M5 – \
-             stop {name} without saving: koje down {name} --no-save"
-        );
-    }
+    let cfg = context::load(paths, &name)?;
+    let target = if no_save {
+        None
+    } else {
+        let t = match state {
+            Some(s) => StateName::new(s)?,
+            None => cfg.states.default.clone(),
+        };
+        koje_core::state::ensure_writable(&t)?;
+        Some(t)
+    };
     let podman = Podman::new();
-    match plan_down(podman.status(&name)?) {
-        DownPlan::Stop => {
-            podman.stop(&name)?;
-            println!("stopped {name}");
-        }
-        DownPlan::UnpauseAndStop => {
+    let plan = plan_down(podman.status(&name)?);
+    if matches!(plan, DownPlan::Stop | DownPlan::UnpauseAndStop) {
+        if plan == DownPlan::UnpauseAndStop {
             podman.unpause(&name)?;
-            podman.stop(&name)?;
-            println!("stopped {name}");
         }
+        // The state first: closing the windows changes the live state (ADR 0030).
+        if let Some(t) = &target {
+            let live = live_state(&name).with_context(|| {
+                format!("not stopped – to stop without saving: koje down {name} --no-save")
+            })?;
+            koje_core::states::write(paths, &name, t, &live)?;
+            println!("saved {} window(s) into state {t}", live.windows.len());
+        }
+        close_programs(&name)?;
+        podman.stop(&name)?;
+        println!("stopped {name}");
+    }
+    match plan {
+        DownPlan::Stop | DownPlan::UnpauseAndStop => {}
         DownPlan::AlreadyStopped => println!("{name} is not running"),
         DownPlan::NotCreated => println!("{name} has not been started yet"),
     }
     crate::hostbus::stop_proxy(&name);
     if let Err(e) = crate::kojed::call::<_, ()>("ReleaseWaylandSocket", &(name.as_str(),)) {
         tracing::debug!("not releasing the Wayland socket of {name}: {e:#}");
+    }
+    Ok(())
+}
+
+/// How long `down` waits for programs to end.
+const CLOSE_TIMEOUT_SECS: u32 = 10;
+
+/// End the context's programs in order before the container stops (M5.4):
+/// kojed closes windows or signals programs and waits. Asks before stopping
+/// when windows stay open (a program may be asking to save).
+fn close_programs(name: &ContextName) -> Result<()> {
+    let wait = std::time::Duration::from_secs(u64::from(CLOSE_TIMEOUT_SECS) + 10);
+    let open: Vec<String> =
+        match crate::kojed::call_within("CloseWindows", &(name.as_str(), CLOSE_TIMEOUT_SECS), wait)
+        {
+            Ok(open) => open,
+            Err(e) => {
+                println!("note: programs not closed in order ({e:#}) – stopping {name} directly");
+                return Ok(());
+            }
+        };
+    if open.is_empty() {
+        return Ok(());
+    }
+    println!("still open after {CLOSE_TIMEOUT_SECS} s (maybe asking to save):");
+    for w in &open {
+        println!("  {w}");
+    }
+    if !crate::prompt::confirm(&format!("Stop {name} anyway?"), false)? {
+        bail!("{name} is still running – close those windows, then: koje down {name} --no-save");
     }
     Ok(())
 }

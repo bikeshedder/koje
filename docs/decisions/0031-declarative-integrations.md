@@ -28,6 +28,12 @@ finds the working directory.
 - **Built-ins** `generic`, `terminal`, `editor`, `browser` ship in koje (same
   format); files in `~/.config/koje/integrations/` add to or replace them by
   name. `devcontainer` follows with dev container support in states.
+- **`quit`** (M5.4): how `koje down` ends a program – `close` (default: its
+  windows are closed; it may ask to save) or `signal` (one SIGTERM to its
+  process: it quits with all windows, so a browser's session keeps every
+  window; closing them one by one would leave only the last). Built-in
+  `browser` uses `signal`. Whether a browser reopens its windows on the next
+  start is its own setting (Firefox: "Open previous windows and tabs").
 - koje never changes a program's configuration to make detection work.
 
 ## Consequences

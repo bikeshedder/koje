@@ -30,7 +30,11 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Up { ctx, state, .. } => {
             crate::runtime::up(&paths, &ctx.context, state.as_deref())
         }
-        Command::Down { ctx, no_save, .. } => crate::runtime::down(&paths, &ctx.context, *no_save),
+        Command::Down {
+            ctx,
+            state,
+            no_save,
+        } => crate::runtime::down(&paths, &ctx.context, state.as_deref(), *no_save),
 
         Command::Shell { ctx, dev } => crate::runtime::shell(&paths, &ctx.context, dev.as_deref()),
 
