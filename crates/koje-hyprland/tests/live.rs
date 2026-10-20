@@ -5,6 +5,8 @@
 //! Needs Hyprland (`HYPRLAND_INSTANCE_SIGNATURE`, or the newest instance) and a
 //! terminal on the host (foot, kitty or alacritty). The tests only touch the
 //! window they start themselves and close it again; they never focus anything.
+//! At the end they reload Hyprland's config (as `koje down` does) to drop their
+//! test workspace and rules.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -147,12 +149,6 @@ async fn requests_and_events_against_hyprland() {
             .is_ok_and(|r| r.trim() != "ok")
     );
 
-    h.apply(&[CompositorCommand::KeepWorkspace {
-        workspace: workspace.clone(),
-        keep: false,
-    }])
-    .await
-    .unwrap();
     drop(child);
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -167,4 +163,7 @@ async fn requests_and_events_against_hyprland() {
     })
     .await
     .expect("closewindow for the test window");
+    // The test workspace was kept: only a config reload lets it go (M5.15),
+    // which also drops the test's rule; like `koje down`.
+    h.apply(&[CompositorCommand::ReloadConfig]).await.unwrap();
 }

@@ -71,6 +71,10 @@ pub enum CompositorCommand {
         workspace: String,
         keep: bool,
     },
+    /// Reload the compositor's config files (not its monitors). Hyprland keeps
+    /// a workspace's persistent flag until then (M5.15 host test). Send alone,
+    /// not in a batch.
+    ReloadConfig,
     /// Ask a window to close (the program may ask to save first).
     CloseWindow {
         address: String,

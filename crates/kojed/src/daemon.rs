@@ -166,13 +166,17 @@ where
     }
 
     /// `koje down` stopped `ctx`: its workspace may go, its live state is over.
+    /// Hyprland drops a workspace's persistent flag only on a config reload
+    /// (a `persistent:false` rule does not), so kojed reloads; its
+    /// `ConfigReloaded` handling puts back the rules of the other contexts.
     pub async fn stopped(&mut self, ctx: &ContextName) -> Result<()> {
-        if let Some(r) = self.running.as_mut() {
-            r.remove(ctx);
-        }
+        let was_kept = self.running.as_mut().is_some_and(|r| r.remove(ctx));
         self.live.remove(ctx);
         self.quitting.remove(ctx);
-        self.apply(&[windows::keep_workspace(ctx, false)]).await
+        if was_kept {
+            self.apply(&[CompositorCommand::ReloadConfig]).await?;
+        }
+        Ok(())
     }
 
     /// Workspace rules for the running contexts (runtime rules are gone after
@@ -1212,7 +1216,13 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
         );
 
         d.stopped(&ctx("home")).await.unwrap();
-        assert_eq!(comp.take(), [windows::keep_workspace(&ctx("home"), false)]);
+        assert_eq!(
+            comp.take(),
+            [CompositorCommand::ReloadConfig],
+            "drops the persistent flag"
+        );
+        d.stopped(&ctx("home")).await.unwrap();
+        assert_eq!(comp.take(), [], "not running: nothing to drop");
         d.handle(CompositorEvent::ConfigReloaded).await.unwrap();
         let after: Vec<CompositorCommand> = comp
             .take()

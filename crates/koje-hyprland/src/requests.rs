@@ -99,6 +99,7 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
             "keyword workspace {}, persistent:{keep}",
             workspace_selector(workspace)?
         )],
+        C::ReloadConfig => vec!["reload config-only".to_owned()],
         C::CloseWindow { address } => {
             vec![format!("dispatch closewindow address:{}", arg(address)?)]
         }
@@ -217,6 +218,7 @@ mod tests {
             }),
             ["keyword workspace name:work, persistent:true"]
         );
+        assert_eq!(one(CompositorCommand::ReloadConfig), ["reload config-only"]);
         assert_eq!(
             one(CompositorCommand::CloseWindow {
                 address: "0x63b2".into()
