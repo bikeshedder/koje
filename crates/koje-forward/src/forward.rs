@@ -37,6 +37,25 @@ fn with_body(b: Builder<'_>, src: &Message, map: &PathMap) -> zbus::Result<Messa
     }
 }
 
+/// The forwarded name whose objects live at `path`: the name as a path
+/// (`org.freedesktop.Notifications` → `/org/freedesktop/Notifications`), compared
+/// ignoring case (the portal's objects are below `/org/freedesktop/portal/desktop`).
+/// With a single name, that one.
+pub fn route<'a>(names: &'a [String], path: &str) -> Option<&'a str> {
+    if let [only] = names {
+        return Some(only);
+    }
+    let path = path.to_ascii_lowercase();
+    names
+        .iter()
+        .find(|n| {
+            let base = format!("/{}", n.replace('.', "/")).to_ascii_lowercase();
+            path.strip_prefix(&base)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+        .map(String::as_str)
+}
+
 impl Forwarder {
     pub async fn new(
         ctx: Connection,
@@ -238,10 +257,14 @@ impl Forwarder {
     async fn forward_call(self: &Arc<Self>, call: &Message) -> Result<()> {
         let h = call.header();
         let client = h.sender().context("call without sender")?.to_string();
+        let path_str = h.path().map(|p| p.as_str().to_owned()).unwrap_or_default();
         let dest = match h.destination().map(zbus::names::BusName::as_str) {
             Some(d) if self.names.iter().any(|n| n == d) => d.to_owned(),
-            // Called by our unique name: the first forwarded name.
-            _ => self.names.first().cloned().context("no names to forward")?,
+            // Called by our unique name (GDBus clients resolve the owner once,
+            // and one connection owns all names): the service by object path.
+            _ => route(&self.names, &path_str)
+                .with_context(|| format!("no forwarded service for {path_str}"))?
+                .to_owned(),
         };
         let up = self.upstream(&client).await?;
         let path = up
@@ -316,5 +339,38 @@ impl Forwarder {
             Message::error(&call.header(), "org.freedesktop.DBus.Error.Failed")?.build(&(text,))?;
         self.ctx.send(&err).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Host test of M3.17: Firefox (`GDBus`) calls the portal by the forwarder's
+    /// unique name; that went to the first name, the notification daemon.
+    #[test]
+    fn routes_calls_by_unique_name_by_path() {
+        let names = vec![
+            "org.freedesktop.Notifications".to_owned(),
+            "org.freedesktop.portal.Desktop".to_owned(),
+        ];
+        assert_eq!(
+            route(&names, "/org/freedesktop/portal/desktop"),
+            Some("org.freedesktop.portal.Desktop")
+        );
+        assert_eq!(
+            route(&names, "/org/freedesktop/portal/desktop/request/1_9/t"),
+            Some("org.freedesktop.portal.Desktop")
+        );
+        assert_eq!(
+            route(&names, "/org/freedesktop/Notifications"),
+            Some("org.freedesktop.Notifications")
+        );
+        assert_eq!(route(&names, "/org/freedesktop/NotificationsX"), None);
+        assert_eq!(route(&names, "/"), None);
+        assert_eq!(
+            route(&names[..1], "/"),
+            Some("org.freedesktop.Notifications")
+        );
     }
 }

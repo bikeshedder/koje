@@ -82,7 +82,12 @@ async fn fake_host(address: &str) -> (Connection, tokio::sync::mpsc::UnboundedRe
             let sender = h.sender().unwrap().to_string();
             let member = h.member().unwrap().to_string();
             let path = h.path().unwrap().to_string();
-            match member.as_str() {
+            let dest = h.destination().map(ToString::to_string).unwrap_or_default();
+            let iface = h.interface().map(ToString::to_string).unwrap_or_default();
+            // Like separate services: portal calls must name the portal.
+            let wrong = (iface.starts_with("org.freedesktop.portal.") && dest != PORTAL)
+                || (iface == NOTIFY && dest != NOTIFY);
+            match if wrong { "" } else { member.as_str() } {
                 "CreateSession" => {
                     let (opts,): (HashMap<String, OwnedValue>,) = msg.body().deserialize().unwrap();
                     let token: String = opts["handle_token"].clone().try_into().unwrap();
@@ -318,6 +323,29 @@ async fn notifications(client: &Connection) {
     assert_eq!(sig.body().deserialize::<(u32, u32)>().unwrap(), (42, 2));
 }
 
+/// Like `GDBus`: resolve the portal's owner, then call that unique name. With
+/// notifications forwarded too, this once went to the notification service.
+async fn by_unique_name(client: &Connection) {
+    let dbus = zbus::fdo::DBusProxy::new(client).await.unwrap();
+    let owner = dbus
+        .get_name_owner(PORTAL.try_into().unwrap())
+        .await
+        .unwrap()
+        .to_string();
+    let reply = client
+        .call_method(
+            Some(owner.as_str()),
+            P,
+            Some("org.freedesktop.portal.ScreenCast"),
+            "CreateSession",
+            &(HashMap::from([("handle_token", Value::from("gdbus1"))]),),
+        )
+        .await
+        .unwrap();
+    let (handle,): (OwnedObjectPath,) = reply.body().deserialize().unwrap();
+    assert!(handle.as_str().ends_with("/gdbus1"), "{handle}");
+}
+
 /// An error from the host comes back as an error.
 async fn host_error(client: &Connection) {
     let err = client
@@ -357,6 +385,7 @@ async fn forwards_portal_and_notifications() {
     let host_names_before = unique_names(&host_conn).await;
 
     screencast_round_trip(&client, &mut seen).await;
+    by_unique_name(&client).await;
     notifications(&client).await;
     host_error(&client).await;
 
