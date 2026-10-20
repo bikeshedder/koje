@@ -67,11 +67,13 @@ if ((build)); then
   echo
 fi
 
+# A dry run builds nothing: the plan must come from the koje this checkout
+# would install, not from an older installed one (which may lack `setup`).
+if ((dry && build)); then
+  exec cargo run --quiet --release --locked -p koje -- setup "${setup_args[@]}"
+fi
 koje=$bin/koje
 if [[ ! -x "$koje" ]]; then
-  if ((dry)); then
-    exec cargo run --quiet --release -p koje -- setup "${setup_args[@]}"
-  fi
   koje=$(command -v koje || true)
   [[ -n "$koje" ]] || { echo "koje is not installed – run without --skip-build" >&2; exit 1; }
 fi
