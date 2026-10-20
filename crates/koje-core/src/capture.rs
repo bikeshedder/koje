@@ -24,6 +24,93 @@ pub struct Observed {
     pub app_id: String,
     pub title: String,
     pub process: Option<Proc>,
+    /// The folder a file manager window shows ([`assign_folders`]).
+    pub folder: Option<String>,
+}
+
+/// The windows in `dbus-send --print-reply` output of
+/// `OpenWindowsWithLocations` (`a{sas}`): each window's tabs as paths
+/// (`file://` locations only; windows without one are left out).
+pub fn parse_file_manager_windows(reply: &str) -> Vec<Vec<String>> {
+    // Each window: its object path, then its tabs' locations.
+    let mut windows: Vec<Vec<String>> = Vec::new();
+    for line in reply.lines() {
+        let Some(value) = line
+            .trim()
+            .strip_prefix("string \"")
+            .and_then(|v| v.strip_suffix('"'))
+        else {
+            continue;
+        };
+        if value.starts_with('/') {
+            windows.push(Vec::new());
+        } else if let Some(tabs) = windows.last_mut()
+            && let Some(path) = file_uri_to_path(value)
+        {
+            tabs.push(path);
+        }
+    }
+    windows.retain(|tabs| !tabs.is_empty());
+    windows
+}
+
+/// `file:///home/mj/My%20Docs` → `/home/mj/My Docs`.
+pub fn file_uri_to_path(uri: &str) -> Option<String> {
+    let rest = uri.strip_prefix("file://")?;
+    let bytes = rest.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && let Some(hex) = rest.get(i + 1..i + 3)
+            && let Ok(b) = u8::from_str_radix(hex, 16)
+        {
+            out.push(b);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok().filter(|p| p.starts_with('/'))
+}
+
+/// Which file manager window shows which folder. Nautilus reports each
+/// window's tabs but not the active one; the window title is the active tab's
+/// folder name. So: a window takes the tab named like its title (from a
+/// reported window not taken yet); the rest take the remaining windows' first
+/// tabs in order. `windows`: `(address, title)`.
+pub fn assign_folders(
+    windows: &[(String, String)],
+    reported: &[Vec<String>],
+) -> BTreeMap<String, String> {
+    let name = |f: &str| {
+        f.trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let mut left: Vec<&Vec<String>> = reported.iter().collect();
+    let mut out = BTreeMap::new();
+    for (address, title) in windows {
+        let hit = left.iter().enumerate().find_map(|(i, tabs)| {
+            tabs.iter()
+                .find(|t| name(t) == *title)
+                .map(|t| (i, t.clone()))
+        });
+        if let Some((i, folder)) = hit {
+            left.remove(i);
+            out.insert(address.clone(), folder);
+        }
+    }
+    for (address, _) in windows {
+        if !out.contains_key(address) && !left.is_empty() {
+            let tabs = left.remove(0);
+            out.extend(tabs.first().map(|f| (address.clone(), f.clone())));
+        }
+    }
+    out
 }
 
 const SHELLS: [&str; 10] = [
@@ -90,6 +177,7 @@ fn detect(method: Detect, w: &Observed) -> Option<String> {
             .filter(|a| !a.starts_with('-'))
             .cloned(),
         Detect::Cwd => p.and_then(|p| p.cwd.clone()),
+        Detect::FileManager => w.folder.clone(),
         Detect::ShellCwd => {
             let shells: Vec<&Proc> = p
                 .map(|p| {
@@ -169,8 +257,10 @@ pub fn program(command: &str) -> String {
 fn waits_for(p: &WindowSpec, app_id: &str, integration: Option<&str>) -> bool {
     match (&p.integration, integration) {
         (Some(want), Some(got)) => want == got,
-        (Some(_), None) | (None, Some(_)) => false,
-        (None, None) => {
+        (Some(_), None) => false,
+        // Saved without an integration (generic, or before one existed): the
+        // same program.
+        (None, _) => {
             p.app_id.is_none()
                 && p.command
                     .as_deref()
@@ -410,6 +500,61 @@ mod tests {
     }
 
     #[test]
+    fn file_manager_folders() {
+        let reply = r#"method return time=1792532902.267172 sender=:1.5 -> destination=:1.23 serial=112 reply_serial=2
+   variant       array [
+         dict entry(
+            string "/org/gnome/Nautilus/window/2"
+            array [
+               string "file:///home/mj/My%20Docs"
+               string "file:///tmp"
+            ]
+         )
+         dict entry(
+            string "/org/gnome/Nautilus/window/3"
+            array [
+               string "trash:///"
+            ]
+         )
+         dict entry(
+            string "/org/gnome/Nautilus/window/1"
+            array [
+               string "file:///home/mj"
+            ]
+         )
+      ]"#;
+        let reported = parse_file_manager_windows(reply);
+        assert_eq!(
+            reported,
+            [
+                vec!["/home/mj/My Docs".to_owned(), "/tmp".to_owned()],
+                vec!["/home/mj".to_owned()]
+            ],
+            "every tab; trash skipped"
+        );
+        assert_eq!(file_uri_to_path("file:///a%2Fb%zz"), Some("/a/b%zz".into()));
+        assert_eq!(file_uri_to_path("smb://x/y"), None);
+
+        let w = |a: &str, t: &str| (a.to_owned(), t.to_owned());
+        // Window 0x2 shows its second tab (title "tmp"); 0x1 is the home folder.
+        let got = assign_folders(&[w("0x1", "Home"), w("0x2", "tmp")], &reported);
+        assert_eq!(got["0x2"], "/tmp", "the tab named like the title");
+        assert_eq!(got["0x1"], "/home/mj", "the rest: first tab, in order");
+        assert!(assign_folders(&[w("0x1", "x")], &[]).is_empty());
+
+        let all = integration::built_in();
+        let nautilus = Observed {
+            app_id: "org.gnome.Nautilus".into(),
+            title: "My Docs".into(),
+            process: Some(proc(&["nautilus"], "/home/mj")),
+            folder: Some("/home/mj/My Docs".into()),
+        };
+        let s = spec(id("files"), &nautilus, &all);
+        assert_eq!(s.integration.as_deref(), Some("files"));
+        assert_eq!(s.remembered["path"].as_str(), Some("/home/mj/My Docs"));
+    }
+
+    #[test]
     fn ids() {
         assert_eq!(base_id(Some("editor"), "code"), "editor");
         assert_eq!(base_id(None, "org.mozilla.firefox"), "firefox");
@@ -441,6 +586,7 @@ mod tests {
     fn terminal_cwd() {
         let all = integration::built_in();
         let mut term = Observed {
+            folder: None,
             app_id: "foot".into(),
             title: "mj@kp: ~/src/kp".into(),
             process: Some(Proc {
@@ -475,6 +621,7 @@ mod tests {
     fn editor_and_generic() {
         let all = integration::built_in();
         let editor = Observed {
+            folder: None,
             app_id: "code".into(),
             title: "kp – Visual Studio Code".into(),
             process: Some(proc(
@@ -494,6 +641,7 @@ mod tests {
         };
         assert!(spec(id("editor"), &no_folder, &all).remembered.is_empty());
         let viewer = Observed {
+            folder: None,
             app_id: "org.gnome.Evince".into(),
             title: String::new(),
             process: Some(proc(&["evince", "spec.pdf"], "/home/mj")),
@@ -687,6 +835,7 @@ mod tests {
         assert_eq!(live.state.layout[&main].windows.len(), 2);
 
         let observed = || Observed {
+            folder: None,
             app_id: "foot".into(),
             title: String::new(),
             process: Some(proc(&["foot"], "/")),

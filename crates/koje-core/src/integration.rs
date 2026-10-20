@@ -20,6 +20,9 @@ pub enum Detect {
     /// A terminal's shell: one shell below it → its directory; several → a
     /// path in the window title; else nothing.
     ShellCwd,
+    /// A file manager's folder for this window, from
+    /// `org.freedesktop.FileManager1.OpenWindowsWithLocations` (M5.12).
+    FileManager,
 }
 
 /// How `koje down` ends a program (M5.4).
@@ -69,10 +72,11 @@ fn default_launch() -> String {
     "{command}".to_owned()
 }
 
-const BUILT_IN: [(&str, &str); 3] = [
+const BUILT_IN: [(&str, &str); 4] = [
     ("terminal", include_str!("integrations/terminal.toml")),
     ("editor", include_str!("integrations/editor.toml")),
     ("browser", include_str!("integrations/browser.toml")),
+    ("files", include_str!("integrations/files.toml")),
 ];
 
 impl Integration {
@@ -147,7 +151,11 @@ mod tests {
         assert!(find(&all, "firefox").unwrap().launch_once);
         assert_eq!(find(&all, "firefox").unwrap().quit, Quit::Signal);
         assert_eq!(find(&all, "foot").unwrap().quit, Quit::Close);
-        assert_eq!(find(&all, "org.gnome.Nautilus"), None, "generic");
+        assert_eq!(
+            find(&all, "org.gnome.Nautilus").unwrap().detect["path"],
+            Detect::FileManager
+        );
+        assert_eq!(find(&all, "org.gnome.Evince"), None, "generic");
     }
 
     #[test]

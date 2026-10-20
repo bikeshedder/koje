@@ -145,6 +145,9 @@ pub trait ContainerRuntime {
         command: &str,
         workdir: Option<&str>,
     ) -> Result<(), Self::Error>;
+    /// Run `argv` in the running context and return its output (asking a
+    /// program over the context's bus, M5.12).
+    fn query(&self, ctx: &ContextName, argv: &[&str]) -> Result<String, Self::Error>;
     /// Ask a context's process (host pid) to quit: SIGTERM (M5.4).
     fn terminate(&self, pid: u32) -> Result<(), Self::Error>;
     /// Map a host PID to the context whose container owns it, if any.

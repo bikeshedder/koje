@@ -25,7 +25,13 @@ finds the working directory.
      title if it holds a path (`~/src/kp`, `user@host: ~/src/kp`);
   3. otherwise nothing; the terminal starts in the home directory.
   OSC 7 is not usable: the terminal consumes it and exposes it to nobody.
-- **Built-ins** `generic`, `terminal`, `editor`, `browser` ship in koje (same
+  - `file-manager` (M5.12): the folder of a file manager window. Nautilus runs
+    one process for all windows, so kojed asks it once per context over the
+    context's bus (`org.freedesktop.FileManager1.OpenWindowsWithLocations`,
+    each window's tabs) and gives each window the tab named like its title
+    (the active one), the rest in order. Tabs are not restored (no command line
+    option); a window reopens with its active folder.
+- **Built-ins** `generic`, `terminal`, `editor`, `browser`, `files` ship in koje (same
   format); files in `~/.config/koje/integrations/` add to or replace them by
   name. `devcontainer` follows with dev container support in states.
 - **`quit`** (M5.4): how `koje down` ends a program – `close` (default: its

@@ -1,0 +1,7 @@
+# File managers: each window opens again in its folder (M5.12). Nautilus runs
+# one process for all windows; kojed asks it over D-Bus which folder each shows.
+name     = "files"
+match    = { app_id = ["org.gnome.Nautilus", "nautilus"] }
+launch   = "{program} --new-window {path}"
+remember = ["path"]
+detect   = { path = "file-manager" }

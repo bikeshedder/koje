@@ -372,6 +372,10 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
         self.podman(&args).map(drop)
     }
 
+    fn query(&self, ctx: &ContextName, argv: &[&str]) -> Result<String> {
+        self.exec_output(ctx, argv)
+    }
+
     fn terminate(&self, pid: u32) -> Result<()> {
         // The context's processes run as the user (keep-id): a plain kill works.
         let out = std::process::Command::new("kill")

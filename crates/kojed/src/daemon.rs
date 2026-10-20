@@ -236,18 +236,81 @@ where
             .map_err(anyhow::Error::new)?;
         let by_address: BTreeMap<&str, &WindowInfo> =
             present.iter().map(|w| (w.address.as_str(), w)).collect();
+        let folders = self.file_manager_folders(ctx, &by_address).await;
         let proc_root = self.proc_root.clone();
         let integrations = &self.integrations;
         let live = self.live.entry(ctx.clone()).or_default();
         Ok(live.snapshot(integrations, |address| {
             let w = by_address.get(address)?;
             let observed = Observed {
+                folder: folders.get(address).cloned(),
                 app_id: w.app_id.clone(),
                 title: w.title.clone(),
                 process: crate::procfs::observe(&proc_root, w.pid),
             };
             Some((observed, w.placement.clone()))
         }))
+    }
+
+    /// The folders of the context's file manager windows (M5.12): asked once
+    /// from the file manager on the context's bus. Empty if there is none or
+    /// it does not answer.
+    async fn file_manager_folders(
+        &self,
+        ctx: &ContextName,
+        by_address: &BTreeMap<&str, &WindowInfo>,
+    ) -> BTreeMap<String, String> {
+        use koje_core::integration::{Detect, find};
+        let windows: Vec<(String, String)> = self
+            .live
+            .get(ctx)
+            .into_iter()
+            .flat_map(|l| l.windows.iter())
+            .filter(|(_, w)| {
+                find(&self.integrations, &w.app_id)
+                    .is_some_and(|i| i.detect.values().any(|d| *d == Detect::FileManager))
+            })
+            .filter_map(|(address, _)| {
+                by_address
+                    .get(address.as_str())
+                    .map(|w| (address.clone(), w.title.clone()))
+            })
+            .collect();
+        if windows.is_empty() {
+            return BTreeMap::new();
+        }
+        let runtime = self.runtime.clone();
+        let c = ctx.clone();
+        let reply = tokio::task::spawn_blocking(move || {
+            runtime.query(
+                &c,
+                &[
+                    "dbus-send",
+                    "--session",
+                    "--print-reply",
+                    "--dest=org.freedesktop.FileManager1",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.DBus.Properties.Get",
+                    "string:org.freedesktop.FileManager1",
+                    "string:OpenWindowsWithLocations",
+                ],
+            )
+        })
+        .await;
+        match reply {
+            Ok(Ok(text)) => koje_core::capture::assign_folders(
+                &windows,
+                &koje_core::capture::parse_file_manager_windows(&text),
+            ),
+            Ok(Err(e)) => {
+                tracing::info!(context = %ctx, "file manager folders: {e}");
+                BTreeMap::new()
+            }
+            Err(e) => {
+                tracing::info!(context = %ctx, "file manager folders: {e}");
+                BTreeMap::new()
+            }
+        }
     }
 
     /// Known contexts with their window counts.
@@ -580,6 +643,7 @@ mod tests {
         /// `(command, workdir)` of every launch.
         launched: Arc<Mutex<Vec<Launched>>>,
         terminated: Arc<Mutex<Vec<u32>>>,
+        query_reply: Arc<Mutex<String>>,
     }
 
     impl ContainerRuntime for FakeRuntime {
@@ -620,6 +684,10 @@ mod tests {
                 .unwrap()
                 .push((command.to_owned(), workdir.map(str::to_owned)));
             Ok(())
+        }
+        fn query(&self, _: &ContextName, argv: &[&str]) -> std::io::Result<String> {
+            assert_eq!(argv[0], "dbus-send");
+            Ok(self.query_reply.lock().unwrap().clone())
         }
         fn terminate(&self, pid: u32) -> std::io::Result<()> {
             self.terminated.lock().unwrap().push(pid);
@@ -1014,6 +1082,61 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
         );
         std::fs::remove_dir(proc_root.join("20")).unwrap();
         assert_eq!(d.open_windows(&ctx("work")), Vec::<String>::new());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn file_manager_windows_remember_their_folders() {
+        let s = setup();
+        s.runtime.pids.lock().unwrap().insert(30, ctx("work"));
+        *s.runtime.query_reply.lock().unwrap() = r#"   variant       array [
+         dict entry(
+            string "/org/gnome/Nautilus/window/2"
+            array [
+               string "file:///home/mj/Downloads"
+               string "file:///home/mj/Old%20Data"
+            ]
+         )
+         dict entry(
+            string "/org/gnome/Nautilus/window/1"
+            array [
+               string "file:///home/mj"
+            ]
+         )
+      ]"#
+        .to_owned();
+        let comp = FakeCompositor::default();
+        comp.open("0xn", 30);
+        comp.open("0xm", 30);
+        for (w, title) in comp
+            .windows
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .zip(["Home", "Old Data"])
+        {
+            w.app_id = "org.gnome.Nautilus".into();
+            w.title = title.into();
+        }
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let state = d.state(&ctx("work")).await.unwrap();
+        let paths: Vec<(&str, Option<&str>)> = state
+            .windows
+            .iter()
+            .map(|w| {
+                (
+                    w.id.as_str(),
+                    w.remembered.get("path").and_then(|v| v.as_str()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                ("files", Some("/home/mj")),
+                ("files-2", Some("/home/mj/Old Data"))
+            ]
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
