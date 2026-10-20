@@ -33,8 +33,9 @@ would change between saves.
   which starts the programs (`podman exec` with the integration's launch
   template, in a remembered `cwd`; `launch_once` integrations once). The state's
   windows wait for their windows: a new window takes the first waiting id with
-  the same app id (stored per window; older states match by integration or
-  program name) and is placed from the active layout. Waiting windows that do
+  the same app id, else the first of the same integration (programs may change
+  their app id after opening – Firefox), else, without integrations, the same
+  program name and is placed from the active layout. Waiting windows that do
   not appear within 60 s leave the state. Several windows of one program are
   matched in start order until M5.10 decides better.
 

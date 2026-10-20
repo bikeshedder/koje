@@ -163,20 +163,19 @@ pub fn program(command: &str) -> String {
     c.split_whitespace().next().unwrap_or_default().to_owned()
 }
 
-/// Whether the restored window `p` waits for a window with `app_id`: by app id;
-/// for states written before app ids were stored, by integration or by the
-/// program's name.
+/// Whether the restored window `p` may take a window with `app_id` that has
+/// no exact match: one of the same integration; without an integration, by
+/// the program's name (also for states written before app ids were stored).
 fn waits_for(p: &WindowSpec, app_id: &str, integration: Option<&str>) -> bool {
-    match &p.app_id {
-        Some(a) => a == app_id,
-        None => match (&p.integration, integration) {
-            (Some(want), Some(got)) => want == got,
-            (Some(_), None) | (None, Some(_)) => false,
-            (None, None) => p
-                .command
-                .as_deref()
-                .is_some_and(|c| base_id(None, basename(&program(c))) == base_id(None, app_id)),
-        },
+    match (&p.integration, integration) {
+        (Some(want), Some(got)) => want == got,
+        (Some(_), None) | (None, Some(_)) => false,
+        (None, None) => {
+            p.app_id.is_none()
+                && p.command
+                    .as_deref()
+                    .is_some_and(|c| base_id(None, basename(&program(c))) == base_id(None, app_id))
+        }
     }
 }
 
@@ -264,11 +263,18 @@ impl Live {
             });
         }
         let integration = integration::find(integrations, app_id).map(|i| i.name.as_str());
-        if let Some(i) = self
+        // The same app id first; then the same integration: programs may
+        // change their app id after the window opens (Firefox: host test).
+        let waiting = self
             .pending
             .iter()
-            .position(|p| waits_for(p, app_id, integration))
-        {
+            .position(|p| p.app_id.as_deref() == Some(app_id))
+            .or_else(|| {
+                self.pending
+                    .iter()
+                    .position(|p| waits_for(p, app_id, integration))
+            });
+        if let Some(i) = waiting {
             let spec = self.pending.remove(i);
             self.windows.insert(
                 address.to_owned(),
@@ -532,6 +538,48 @@ mod tests {
         assert!(state.windows.iter().any(|w| w.id == id("viewer")));
         assert_eq!(live.expire_pending(), [id("viewer")]);
         assert!(!live.state.layout[&main].windows.contains_key(&id("viewer")));
+    }
+
+    /// Host test of M5.3: Firefox's window opened as `org.mozilla.firefox`,
+    /// the state had `firefox`; the window got `browser-2` and no place.
+    #[test]
+    fn an_app_id_change_still_matches_by_integration() {
+        let all = integration::built_in();
+        let main = LayoutName::initial();
+        let mut saved = State::new(main.clone());
+        saved.windows = vec![WindowSpec {
+            id: id("browser"),
+            integration: Some("browser".into()),
+            command: Some("/usr/lib64/firefox/firefox".into()),
+            app_id: Some("firefox".into()),
+            where_: Where::Context,
+            remembered: BTreeMap::new(),
+        }];
+        saved.layout[&main].windows.insert(id("browser"), at(1756));
+        let mut live = Live::restoring(saved);
+        let added = live.add("0x1", "org.mozilla.firefox", &all, at(0)).unwrap();
+        assert_eq!(
+            added,
+            Added {
+                id: id("browser"),
+                place: Some(at(1756))
+            }
+        );
+        // Not across integrations: a terminal does not take a waiting viewer.
+        let mut saved = State::new(main);
+        saved.windows = vec![WindowSpec {
+            id: id("viewer"),
+            integration: None,
+            command: Some("evince".into()),
+            app_id: Some("org.gnome.Evince".into()),
+            where_: Where::Context,
+            remembered: BTreeMap::new(),
+        }];
+        let mut live = Live::restoring(saved);
+        assert_eq!(
+            live.add("0x2", "foot", &all, at(0)).unwrap().id,
+            id("terminal")
+        );
     }
 
     #[test]
