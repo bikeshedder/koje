@@ -12,7 +12,7 @@ use koje_core::color::Color;
 use koje_core::integration::Integration;
 use koje_core::live_layouts::{self, LayoutInfo, Shown};
 use koje_core::name::ContextName;
-use koje_core::name::{LayoutName, WindowId};
+use koje_core::name::{LayoutName, StateName, WindowId};
 use koje_core::paths::Paths;
 use koje_core::ports::WindowInfo;
 use koje_core::ports::{
@@ -281,7 +281,12 @@ where
 
     /// Start the windows of `state` in the freshly started `ctx` (`koje up`,
     /// M5.3). Windows appearing for them take their ids and places.
-    pub async fn restore(&mut self, ctx: &ContextName, state: State) -> Result<restore::Plan> {
+    pub async fn restore(
+        &mut self,
+        ctx: &ContextName,
+        state: State,
+        name: Option<StateName>,
+    ) -> Result<restore::Plan> {
         self.require(ctx)?;
         if self.live.get(ctx).is_some_and(|l| !l.windows.is_empty()) {
             anyhow::bail!(
@@ -289,7 +294,9 @@ where
             );
         }
         self.lost.remove(ctx);
-        let live = Live::restoring(state);
+        let mut live = Live::restoring(state);
+        live.current.clone_from(&name);
+        self.remember_current(ctx, name.as_ref());
         let plan = restore::plan(&live.pending, &self.integrations, &self.home);
         self.live.insert(ctx.clone(), live);
         self.launch_all(ctx, &plan).await;
@@ -328,9 +335,11 @@ where
         &mut self,
         ctx: &ContextName,
         target: State,
+        name: Option<StateName>,
     ) -> Result<(usize, usize, usize)> {
         self.require(ctx)?;
         self.lost.remove(ctx);
+        self.remember_current(ctx, name.as_ref());
         let present = self
             .compositor
             .windows()
@@ -348,7 +357,9 @@ where
                 placement: w.placement.clone(),
             })
             .collect();
-        let change = self.live_mut(ctx)?.switch_state(ctx, target, &shown);
+        let live = self.live_mut(ctx)?;
+        live.current = name;
+        let change = live.switch_state(ctx, target, &shown);
         // SIGTERM only for programs whose every window goes; a program keeping
         // a window has the others closed one by one.
         let closing: Vec<(String, String, u32)> = mine
@@ -455,8 +466,9 @@ where
                 Ok(Some(r)) => {
                     tracing::info!(context = %ctx, "live state from the recovery file");
                     self.lost.insert(ctx.clone(), r.loaded.state.clone());
-                    self.live
-                        .insert(ctx.clone(), Live::restoring(r.loaded.state));
+                    let mut live = Live::restoring(r.loaded.state);
+                    live.current = koje_core::recovery::read_current(&self.paths, &ctx);
+                    self.live.insert(ctx.clone(), live);
                     recovered.push(ctx);
                 }
                 Ok(None) => {}
@@ -552,6 +564,18 @@ where
             }
         }
         open
+    }
+
+    fn remember_current(&self, ctx: &ContextName, name: Option<&StateName>) {
+        if let Err(e) = koje_core::recovery::write_current(&self.paths, ctx, name) {
+            tracing::warn!(context = %ctx, "current state: {e}");
+        }
+    }
+
+    /// The state the running `ctx` is in (ADR 0032); `None` for `empty` or
+    /// unknown.
+    pub fn current_state(&self, ctx: &ContextName) -> Option<&StateName> {
+        self.live.get(ctx).and_then(|l| l.current.as_ref())
     }
 
     /// Whether the windows of the running `ctx` were lost (see `lost`).
@@ -1378,7 +1402,7 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
         )
         .unwrap()
         .state;
-        let plan = d.restore(&ctx("work"), saved).await.unwrap();
+        let plan = d.restore(&ctx("work"), saved, None).await.unwrap();
         assert_eq!(
             plan.launches.len(),
             2,
@@ -1424,7 +1448,8 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
         assert!(
             d.restore(
                 &ctx("work"),
-                State::new(koje_core::name::LayoutName::initial())
+                State::new(koje_core::name::LayoutName::initial()),
+                None
             )
             .await
             .is_err(),
@@ -1685,7 +1710,7 @@ term = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
         )
         .unwrap()
         .state;
-        d.restore(&ctx("work"), saved).await.unwrap();
+        d.restore(&ctx("work"), saved, None).await.unwrap();
         comp.take();
         comp.open("0xt", 10);
         d.handle(CompositorEvent::WindowOpened {
@@ -1801,7 +1826,7 @@ browser = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
         )
         .unwrap()
         .state;
-        let (kept, closed, started) = d.switch_state(&ctx("work"), target).await.unwrap();
+        let (kept, closed, started) = d.switch_state(&ctx("work"), target, None).await.unwrap();
         assert_eq!((kept, closed, started), (1, 2, 1));
         let commands = comp.take();
         for a in ["0xa", "0xg"] {
@@ -1833,6 +1858,7 @@ browser = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
         d.switch_state(
             &ctx("work"),
             State::new(koje_core::name::LayoutName::initial()),
+            None,
         )
         .await
         .unwrap();
@@ -1868,8 +1894,41 @@ browser = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
             std::fs::read_to_string(&file).unwrap().contains("term"),
             "kept for koje up"
         );
-        d.restore(&ctx("work"), saved).await.unwrap();
+        d.restore(&ctx("work"), saved, None).await.unwrap();
         assert!(!d.is_lost(&ctx("work")));
+    }
+
+    /// Host test of M5.9: switching from `empty` to `default` saved the
+    /// empty state into `default` (ADR 0032: save into the current state).
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_current_state_is_remembered() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let work = ctx("work");
+        let talk = StateName::new("talk").unwrap();
+        let empty_state = || State::new(koje_core::name::LayoutName::initial());
+        d.restore(&work, empty_state(), Some(talk.clone()))
+            .await
+            .unwrap();
+        assert_eq!(d.current_state(&work), Some(&talk));
+        assert_eq!(
+            koje_core::recovery::read_current(&s.paths, &work),
+            Some(talk.clone())
+        );
+        d.switch_state(&work, empty_state(), None).await.unwrap();
+        assert_eq!(d.current_state(&work), None, "empty");
+        assert_eq!(koje_core::recovery::read_current(&s.paths, &work), None);
+
+        // A restarted kojed reads it back with the recovery file.
+        d.switch_state(&work, empty_state(), Some(talk.clone()))
+            .await
+            .unwrap();
+        koje_core::recovery::write(&s.paths, &work, &empty_state()).unwrap();
+        let mut again = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        again.handle(CompositorEvent::Connected).await.unwrap();
+        assert_eq!(again.current_state(&work), Some(&talk));
     }
 
     #[tokio::test(flavor = "current_thread")]

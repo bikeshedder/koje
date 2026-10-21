@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use koje_core::api::OBJECT_PATH;
-use koje_core::name::{ContextName, LayoutName, WindowId};
+use koje_core::name::{ContextName, LayoutName, StateName, WindowId};
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
 use tokio::sync::Mutex;
@@ -25,6 +25,15 @@ pub struct Api {
     pub sockets: Sockets,
     /// The host's `XDG_RUNTIME_DIR`.
     pub runtime: std::path::PathBuf,
+}
+
+/// `""` or `empty` → `None`.
+fn state_name_arg(name: &str) -> fdo::Result<Option<StateName>> {
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let n = StateName::new(name).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?;
+    Ok((!n.is_empty_state()).then_some(n))
 }
 
 fn layout_arg(name: &str) -> fdo::Result<LayoutName> {
@@ -136,8 +145,9 @@ impl Api {
     /// Start the windows of a state (TOML, as a state file) in a context that
     /// was just started (`koje up`, M5.3); the number of programs started.
     /// Windows that do not appear within a minute leave the live state.
-    async fn restore(&self, context: &str, state: &str) -> fdo::Result<u32> {
+    async fn restore(&self, context: &str, state: &str, name: &str) -> fdo::Result<u32> {
         let ctx = context_arg(context)?;
+        let name = state_name_arg(name)?;
         let state = koje_core::state::State::parse(state, std::path::Path::new("state from koje"))
             .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?
             .state;
@@ -145,7 +155,7 @@ impl Api {
             .daemon
             .lock()
             .await
-            .restore(&ctx, state)
+            .restore(&ctx, state, name)
             .await
             .map_err(|e| failed(&e))?;
         let daemon = Arc::clone(&self.daemon);
@@ -352,6 +362,19 @@ impl Api {
         d.toggle_stash(&ctx).await.map_err(|e| failed(&e))
     }
 
+    /// The state a running context is in (ADR 0032); `""` for `empty` or
+    /// unknown. `koje save`/`down` without `-s` write it.
+    async fn current_state(&self, context: &str) -> fdo::Result<String> {
+        let ctx = context_arg(context)?;
+        Ok(self
+            .daemon
+            .lock()
+            .await
+            .current_state(&ctx)
+            .map(ToString::to_string)
+            .unwrap_or_default())
+    }
+
     /// Whether a running context lost its windows (Hyprland or the session
     /// crashed, the container survived): `koje up` then offers its recovery
     /// file (ADR 0006).
@@ -363,8 +386,14 @@ impl Api {
     /// Switch a running context to another state (TOML, as a state file;
     /// M5.9). Returns `(windows kept, windows closed, programs started)`.
     /// New windows that do not appear within a minute leave the live state.
-    async fn switch_state(&self, context: &str, state: &str) -> fdo::Result<(u32, u32, u32)> {
+    async fn switch_state(
+        &self,
+        context: &str,
+        state: &str,
+        name: &str,
+    ) -> fdo::Result<(u32, u32, u32)> {
         let ctx = context_arg(context)?;
+        let name = state_name_arg(name)?;
         let state = koje_core::state::State::parse(state, std::path::Path::new("state from koje"))
             .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?
             .state;
@@ -372,7 +401,7 @@ impl Api {
             .daemon
             .lock()
             .await
-            .switch_state(&ctx, state)
+            .switch_state(&ctx, state, name)
             .await
             .map_err(|e| failed(&e))?;
         let daemon = Arc::clone(&self.daemon);

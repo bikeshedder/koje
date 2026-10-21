@@ -141,6 +141,12 @@ impl Paths {
     pub fn recovery_file(&self, ctx: &ContextName) -> PathBuf {
         self.context_state_dir(ctx).join("recovery.toml")
     }
+
+    /// The name of the state a running context is in (ADR 0032), beside the
+    /// recovery file; kojed writes it.
+    pub fn current_state_file(&self, ctx: &ContextName) -> PathBuf {
+        self.context_state_dir(ctx).join("current-state")
+    }
 }
 
 #[cfg(test)]

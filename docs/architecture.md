@@ -150,12 +150,14 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje bar [--names]` | Waybar module: running contexts in their colors, the active one marked (`--names`: list them once) |
 | `koje doctor` | check packages, Hyprland, installed files, kojed, security contexts, image, sub-ids, NVIDIA |
 
-**States:** `default` (read by `up`, written by `down` without `-s`), `fresh`
+**States:** `default` (read by a plain `up`), `fresh`
 (curated start), `empty` (reserved, virtual, read-only), any other name. Missing
 state → `fresh` → `empty` (only when a state was never created). Role names are
-renamable in `context.toml`. Switching states in a running context keeps windows
-present in both, closes the rest, starts the missing ones; saves to `default`
-first unless `--no-save`.
+renamable in `context.toml`. `save` and `down` without `-s` write the state the
+context is in (loaded from or switched to; `default` if none, ADR 0032).
+Switching states in a running context keeps windows present in both, closes
+the rest, starts the missing ones; it saves into the current state first unless
+`--no-save` (nothing from `empty`).
 
 **Crash recovery:** kojed writes the current state after every change (debounced,
 atomic rename) to the recovery file. A clean `down` deletes it. If `up` finds one,

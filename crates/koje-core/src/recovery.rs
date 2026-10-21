@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 use crate::error::{Error, Result};
 use crate::fsutil;
-use crate::name::ContextName;
+use crate::name::{ContextName, StateName};
 use crate::paths::Paths;
 use crate::state::{Loaded, State};
 
@@ -49,10 +49,29 @@ pub fn present(paths: &Paths, ctx: &ContextName) -> Option<SystemTime> {
         .ok()
 }
 
-/// Delete the recovery file (clean `down`, or discarded on `up`).
-/// Returns whether there was one.
+/// Delete the recovery file (clean `down`, or discarded on `up`) and the
+/// current state's name. Returns whether there was a recovery file.
 pub fn delete(paths: &Paths, ctx: &ContextName) -> Result<bool> {
+    fsutil::remove_if_exists(&paths.current_state_file(ctx))?;
     fsutil::remove_if_exists(&paths.recovery_file(ctx))
+}
+
+/// Remember the state a running context is in (`None`: `empty`/unknown).
+pub fn write_current(paths: &Paths, ctx: &ContextName, current: Option<&StateName>) -> Result<()> {
+    match current {
+        Some(name) => {
+            fsutil::write_atomic(&paths.current_state_file(ctx), name.as_str().as_bytes())
+        }
+        None => fsutil::remove_if_exists(&paths.current_state_file(ctx)).map(drop),
+    }
+}
+
+/// The state a running context was in, as kojed remembered it.
+pub fn read_current(paths: &Paths, ctx: &ContextName) -> Option<StateName> {
+    std::fs::read_to_string(paths.current_state_file(ctx))
+        .ok()
+        .and_then(|s| StateName::new(s.trim()).ok())
+        .filter(|s| !s.is_empty_state())
 }
 
 /// `12 minutes ago`, for the question at `up`.

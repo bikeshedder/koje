@@ -41,7 +41,7 @@ pub enum Command {
         #[arg(short, long)]
         state: Option<String>,
         /// When switching a running context: do not save the current windows
-        /// into the `default` role first.
+        /// into the state it is in first.
         #[arg(long)]
         no_save: bool,
         /// After a crash, restore the recovery file without asking.
@@ -55,7 +55,8 @@ pub enum Command {
     Down {
         #[command(flatten)]
         ctx: Ctx,
-        /// State to write (default: the `default` role). Writes only this state.
+        /// State to write (default: the state the context is in, else `default`).
+        /// Writes only this state.
         #[arg(short, long, conflicts_with = "no_save")]
         state: Option<String>,
         /// Do not save anything; all states stay unchanged.
@@ -66,6 +67,7 @@ pub enum Command {
     Save {
         #[command(flatten)]
         ctx: Ctx,
+        /// State to write (default: the state the context is in, else `default`).
         #[arg(short, long)]
         state: Option<String>,
     },

@@ -1,6 +1,6 @@
 # 0005. Named states and save/load semantics
 
-- Status: Accepted
+- Status: Accepted; save targets superseded by ADR 0032
 - Date: 2026-10-16
 - Source: concept document (`docs/concept/koje-konzept.pdf`)
 

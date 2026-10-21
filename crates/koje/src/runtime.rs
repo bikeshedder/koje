@@ -93,7 +93,7 @@ pub fn up(
             println!("started {name}");
         }
         UpPlan::AlreadyRunning if live_known && state.is_some() => {
-            switch_state(paths, &name, &cfg, &requested, to_load.take(), no_save)?;
+            switch_state(paths, &name, &requested, to_load.take(), no_save)?;
         }
         UpPlan::AlreadyRunning if lost => println!("{name} is running, but its windows were lost"),
         UpPlan::AlreadyRunning => println!("{name} is already running"),
@@ -106,11 +106,19 @@ pub fn up(
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
     if (!running || lost)
-        && let Some((label, state)) = to_load
+        && let Some(Load {
+            label,
+            name: state_name,
+            state,
+        }) = to_load
         && !state.windows.is_empty()
     {
         let text = state.to_toml(Path::new("state"))?;
-        let started: u32 = crate::kojed::call("Restore", &(name.as_str(), text.as_str()))
+        let current = state_name
+            .as_ref()
+            .map(StateName::as_str)
+            .unwrap_or_default();
+        let started: u32 = crate::kojed::call("Restore", &(name.as_str(), text.as_str(), current))
             .with_context(|| format!("restoring {label} of {name}"))?;
         println!(
             "restoring {label}: {} window(s), {started} program(s) started",
@@ -127,40 +135,75 @@ pub fn up(
     Ok(())
 }
 
-/// The state `up` loads: requested → `fresh` → `empty` (ADR 0005); `None` for
-/// `empty`. Says so when it falls back and what was repaired.
+/// A state to load: what `up` says about it, its name (`None` for `empty`;
+/// for the recovery file the state it was in), the state.
+struct Load {
+    label: String,
+    name: Option<StateName>,
+    state: koje_core::state::State,
+}
+
+/// The state a running context is in, from kojed (ADR 0032); `None` for
+/// `empty`, unknown, or without kojed.
+fn current_state(name: &ContextName) -> Option<StateName> {
+    crate::kojed::call::<_, String>("CurrentState", &(name.as_str(),))
+        .ok()
+        .and_then(|s| StateName::new(s).ok())
+}
+
+/// Where `save`/`down` write without `-s`: the state the context is in, else
+/// the `default` role (ADR 0032).
+fn save_target(name: &ContextName, cfg: &ContextConfig, given: Option<&str>) -> Result<StateName> {
+    let t = match given {
+        Some(s) => StateName::new(s)?,
+        None => current_state(name).unwrap_or_else(|| cfg.states.default.clone()),
+    };
+    koje_core::state::ensure_writable(&t)?;
+    Ok(t)
+}
+
 /// `koje up -s <state>` on a running context (M5.9): save the current windows
-/// into `default` (unless `--no-save`), then kojed keeps, closes and starts.
+/// into the state the context is in (unless `--no-save`; nothing to save
+/// from `empty`, ADR 0032), then kojed keeps, closes and starts.
 fn switch_state(
     paths: &Paths,
     name: &ContextName,
-    cfg: &ContextConfig,
     requested: &StateName,
-    target: Option<(String, koje_core::state::State)>,
+    target: Option<Load>,
     no_save: bool,
 ) -> Result<()> {
-    let default = &cfg.states.default;
+    let current = current_state(name);
     if !no_save {
-        let live = live_state(name)?;
-        koje_core::states::write(paths, name, default, &live)?;
-        println!(
-            "saved {} window(s) of {name} into state {default}",
-            live.windows.len()
-        );
+        match &current {
+            Some(c) => {
+                let live = live_state(name)?;
+                koje_core::states::write(paths, name, c, &live)?;
+                println!(
+                    "saved {} window(s) of {name} into state {c}",
+                    live.windows.len()
+                );
+                if c == requested {
+                    println!("{name} is in state {c} already");
+                    return Ok(());
+                }
+            }
+            None => println!("note: {name} is in no stored state (empty) – nothing saved"),
+        }
     }
-    if requested == default && !no_save {
-        println!("{name} is in state {default} already");
-        return Ok(());
-    }
-    let (label, target) = target.unwrap_or_else(|| {
-        (
-            "state empty".to_owned(),
-            koje_core::state::State::new(koje_core::name::LayoutName::initial()),
-        )
+    let target = target.unwrap_or_else(|| Load {
+        label: "state empty".to_owned(),
+        name: None,
+        state: koje_core::state::State::new(koje_core::name::LayoutName::initial()),
     });
-    let text = target.to_toml(Path::new("state"))?;
+    let label = target.label;
+    let text = target.state.to_toml(Path::new("state"))?;
+    let target_name = target
+        .name
+        .as_ref()
+        .map(StateName::as_str)
+        .unwrap_or_default();
     let (kept, closed, started): (u32, u32, u32) =
-        crate::kojed::call("SwitchState", &(name.as_str(), text.as_str()))
+        crate::kojed::call("SwitchState", &(name.as_str(), text.as_str(), target_name))
             .with_context(|| format!("switching {name} to {label}"))?;
     println!(
         "{name}: switched to {label} – {kept} window(s) kept, {closed} closed, {started} program(s) started"
@@ -183,7 +226,7 @@ fn load_or_recover(
     requested: &StateName,
     recover: bool,
     no_recover: bool,
-) -> Result<Option<(String, koje_core::state::State)>> {
+) -> Result<Option<Load>> {
     use koje_core::recovery::{self, Action};
     let found = recovery::read(paths, name)?;
     let take = match recovery::decide(found.is_some(), recover, no_recover) {
@@ -221,17 +264,23 @@ fn load_or_recover(
         for issue in &r.loaded.repaired {
             println!("note: recovery file: repaired: {issue}");
         }
-        return Ok(Some(("the recovery file".to_owned(), r.loaded.state)));
+        return Ok(Some(Load {
+            label: "the recovery file".to_owned(),
+            name: koje_core::recovery::read_current(paths, name),
+            state: r.loaded.state,
+        }));
     }
     state_to_load(paths, name, cfg, requested)
 }
 
+/// The state `up` loads: requested → `fresh` → `empty` (ADR 0005); `None` for
+/// `empty`. Says so when it falls back and what was repaired.
 fn state_to_load(
     paths: &Paths,
     name: &ContextName,
     cfg: &ContextConfig,
     requested: &StateName,
-) -> Result<Option<(String, koje_core::state::State)>> {
+) -> Result<Option<Load>> {
     use koje_core::state::{Resolved, resolve_load};
     match resolve_load(requested, &cfg.states, |s| {
         koje_core::states::exists(paths, name, s)
@@ -255,7 +304,11 @@ fn state_to_load(
             for issue in &loaded.repaired {
                 println!("note: state {state_name}: repaired: {issue}");
             }
-            Ok(Some((format!("state {state_name}"), loaded.state)))
+            Ok(Some(Load {
+                label: format!("state {state_name}"),
+                name: Some(state_name),
+                state: loaded.state,
+            }))
         }
     }
 }
@@ -271,15 +324,11 @@ fn live_state(name: &ContextName) -> Result<koje_core::state::State> {
 }
 
 /// `koje save <context> [-s <state>]`: write the running windows and layouts
-/// into a state (default: the `default` role).
+/// into a state (default: the state it is in, else `default`; ADR 0032).
 pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
-    let target = match state {
-        Some(s) => StateName::new(s)?,
-        None => cfg.states.default.clone(),
-    };
-    koje_core::state::ensure_writable(&target)?;
+    let target = save_target(&name, &cfg, state)?;
     let podman = Podman::new();
     if !matches!(podman.status(&name)?, ContainerStatus::Running) {
         bail!("{name} is not running – nothing to save (start it with: koje up {name})");
@@ -300,12 +349,7 @@ pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) ->
     let target = if no_save {
         None
     } else {
-        let t = match state {
-            Some(s) => StateName::new(s)?,
-            None => cfg.states.default.clone(),
-        };
-        koje_core::state::ensure_writable(&t)?;
-        Some(t)
+        Some(save_target(&name, &cfg, state)?)
     };
     let podman = Podman::new();
     let plan = plan_down(podman.status(&name)?);

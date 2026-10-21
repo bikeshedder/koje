@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::integration::{self, Detect, Integration};
 use crate::layout::Placement;
-use crate::name::{LayoutName, WindowId};
+use crate::name::{LayoutName, StateName, WindowId};
 use crate::state::{State, Where, WindowSpec};
 
 /// A process as kojed sees it in `/proc` (paths as inside the context).
@@ -307,6 +307,9 @@ pub struct Live {
     pub windows: BTreeMap<String, LiveWindow>,
     /// Windows of a restored state that have not appeared yet, in start order.
     pub pending: Vec<WindowSpec>,
+    /// The state the context was loaded from or last switched to; `None` for
+    /// `empty` or unknown. Saving without `-s` writes it (ADR 0032).
+    pub current: Option<StateName>,
 }
 
 /// A window that joined the live state.
@@ -325,6 +328,7 @@ impl Live {
             state: State::new(LayoutName::initial()),
             windows: BTreeMap::new(),
             pending: Vec::new(),
+            current: None,
         }
     }
 
@@ -337,6 +341,7 @@ impl Live {
             state,
             windows: BTreeMap::new(),
             pending,
+            current: None,
         }
     }
 

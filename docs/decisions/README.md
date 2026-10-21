@@ -9,7 +9,7 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0002 | [Drive Podman directly, no Distrobox](0002-podman-directly.md) | Accepted |
 | 0003 | [Each context runs its own nested Podman](0003-podman-in-podman.md) | Accepted |
 | 0004 | [Layouts are part of a state](0004-layouts-in-states.md) | Accepted |
-| 0005 | [Named states and save/load semantics](0005-named-states-and-cli.md) | Accepted |
+| 0005 | [Named states and save/load semantics](0005-named-states-and-cli.md) | Accepted (save targets: 0032) |
 | 0006 | [Crash recovery via a separate recovery file](0006-crash-recovery-file.md) | Accepted |
 | 0007 | [Terminology: context, no project object](0007-terminology-context.md) | Accepted |
 | 0008 | [Crate structure: pure core with ports](0008-crate-structure.md) | Accepted |
@@ -36,3 +36,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0029 | [Sound sockets as links in a mounted directory](0029-sound-socket-links.md) | Accepted |
 | 0030 | [kojed holds the live state of running contexts](0030-live-state-in-kojed.md) | Accepted |
 | 0031 | [Integrations are declarative](0031-declarative-integrations.md) | Accepted |
+| 0032 | [Saving goes into the state a context is in](0032-save-into-the-current-state.md) | Accepted |
