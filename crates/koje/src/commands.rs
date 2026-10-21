@@ -113,7 +113,7 @@ fn focus(paths: &Paths, ctx: &Ctx) -> Result<()> {
 /// with a valid result.
 fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
     let name = context_name(ctx)?;
-    context::load(paths, &name)?;
+    let before = context::load(paths, &name)?;
     let original_path = paths.context_config(&name);
     let original = std::fs::read_to_string(&original_path)
         .with_context(|| format!("reading {}", original_path.display()))?;
@@ -124,7 +124,30 @@ fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
     std::fs::write(&draft, &original).with_context(|| format!("writing {}", draft.display()))?;
     let result = edit_loop(paths, &name, &draft, &original);
     let _ = std::fs::remove_file(&draft);
-    result
+    result?;
+    apply_to_running(paths, &name, &before);
+    Ok(())
+}
+
+/// A running context follows the edited config where it can (ADR 0033): mounts
+/// live.
+fn apply_to_running(paths: &Paths, name: &ContextName, before: &koje_core::config::ContextConfig) {
+    use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
+    let podman = koje_podman::Podman::new();
+    if !matches!(podman.status(name), Ok(ContainerStatus::Running)) {
+        return;
+    }
+    let Ok(after) = context::load(paths, name) else {
+        return;
+    };
+    let previous = paths
+        .host_dirs()
+        .ok()
+        .and_then(|d| koje_podman::host::resolve_mounts(before, &d).ok())
+        .unwrap_or_default();
+    if let Err(e) = crate::mounts::sync(paths, name, &after, Some(&previous)) {
+        println!("note: mounts of {name} not changed: {e:#}");
+    }
 }
 
 fn edit_loop(paths: &Paths, name: &ContextName, draft: &Path, original: &str) -> Result<()> {

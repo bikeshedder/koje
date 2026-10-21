@@ -51,6 +51,8 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
         host_bus_dir: None,
         // Found by the CLI (`hostbus::forwarder_binary`), only when needed.
         forwarder: None,
+        // Prepared by the CLI before the container starts (ADR 0033).
+        live_mounts_dir: None,
     }
 }
 

@@ -15,6 +15,7 @@ fn command(xdg: &Path, args: &[&str]) -> Command {
         .env("XDG_CONFIG_HOME", xdg.join("config"))
         .env("XDG_DATA_HOME", xdg.join("data"))
         .env("XDG_STATE_HOME", xdg.join("state"))
+        .env("XDG_RUNTIME_DIR", xdg.join("run"))
         .env(
             "DBUS_SESSION_BUS_ADDRESS",
             format!("unix:path={}", xdg.join("no-bus").display()),
@@ -975,4 +976,24 @@ fn up_after_a_crash_keeps_or_takes_the_recovery_file() {
     let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "--no-recover"]));
     assert!(out.contains("discarded the recovery file"), "{out}");
     assert!(!recovery.exists());
+}
+
+#[test]
+fn up_prepares_live_mounts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    let log = podman_log(tmp.path());
+    let dir = tmp.path().join("run/koje/kp/mounts");
+    assert!(
+        log.contains("unshare sh -c"),
+        "the live dir is shared first: {log}"
+    );
+    assert!(
+        log.contains(&format!("--volume {}:", dir.display())),
+        "{log}"
+    );
+    assert!(log.contains("/koje-mounts:rslave"), "{log}");
+    assert!(log.contains("--label io.koje.mounts=[]"), "{log}");
 }

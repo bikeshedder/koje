@@ -16,6 +16,7 @@ use koje_core::spec::{ContainerSpec, MountKind};
 
 pub mod host;
 pub mod image;
+pub mod live;
 
 /// Errors of the Podman adapter.
 #[derive(Debug, thiserror::Error)]
@@ -249,6 +250,9 @@ pub fn create_args(spec: &ContainerSpec) -> Vec<String> {
                 "--mount",
                 format!("type=tmpfs,destination={target},tmpfs-mode={mode:04o},U=true"),
             ),
+            MountKind::Shared { source } => {
+                ("--volume", format!("{}:{target}:rslave", source.display()))
+            }
             MountKind::Bind { source, read_only } => (
                 "--volume",
                 format!(
@@ -418,7 +422,7 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::cell::RefCell;
     use std::collections::VecDeque;
 
@@ -426,13 +430,13 @@ mod tests {
 
     /// Records every call and answers from a queue.
     #[derive(Default)]
-    struct Fake {
-        calls: RefCell<Vec<String>>,
+    pub(crate) struct Fake {
+        pub(crate) calls: RefCell<Vec<String>>,
         answers: RefCell<VecDeque<RunOutput>>,
     }
 
     impl Fake {
-        fn answer(self, success: bool, stdout: &str, stderr: &str) -> Self {
+        pub(crate) fn answer(self, success: bool, stdout: &str, stderr: &str) -> Self {
             self.answers.borrow_mut().push_back(RunOutput {
                 success,
                 stdout: stdout.into(),

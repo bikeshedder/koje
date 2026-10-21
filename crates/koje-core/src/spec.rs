@@ -65,6 +65,9 @@ pub struct HostEnv {
     pub host_bus_dir: Option<PathBuf>,
     /// The static `koje-forward` binary on the host (ADR 0025).
     pub forwarder: Option<PathBuf>,
+    /// The context's live mounts directory, shared in Podman's namespace
+    /// (ADR 0033); prepared by the CLI before the container starts.
+    pub live_mounts_dir: Option<PathBuf>,
 }
 
 /// The host's NVIDIA setup (ADR 0016).
@@ -90,6 +93,9 @@ pub enum NvidiaCdi {
 pub enum MountKind {
     /// A host file or directory.
     Bind { source: PathBuf, read_only: bool },
+    /// A host directory whose later submounts reach the container (`rslave`,
+    /// the live mounts directory, ADR 0033).
+    Shared { source: PathBuf },
     /// A named volume, owned by the user (`:U`).
     Volume { name: String },
     /// A private tmpfs owned by the user.
@@ -360,6 +366,14 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
     for folder in ctx.mounts {
         p.mounts.push(bind(folder, folder, false));
     }
+    if let Some(dir) = &host.live_mounts_dir {
+        p.mounts.push(SpecMount {
+            target: run.join(crate::live_mounts::DIR_IN_CONTEXT),
+            kind: MountKind::Shared {
+                source: dir.clone(),
+            },
+        });
+    }
 
     let memory_max = ctx
         .limits
@@ -371,7 +385,14 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
             name: container_name(ctx.name),
             hostname: ctx.name.to_string(),
             image: ctx.image.to_owned(),
-            labels: BTreeMap::from([(LABEL_CONTEXT.to_owned(), ctx.name.to_string())]),
+            labels: BTreeMap::from([
+                (LABEL_CONTEXT.to_owned(), ctx.name.to_string()),
+                // The real mounts, so koje knows which ones need live mounts.
+                (
+                    crate::live_mounts::LABEL_MOUNTS.to_owned(),
+                    crate::live_mounts::encode(ctx.mounts),
+                ),
+            ]),
             env: p.env,
             mounts: p.mounts,
             devices: p.devices,
@@ -413,6 +434,7 @@ mod tests {
             }),
             host_bus_dir: Some("/run/user/1000/koje/kp/host-bus".into()),
             forwarder: Some("/home/mj/.local/lib/koje/koje-forward".into()),
+            live_mounts_dir: Some("/run/user/1000/koje/kp/mounts".into()),
         }
     }
 
@@ -454,6 +476,10 @@ mod tests {
         assert_eq!(s.name, "koje-kp");
         assert_eq!(s.labels["io.koje.context"], "kp");
         assert_eq!(
+            crate::live_mounts::decode(&s.labels["io.koje.mounts"]),
+            Some(vec![PathBuf::from("/home/mj/src/kp")])
+        );
+        assert_eq!(
             s.env["WAYLAND_DISPLAY"],
             "/run/user/1000/koje-wayland/wayland-0"
         );
@@ -488,6 +514,7 @@ mod tests {
                 "/run/user/1000/koje-host",
                 "/usr/lib64/gbm/nvidia-drm_gbm.so",
                 "/home/mj/src/kp",
+                "/run/user/1000/koje-mounts",
             ]
         );
         assert_eq!(
@@ -525,7 +552,10 @@ mod tests {
     fn isolated_gets_nothing_from_the_host() {
         let b = built(Profile::Isolated.access(), &Limits::default(), &[], &host());
         let s = &b.spec;
-        assert_eq!(targets(s), ["/home/mj", "/run/user/1000"]);
+        assert_eq!(
+            targets(s),
+            ["/home/mj", "/run/user/1000", "/run/user/1000/koje-mounts"]
+        );
         assert_eq!(s.devices, Vec::<String>::new());
         assert_eq!(s.security_opts, ["label=disable"]);
         assert!(!s.network);

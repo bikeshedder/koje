@@ -37,3 +37,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0030 | [kojed holds the live state of running contexts](0030-live-state-in-kojed.md) | Accepted |
 | 0031 | [Integrations are declarative](0031-declarative-integrations.md) | Accepted |
 | 0032 | [Saving goes into the state a context is in](0032-save-into-the-current-state.md) | Accepted |
+| 0033 | [Mounts follow `context.toml` while a context runs](0033-live-mounts.md) | Accepted |

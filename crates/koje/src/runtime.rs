@@ -55,28 +55,7 @@ pub fn up(
     if plan == UpPlan::Paused {
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
-    let mut host = koje_podman::host::detect().context("detecting the host environment")?;
-    // kojed's security-context socket (ADR 0022); it must exist before the
-    // container starts, since its directory is mounted.
-    if access.wayland {
-        let socket: String = crate::kojed::call("WaylandSocket", &(name.as_str(),))
-            .context("getting the context's Wayland socket from kojed")?;
-        host.wayland_socket = Some(socket.into());
-    }
-    // Sound through kojed's directory of socket links (ADR 0029).
-    if access.sound && (host.pipewire_socket.is_some() || host.pulse_socket.is_some()) {
-        let dir: String = crate::kojed::call("SoundSockets", &(name.as_str(),))
-            .context("getting the context's sound sockets from kojed")?;
-        host.sound_dir = Some(dir.into());
-    }
-    // The proxy first: its directory must exist when the container starts.
-    if koje_core::hostbus::needed(&access) {
-        host.forwarder = crate::hostbus::forwarder_binary();
-        match crate::hostbus::start_proxy(&name, &access) {
-            Ok(dir) => host.host_bus_dir = Some(dir),
-            Err(e) => println!("note: host interfaces unavailable: {e:#}"),
-        }
-    }
+    let host = prepare_host(&podman, &name, &access, plan)?;
     match plan {
         UpPlan::CreateAndStart => {
             ensure_image(&podman, &cfg)?;
@@ -104,6 +83,10 @@ pub fn up(
         && let Err(e) = crate::hostbus::start_forwarder(&podman, &name, &access, host.uid)
     {
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
+    }
+    // Configured mounts the container was not created with: live (ADR 0033).
+    if let Err(e) = crate::mounts::sync(paths, &name, &cfg, None) {
+        println!("note: mounts not brought up to date: {e:#}");
     }
     if (!running || lost)
         && let Some(Load {
@@ -133,6 +116,44 @@ pub fn up(
         tracing::debug!("not focusing {name}: {e:#}");
     }
     Ok(())
+}
+
+/// What the context gets from the host, prepared before its container
+/// starts: the live mounts directory, kojed's Wayland and sound sockets, the
+/// host bus proxy.
+fn prepare_host(
+    podman: &Podman,
+    name: &ContextName,
+    access: &koje_core::access::Access,
+    plan: UpPlan,
+) -> Result<koje_core::spec::HostEnv> {
+    let mut host = koje_podman::host::detect().context("detecting the host environment")?;
+    // The live mounts directory: shared before the container starts (ADR 0033).
+    if plan != UpPlan::AlreadyRunning {
+        host.live_mounts_dir = Some(crate::mounts::prepare(podman, name)?);
+    }
+    // kojed's security-context socket (ADR 0022); it must exist before the
+    // container starts, since its directory is mounted.
+    if access.wayland {
+        let socket: String = crate::kojed::call("WaylandSocket", &(name.as_str(),))
+            .context("getting the context's Wayland socket from kojed")?;
+        host.wayland_socket = Some(socket.into());
+    }
+    // Sound through kojed's directory of socket links (ADR 0029).
+    if access.sound && (host.pipewire_socket.is_some() || host.pulse_socket.is_some()) {
+        let dir: String = crate::kojed::call("SoundSockets", &(name.as_str(),))
+            .context("getting the context's sound sockets from kojed")?;
+        host.sound_dir = Some(dir.into());
+    }
+    // The proxy first: its directory must exist when the container starts.
+    if koje_core::hostbus::needed(access) {
+        host.forwarder = crate::hostbus::forwarder_binary();
+        match crate::hostbus::start_proxy(name, access) {
+            Ok(dir) => host.host_bus_dir = Some(dir),
+            Err(e) => println!("note: host interfaces unavailable: {e:#}"),
+        }
+    }
+    Ok(host)
 }
 
 /// A state to load: what `up` says about it, its name (`None` for `empty`;
