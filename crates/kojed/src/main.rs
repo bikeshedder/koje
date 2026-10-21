@@ -22,6 +22,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use koje_core::api::{BUS_NAME, OBJECT_PATH};
 use koje_core::paths::Paths;
+use koje_core::ports::CompositorEvent;
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
 use tracing_subscriber::EnvFilter;
@@ -71,11 +72,16 @@ async fn main() -> Result<()> {
     tokio::spawn(relink_sound(runtime));
     loop {
         let event = events.next().await;
-        if event == koje_core::ports::CompositorEvent::Connected {
+        if event == CompositorEvent::Connected {
             // A new compositor (or kojed's start): new security contexts.
             sockets.reset();
         }
+        // The bar (`koje bar`) follows contexts, the active one, window counts.
+        let bar_relevant = !matches!(event, CompositorEvent::WindowTitle { .. });
         let changes = daemon.lock().await.handle(event).await;
+        if bar_relevant && let Err(e) = api::contexts_changed(&conn).await {
+            tracing::debug!("emitting ContextsChanged: {e}");
+        }
         match changes {
             Ok(changes) => {
                 for change in &changes {

@@ -37,3 +37,11 @@ the user looks at context B. How several monitors share a context is still open
   the workspace name will then need a monitor part.
 - The `global` context's windows (M7) would be moved to a workspace `global`;
   M7 decides whether that context is exempt.
+- Update (M5.15): an empty context workspace disappears from Hyprland (and
+  its workspace list in Waybar). Keeping it persistent was tried and dropped:
+  Hyprland clears a workspace's persistent flag only on a config reload, so
+  every `koje down` would have reloaded the config. Instead the bar shows
+  *contexts*: `koje bar`, a Waybar module fed by kojed (`RunningContexts`,
+  signal `ContextsChanged`), lists the running contexts in their colors with
+  the active one marked – the context of the focused workspace, also when it
+  has no windows. A click opens a picker that runs `koje focus`.

@@ -186,6 +186,12 @@ pub enum Command {
     },
     /// Check what koje needs on this host and how to fix what is missing.
     Doctor,
+    /// Waybar module: the running contexts, updated as they change (JSON lines).
+    Bar {
+        /// Print the running contexts' names once instead (for pickers).
+        #[arg(long)]
+        names: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]

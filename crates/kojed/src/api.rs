@@ -174,27 +174,59 @@ impl Api {
         }
     }
 
-    /// `koje up` started the context: its workspace stays while empty.
-    async fn started(&self, context: &str) -> fdo::Result<()> {
+    /// `koje up` started the context.
+    async fn started(
+        &self,
+        context: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
         let ctx = context_arg(context)?;
         self.daemon
             .lock()
             .await
             .started(&ctx)
             .await
-            .map_err(|e| failed(&e))
+            .map_err(|e| failed(&e))?;
+        let _ = Self::contexts_changed(&emitter).await;
+        Ok(())
     }
 
     /// `koje down` stopped the context.
-    async fn stopped(&self, context: &str) -> fdo::Result<()> {
+    async fn stopped(
+        &self,
+        context: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
         let ctx = context_arg(context)?;
-        self.daemon
-            .lock()
-            .await
-            .stopped(&ctx)
-            .await
-            .map_err(|e| failed(&e))
+        self.daemon.lock().await.stopped(&ctx).await;
+        let _ = Self::contexts_changed(&emitter).await;
+        Ok(())
     }
+
+    /// Running contexts: `(name, color, windows, active)` – the bar (M5.15).
+    async fn running_contexts(&self) -> Vec<(String, String, u32, bool)> {
+        let mut d = self.daemon.lock().await;
+        let running = d.running().await;
+        let active = d.active_context().cloned();
+        d.contexts()
+            .into_iter()
+            .filter(|c| running.contains(&c.name))
+            .map(|c| {
+                let is_active = active.as_ref() == Some(&c.name);
+                (
+                    c.name.to_string(),
+                    c.color.to_string(),
+                    u32::try_from(c.windows).unwrap_or(u32::MAX),
+                    is_active,
+                )
+            })
+            .collect()
+    }
+
+    /// Something the bar shows changed: running contexts, the active one,
+    /// window counts.
+    #[zbus(signal)]
+    async fn contexts_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
     async fn reload(&self) -> fdo::Result<()> {
@@ -219,6 +251,11 @@ impl Api {
         address: &str,
         context: &str,
     ) -> zbus::Result<()>;
+}
+
+/// Tell the bar that what it shows may have changed.
+pub async fn contexts_changed(conn: &zbus::Connection) -> zbus::Result<()> {
+    Api::contexts_changed(&SignalEmitter::new(conn, OBJECT_PATH)?).await
 }
 
 /// Send a change as a signal.

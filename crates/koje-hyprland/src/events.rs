@@ -43,6 +43,10 @@ pub fn parse_line(line: &str) -> Option<CompositorEvent> {
             }
         }
         "configreloaded" => CompositorEvent::ConfigReloaded,
+        // `workspacev2>>id,name`
+        "workspacev2" => CompositorEvent::WorkspaceFocused {
+            name: data.split_once(',')?.1.to_owned(),
+        },
         _ => return None,
     })
 }
@@ -159,6 +163,12 @@ mod tests {
         assert_eq!(
             parse_line("configreloaded>>"),
             Some(CompositorEvent::ConfigReloaded)
+        );
+        assert_eq!(
+            parse_line("workspacev2>>4,kundenportal"),
+            Some(CompositorEvent::WorkspaceFocused {
+                name: "kundenportal".into()
+            })
         );
     }
 

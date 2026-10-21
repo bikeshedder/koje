@@ -415,6 +415,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "futures-util",
  "koje-core",
  "koje-hyprland",
  "koje-podman",

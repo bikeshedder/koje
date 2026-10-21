@@ -159,6 +159,15 @@ impl Compositor for Hyprland {
         Ok(clients::windows(&clients, &monitors))
     }
 
+    async fn active_workspace(&self) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct Active {
+            name: String,
+        }
+        let a: Active = self.json("j/activeworkspace").await?;
+        Ok(a.name)
+    }
+
     async fn apply(&self, commands: &[CompositorCommand]) -> Result<()> {
         if commands.is_empty() {
             return Ok(());

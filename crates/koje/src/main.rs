@@ -4,6 +4,7 @@
 //! from milestone M3 on, talk to `kojed`). Unimplemented commands fail with a
 //! pointer to the milestone that delivers them (`docs/plan/`).
 
+mod bar;
 mod cli;
 mod commands;
 mod doctor;

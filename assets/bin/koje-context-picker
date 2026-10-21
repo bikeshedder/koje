@@ -1,0 +1,8 @@
+#!/bin/sh
+# koje context picker (click on koje's bar module): the running contexts in
+# fuzzel, Enter switches to one. Installed by koje setup to ~/.local/lib/koje/.
+# Until koje's own panel (M8).
+set -eu
+koje=${KOJE:-$HOME/.local/bin/koje}
+ctx=$("$koje" bar --names | fuzzel --dmenu --prompt 'context  ' --lines 10) || exit 0
+[ -n "$ctx" ] && exec "$koje" focus "$ctx"

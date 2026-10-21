@@ -147,6 +147,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
 | `koje setup [--dry-run] [--yes]` | install koje's files for the user: plan, warnings, one question (ADR 0021) |
+| `koje bar [--names]` | Waybar module: running contexts in their colors, the active one marked (`--names`: list them once) |
 | `koje doctor` | check packages, Hyprland, installed files, kojed, security contexts, image, sub-ids, NVIDIA |
 
 **States:** `default` (read by `up`, written by `down` without `-s`), `fresh`

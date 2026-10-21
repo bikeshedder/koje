@@ -151,6 +151,18 @@ async fn serves_contexts_without_hyprland() {
         .unwrap_err();
     assert!(err.to_string().contains("InvalidArgs"), "{err}");
 
+    // The bar's view: no podman container exists here, so nothing runs
+    // until `koje up` says so.
+    let (): () = call(&conn, "Started", &("work",)).await;
+    let running: Vec<(String, String, u32, bool)> = call(&conn, "RunningContexts", &()).await;
+    assert_eq!(
+        running,
+        [("work".to_owned(), "#FF0000".to_owned(), 0, false)]
+    );
+    let (): () = call(&conn, "Stopped", &("work",)).await;
+    let running: Vec<(String, String, u32, bool)> = call(&conn, "RunningContexts", &()).await;
+    assert_eq!(running, []);
+
     // `koje new` writes the file, then asks kojed to reload.
     create(root, "home", Color::rgb(0, 0, 0xff));
     let (): () = call(&conn, "Reload", &()).await;

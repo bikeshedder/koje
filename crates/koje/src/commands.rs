@@ -19,6 +19,8 @@ pub fn run(command: &Command) -> Result<()> {
         Command::List { json } => list(&paths, *json),
         Command::Setup { dry_run, yes } => crate::setup::run(&paths, *dry_run, *yes),
         Command::Doctor => crate::doctor::run(&paths),
+        Command::Bar { names: false } => crate::bar::run(),
+        Command::Bar { names: true } => crate::bar::names(),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
         Command::Edit(ctx) => edit(&paths, ctx),

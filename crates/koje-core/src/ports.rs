@@ -65,16 +65,6 @@ pub enum CompositorCommand {
     FocusWindow {
         address: String,
     },
-    /// Keep a workspace while empty (a running context's workspace) or let the
-    /// compositor remove it again when empty.
-    KeepWorkspace {
-        workspace: String,
-        keep: bool,
-    },
-    /// Reload the compositor's config files (not its monitors). Hyprland keeps
-    /// a workspace's persistent flag until then (M5.15 host test). Send alone,
-    /// not in a batch.
-    ReloadConfig,
     /// Ask a window to close (the program may ask to save first).
     CloseWindow {
         address: String,
@@ -104,6 +94,10 @@ pub enum CompositorEvent {
         address: String,
         title: String,
     },
+    /// The focused workspace changed (its name).
+    WorkspaceFocused {
+        name: String,
+    },
     /// The compositor reloaded its config: runtime rules are gone (ADR 0018).
     ConfigReloaded,
     /// The event connection is up, first or again after it was lost (the
@@ -116,6 +110,8 @@ pub trait Compositor {
     type Error: std::error::Error + Send + Sync + 'static;
 
     fn windows(&self) -> impl Future<Output = Result<Vec<WindowInfo>, Self::Error>> + Send;
+    /// The name of the focused workspace.
+    fn active_workspace(&self) -> impl Future<Output = Result<String, Self::Error>> + Send;
     /// Apply all commands in one request.
     fn apply(
         &self,

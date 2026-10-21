@@ -15,6 +15,7 @@ const FONT: &[u8] = include_bytes!("../../../assets/fonts/lucide/lucide.ttf");
 const FONT_LICENSE: &[u8] = include_bytes!("../../../assets/fonts/lucide/LICENSE");
 const SNIPPET: &[u8] = include_bytes!("../../../assets/hyprland/koje.conf");
 const PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-window-picker");
+const CONTEXT_PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-context-picker");
 const UNIT: &[u8] = include_bytes!("../../../assets/systemd/kojed.service");
 const WAYBAR: [(&str, &[u8]); 2] = [
     (
@@ -145,6 +146,12 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
             "window picker (Super+Tab)",
             &lib.join("koje-window-picker"),
             PICKER,
+            0o755,
+        ),
+        file(
+            "context picker (bar)",
+            &lib.join("koje-context-picker"),
+            CONTEXT_PICKER,
             0o755,
         ),
     ];

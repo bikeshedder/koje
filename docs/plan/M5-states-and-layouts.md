@@ -23,5 +23,5 @@ Goal: koje remembers and restores the work environment.
 - [-] **M5.13 Nautilus tabs** – moved to M9.2
 - [~] **M5.14 `koje run <context> <program> [args…]`** (wish 2026-10-20): start a program in a running context without `podman exec` and container names; detached, no shell, in the current directory if the context mounts it
   - Done in code (awaiting host test); CLI test with fake podman.
-- [~] **M5.15 A running context's workspace stays while empty** (wish 2026-10-20: it vanished from Waybar): kojed keeps it persistent (`keyword workspace name:<ctx>, persistent:true`) from `koje up` (D-Bus `Started`) to `koje down` (`Stopped`); re-applied after reloads, reconnects and kojed restarts (running contexts asked from Podman); on `koje down` kojed reloads Hyprland's config (`reload config-only`), as a `persistent:false` rule does not clear the flag (host test)
-  - Done in code (awaiting host test); syntax also checked by the live test (M4.8).
+- [~] **M5.15 A running context stays visible in the bar while empty** (wish 2026-10-20: its workspace vanished from Waybar; ADR 0028 update): `koje bar` (Waybar module, part of M8.2 pulled forward) shows the running contexts from kojed (`Started`/`Stopped` from `koje up`/`down`, Podman asked after a kojed restart), the active one = focused workspace's context; click → `koje-context-picker` → `koje focus`
+  - Done in code (awaiting host test). Persistent workspaces were tried and dropped (only a config reload clears Hyprland's flag).
