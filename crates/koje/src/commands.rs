@@ -24,6 +24,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
         Command::Edit(ctx) => edit(&paths, ctx),
+        Command::Recreate { ctx, yes } => crate::runtime::recreate(&paths, &ctx.context, *yes),
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
         Command::State(cmd) => state(&paths, cmd),

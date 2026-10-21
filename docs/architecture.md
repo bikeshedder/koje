@@ -146,6 +146,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje run <context> <program> [args…]` | start a program in the running context, detached (in the current directory if mounted) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
+| `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
 | `koje setup [--dry-run] [--yes]` | install koje's files for the user: plan, warnings, one question (ADR 0021) |
 | `koje bar [--names]` | Waybar module: running contexts in their colors, the active one marked (`--names`: list them once) |

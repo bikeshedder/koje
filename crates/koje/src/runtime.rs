@@ -409,6 +409,47 @@ pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) ->
     Ok(())
 }
 
+/// `koje recreate <context>`: a new container from the current config – for
+/// changes a running container cannot take (ADR 0033, 0034). Saves and closes
+/// like `down`, removes the container (home volume, states and config stay),
+/// and starts it again with the saved state; a stopped context stays stopped.
+pub fn recreate(paths: &Paths, context: &str, yes: bool) -> Result<()> {
+    let name = ContextName::new(context)?;
+    let cfg = context::load(paths, &name)?;
+    let podman = Podman::new();
+    let status = podman.status(&name)?;
+    if status == ContainerStatus::Missing {
+        bail!("{name} has no container yet – koje up {name} creates it");
+    }
+    if !yes
+        && !crate::prompt::confirm(
+            &format!(
+                "Recreate {name}'s container? Everything installed in it outside your home \
+                 is lost; the home, states and config stay."
+            ),
+            false,
+        )?
+    {
+        bail!("{name} unchanged");
+    }
+    let running = matches!(status, ContainerStatus::Running | ContainerStatus::Paused);
+    // Where `down` saves – and what comes back afterwards.
+    let state = save_target(&name, &cfg, None)?;
+    if running {
+        down(paths, context, None, false)?;
+    }
+    podman
+        .remove(&name)
+        .with_context(|| format!("removing {name}'s container"))?;
+    println!("removed {name}'s container (its home is kept)");
+    if running {
+        up(paths, context, Some(state.as_str()), false, false, false)
+    } else {
+        println!("{name}'s container is created again at the next: koje up {name}");
+        Ok(())
+    }
+}
+
 /// How long `down` waits for programs to end.
 const CLOSE_TIMEOUT_SECS: u32 = 10;
 

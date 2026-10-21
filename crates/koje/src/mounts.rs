@@ -26,7 +26,7 @@ pub fn prepare(podman: &Podman, name: &ContextName) -> Result<PathBuf> {
 /// before live mounts, which cannot follow.
 pub fn sync(paths: &Paths, name: &ContextName, cfg: &ContextConfig, edited: bool) -> Result<()> {
     let podman = Podman::new();
-    let recreate = format!("koje down {name} && podman rm koje-{name} && koje up {name}");
+    let recreate = format!("koje recreate {name}");
     let real = if podman.status(name)? == ContainerStatus::Missing {
         // Never started: `koje up` mounts them before the first start.
         if edited {

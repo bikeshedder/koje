@@ -169,6 +169,16 @@ pub enum Command {
     },
     /// Open a context's configuration in $EDITOR.
     Edit(Ctx),
+    /// Make a new container from the current config (saves and restores the
+    /// windows of a running context). Everything installed in the old one
+    /// outside the home is lost.
+    Recreate {
+        #[command(flatten)]
+        ctx: Ctx,
+        /// Do not ask for confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Remove a context including its containers and states.
     Rm {
         #[command(flatten)]

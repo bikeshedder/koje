@@ -1004,3 +1004,26 @@ fn up_prepares_live_mounts() {
     );
     assert!(log.contains("--label io.koje.home-mounts=[]"), "{log}");
 }
+
+#[test]
+fn recreate_asks_and_keeps_the_home() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let out = koje_fake(tmp.path(), &path, &["recreate", "kp", "--yes"]);
+    assert!(!out.status.success(), "no container yet");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp"));
+
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    // Nobody to answer: nothing happens.
+    let out = koje_fake(tmp.path(), &path, &["recreate", "kp"]);
+    assert!(!out.status.success());
+    assert!(!podman_log(tmp.path()).lines().any(|l| l == "rm koje-kp"));
+    // Stopped: the container goes, the home volume stays, it stays stopped.
+    let out = stdout(&koje_fake(tmp.path(), &path, &["recreate", "kp", "--yes"]));
+    assert!(out.contains("removed kp's container"), "{out}");
+    let log = podman_log(tmp.path());
+    assert!(log.lines().any(|l| l == "rm koje-kp"), "{log}");
+    assert!(!log.contains("volume rm"), "{log}");
+}
