@@ -940,3 +940,39 @@ fn run_starts_a_program_in_the_running_context() {
         "elsewhere: home: {log}"
     );
 }
+
+#[test]
+fn up_after_a_crash_keeps_or_takes_the_recovery_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let recovery = tmp.path().join("state/koje/kp/recovery.toml");
+    std::fs::create_dir_all(recovery.parent().unwrap()).unwrap();
+    std::fs::write(
+        &recovery,
+        "active_layout = \"main\"\n[[windows]]\nid = \"term\"\ncommand = \"foot\"\n",
+    )
+    .unwrap();
+    // No terminal to ask: kept, the normal state (none: empty) is loaded.
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp"]));
+    assert!(out.contains("recovery file is kept"), "{out}");
+    assert!(recovery.exists());
+    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    assert!(!recovery.exists(), "a clean down deletes it");
+
+    // --recover takes it: kojed would restore it (not running here).
+    std::fs::write(
+        &recovery,
+        "active_layout = \"main\"\n[[windows]]\nid = \"term\"\ncommand = \"foot\"\n",
+    )
+    .unwrap();
+    let out = koje_fake(tmp.path(), &path, &["up", "kp", "--recover"]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("restoring the recovery file of kp"), "{err}");
+    // --no-recover discards it.
+    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    std::fs::write(&recovery, "active_layout = \"main\"\n").unwrap();
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "--no-recover"]));
+    assert!(out.contains("discarded the recovery file"), "{out}");
+    assert!(!recovery.exists());
+}

@@ -55,6 +55,20 @@ pub fn delete(paths: &Paths, ctx: &ContextName) -> Result<bool> {
     fsutil::remove_if_exists(&paths.recovery_file(ctx))
 }
 
+/// `12 minutes ago`, for the question at `up`.
+pub fn ago(elapsed: std::time::Duration) -> String {
+    let mins = elapsed.as_secs() / 60;
+    match mins {
+        0 => "just now".to_owned(),
+        1 => "1 minute ago".to_owned(),
+        2..=59 => format!("{mins} minutes ago"),
+        60..=119 => "1 hour ago".to_owned(),
+        120..=1439 => format!("{} hours ago", mins / 60),
+        1440..=2879 => "1 day ago".to_owned(),
+        _ => format!("{} days ago", mins / 1440),
+    }
+}
+
 /// What `up` does about a recovery file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -143,5 +157,18 @@ mod tests {
         assert_eq!(decide(true, false, false), Action::Ask);
         assert_eq!(decide(true, true, false), Action::Restore);
         assert_eq!(decide(true, false, true), Action::Discard);
+    }
+
+    #[test]
+    fn ages() {
+        use std::time::Duration;
+        let m = |n: u64| ago(Duration::from_secs(n * 60));
+        assert_eq!(ago(Duration::from_secs(30)), "just now");
+        assert_eq!(m(1), "1 minute ago");
+        assert_eq!(m(12), "12 minutes ago");
+        assert_eq!(m(90), "1 hour ago");
+        assert_eq!(m(300), "5 hours ago");
+        assert_eq!(m(1500), "1 day ago");
+        assert_eq!(m(4320), "3 days ago");
     }
 }

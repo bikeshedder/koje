@@ -70,6 +70,7 @@ async fn main() -> Result<()> {
         })?;
     tracing::info!("serving {BUS_NAME}");
     tokio::spawn(relink_sound(runtime));
+    tokio::spawn(tick(Arc::clone(&daemon)));
     loop {
         let event = events.next().await;
         if event == CompositorEvent::Connected {
@@ -92,6 +93,19 @@ async fn main() -> Result<()> {
             }
             Err(e) => tracing::warn!("{e:#}"),
         }
+    }
+}
+
+/// How often kojed takes the live states (autosave, recovery file).
+const TICK: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// M5.7, M5.8: autosave of geometry and the recovery files.
+async fn tick(daemon: api::Shared) {
+    let mut interval = tokio::time::interval(TICK);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        daemon.lock().await.tick().await;
     }
 }
 

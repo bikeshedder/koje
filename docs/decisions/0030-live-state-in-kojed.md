@@ -43,5 +43,5 @@ would change between saves.
 
 + Stable ids while a context runs; autosave, recovery and layout switching have
   one place to work on.
-- A kojed restart loses renamed ids and non-active layouts of running contexts
-  unless they were saved; the recovery file (M5.8) will close that gap.
+- A kojed restart rebuilds the live state of running contexts from their
+  recovery files (M5.8): windows still open keep their ids, layouts stay.

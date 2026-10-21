@@ -67,7 +67,14 @@ pub struct Daemon<C, R> {
     running: Option<BTreeSet<ContextName>>,
     /// The focused workspace's name.
     workspace: Option<String>,
+    /// File manager windows `(address, title)` and the folders found for them
+    /// last time: asked again only when a title changes (M5.7 ticks).
+    fm_cache: BTreeMap<ContextName, FolderCache>,
+    /// The recovery file last written per context, to write only changes.
+    recovery_written: BTreeMap<ContextName, String>,
 }
+
+type FolderCache = (Vec<(String, String)>, BTreeMap<String, String>);
 
 impl<C, R> Daemon<C, R>
 where
@@ -89,6 +96,8 @@ where
             quitting: BTreeMap::new(),
             running: None,
             workspace: None,
+            fm_cache: BTreeMap::new(),
+            recovery_written: BTreeMap::new(),
         }
     }
 
@@ -311,8 +320,70 @@ where
         Ok(())
     }
 
+    /// Every few seconds (M5.7, M5.8): take the live state of each running
+    /// context – the active layout follows moved and resized windows (no
+    /// compositor events for that, M2.2) – and write it to the recovery file
+    /// when it changed (ADR 0006).
+    pub async fn tick(&mut self) {
+        let contexts: Vec<ContextName> = self
+            .live
+            .iter()
+            .filter(|(_, l)| !l.windows.is_empty() || !l.pending.is_empty())
+            .map(|(c, _)| c.clone())
+            .collect();
+        for ctx in contexts {
+            let state = match self.state(&ctx).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(context = %ctx, "tick: {e:#}");
+                    continue;
+                }
+            };
+            let path = self.paths.recovery_file(&ctx);
+            let Ok(text) = state.to_toml(&path) else {
+                continue;
+            };
+            if self.recovery_written.get(&ctx) == Some(&text) {
+                continue;
+            }
+            match koje_core::recovery::write(&self.paths, &ctx, &state) {
+                Ok(()) => {
+                    tracing::debug!(context = %ctx, "recovery file written");
+                    self.recovery_written.insert(ctx, text);
+                }
+                Err(e) => tracing::warn!(context = %ctx, "recovery file: {e}"),
+            }
+        }
+    }
+
+    /// After a kojed restart: running contexts get their live state back from
+    /// their recovery files, so the windows still open keep ids and layouts
+    /// (ADR 0030). Returns those contexts (their unmatched windows expire
+    /// after the sync).
+    async fn recover_live_states(&mut self) -> Vec<ContextName> {
+        let mut recovered = Vec::new();
+        for ctx in self.running().await {
+            if self.live.contains_key(&ctx) {
+                continue;
+            }
+            match koje_core::recovery::read(&self.paths, &ctx) {
+                Ok(Some(r)) => {
+                    tracing::info!(context = %ctx, "live state from the recovery file");
+                    self.live
+                        .insert(ctx.clone(), Live::restoring(r.loaded.state));
+                    recovered.push(ctx);
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!(context = %ctx, "recovery file: {e}"),
+            }
+        }
+        recovered
+    }
+
     /// `koje down` stopped `ctx`: its live state is over.
     pub async fn stopped(&mut self, ctx: &ContextName) {
+        self.recovery_written.remove(ctx);
+        self.fm_cache.remove(ctx);
         self.running().await;
         if let Some(r) = self.running.as_mut() {
             r.remove(ctx);
@@ -443,7 +514,7 @@ where
     /// from the file manager on the context's bus. Empty if there is none or
     /// it does not answer.
     async fn file_manager_folders(
-        &self,
+        &mut self,
         ctx: &ContextName,
         by_address: &BTreeMap<&str, &WindowInfo>,
     ) -> BTreeMap<String, String> {
@@ -466,6 +537,22 @@ where
         if windows.is_empty() {
             return BTreeMap::new();
         }
+        if let Some((seen, folders)) = self.fm_cache.get(ctx)
+            && *seen == windows
+        {
+            return folders.clone();
+        }
+        let folders = self.query_folders(ctx, &windows).await;
+        self.fm_cache
+            .insert(ctx.clone(), (windows, folders.clone()));
+        folders
+    }
+
+    async fn query_folders(
+        &self,
+        ctx: &ContextName,
+        windows: &[(String, String)],
+    ) -> BTreeMap<String, String> {
         let runtime = self.runtime.clone();
         let c = ctx.clone();
         let reply = tokio::task::spawn_blocking(move || {
@@ -486,7 +573,7 @@ where
         .await;
         match reply {
             Ok(Ok(text)) => koje_core::capture::assign_folders(
-                &windows,
+                windows,
                 &koje_core::capture::parse_file_manager_windows(&text),
             ),
             Ok(Err(e)) => {
@@ -627,6 +714,7 @@ where
             .into_iter()
             .map(|(address, context)| Change::WindowRemoved { address, context })
             .collect();
+        let recovered = self.recover_live_states().await;
         let mut moves = Vec::new();
         for w in present.iter().filter(|w| diff.added.contains(&w.address)) {
             let ctx = self.resolve(w.pid).await;
@@ -640,6 +728,10 @@ where
                 });
             }
             self.windows.insert(&w.address, w.pid, ctx);
+        }
+        // Windows of a recovered state that are not there any more.
+        for ctx in &recovered {
+            self.expire_pending(ctx);
         }
         // Contexts created since the colors were loaded.
         if self
@@ -1508,6 +1600,66 @@ term = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
             address: "0xt".into(),
             workspace: "special:stash-work".into(),
         }));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tick_autosaves_and_writes_the_recovery_file() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let file = s.paths.recovery_file(&ctx("work"));
+        d.tick().await;
+        let first = std::fs::read_to_string(&file).unwrap();
+        assert!(first.contains("id = \"terminal\""), "{first}");
+        // Unchanged: not written again.
+        std::fs::remove_file(&file).unwrap();
+        d.tick().await;
+        assert!(!file.exists());
+        // Moved (no compositor event for that): the active layout follows.
+        comp.windows.lock().unwrap()[0].placement.rect.x = 777;
+        d.tick().await;
+        assert!(std::fs::read_to_string(&file).unwrap().contains("x = 777"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_restarted_kojed_takes_the_live_state_from_the_recovery_file() {
+        let s = setup();
+        koje_core::recovery::write(
+            &s.paths,
+            &ctx("work"),
+            &State::parse(
+                r#"
+active_layout = "review"
+[[windows]]
+id = "shell"
+integration = "terminal"
+command = "foot"
+app_id = "foot"
+[[windows]]
+id = "gone"
+command = "evince"
+app_id = "org.gnome.Evince"
+[layout.main.windows]
+shell = { monitor = "DP-1", x = 0, y = 0, w = 1, h = 1 }
+[layout.review.windows]
+shell = { monitor = "DP-1", x = 5, y = 5, w = 1, h = 1 }
+"#,
+                std::path::Path::new("x"),
+            )
+            .unwrap()
+            .state,
+        )
+        .unwrap();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let state = d.state(&ctx("work")).await.unwrap();
+        assert_eq!(state.active_layout.as_str(), "review", "layouts kept");
+        let ids: Vec<&str> = state.windows.iter().map(|w| w.id.as_str()).collect();
+        assert_eq!(ids, ["shell"], "renamed id kept; the closed window left");
     }
 
     #[tokio::test(flavor = "current_thread")]

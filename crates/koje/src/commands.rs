@@ -29,9 +29,19 @@ pub fn run(command: &Command) -> Result<()> {
         Command::State(cmd) => state(&paths, cmd),
         Command::Image(ImageCmd::Build { no_cache }) => image_build(*no_cache),
 
-        Command::Up { ctx, state, .. } => {
-            crate::runtime::up(&paths, &ctx.context, state.as_deref())
-        }
+        Command::Up {
+            ctx,
+            state,
+            recover,
+            no_recover,
+            ..
+        } => crate::runtime::up(
+            &paths,
+            &ctx.context,
+            state.as_deref(),
+            *recover,
+            *no_recover,
+        ),
         Command::Down {
             ctx,
             state,

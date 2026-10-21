@@ -19,19 +19,32 @@ use koje_podman::Podman;
 use koje_podman::image::BASE_IMAGE;
 
 /// `koje up <context> -s empty`: create (first time) and start the context.
-pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
+pub fn up(
+    paths: &Paths,
+    context: &str,
+    state: Option<&str>,
+    recover: bool,
+    no_recover: bool,
+) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let requested = match state {
         Some(s) => StateName::new(s)?,
         None => cfg.states.default.clone(),
     };
-    let to_load = state_to_load(paths, &name, &cfg, &requested)?;
     let global = GlobalConfig::load(&paths.global_config())?;
     let access = cfg.effective_access(&global);
     let podman = Podman::new();
     let status = podman.status(&name)?;
     let plan = plan_up(status);
+    // Running with windows: kojed has its live state, nothing to restore (its
+    // recovery file is current). Otherwise a recovery file means a crash.
+    let has_windows = plan == UpPlan::AlreadyRunning && live_windows(&name) > 0;
+    let to_load = if has_windows {
+        state_to_load(paths, &name, &cfg, &requested)?
+    } else {
+        load_or_recover(paths, &name, &cfg, &requested, recover, no_recover)?
+    };
     if plan == UpPlan::Paused {
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
@@ -74,7 +87,7 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
         }
         UpPlan::AlreadyRunning => {
             println!("{name} is already running");
-            if to_load.as_ref().is_some_and(|(_, s)| !s.windows.is_empty()) {
+            if has_windows && to_load.as_ref().is_some_and(|(_, s)| !s.windows.is_empty()) {
                 println!(
                     "note: switching states in a running context comes with M5.9 – windows left as they are"
                 );
@@ -88,15 +101,15 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
     {
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
-    if plan != UpPlan::AlreadyRunning
-        && let Some((state_name, state)) = to_load
+    if !has_windows
+        && let Some((label, state)) = to_load
         && !state.windows.is_empty()
     {
         let text = state.to_toml(Path::new("state"))?;
         let started: u32 = crate::kojed::call("Restore", &(name.as_str(), text.as_str()))
-            .with_context(|| format!("restoring state {state_name} of {name}"))?;
+            .with_context(|| format!("restoring {label} of {name}"))?;
         println!(
-            "restoring state {state_name}: {} window(s), {started} program(s) started",
+            "restoring {label}: {} window(s), {started} program(s) started",
             state.windows.len()
         );
     }
@@ -112,12 +125,72 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
 
 /// The state `up` loads: requested → `fresh` → `empty` (ADR 0005); `None` for
 /// `empty`. Says so when it falls back and what was repaired.
+/// Windows kojed knows of a running context (0 without kojed).
+fn live_windows(name: &ContextName) -> u32 {
+    crate::kojed::call::<_, Vec<(String, String, u32, bool)>>("RunningContexts", &())
+        .ok()
+        .and_then(|all| all.into_iter().find(|(n, ..)| n == name.as_str()))
+        .map_or(0, |(_, _, windows, _)| windows)
+}
+
+/// The state to load, or the recovery file after a crash (ADR 0006): asked,
+/// or decided by `--recover` / `--no-recover`.
+fn load_or_recover(
+    paths: &Paths,
+    name: &ContextName,
+    cfg: &ContextConfig,
+    requested: &StateName,
+    recover: bool,
+    no_recover: bool,
+) -> Result<Option<(String, koje_core::state::State)>> {
+    use koje_core::recovery::{self, Action};
+    let found = recovery::read(paths, name)?;
+    let take = match recovery::decide(found.is_some(), recover, no_recover) {
+        Action::None => false,
+        Action::Restore => true,
+        Action::Discard => {
+            recovery::delete(paths, name)?;
+            println!("discarded the recovery file of {name}");
+            false
+        }
+        Action::Ask if !std::io::IsTerminal::is_terminal(&std::io::stdin()) => {
+            // Nobody to ask (a launcher, autostart): keep it for later.
+            println!(
+                "note: {name} did not shut down cleanly – its recovery file is kept; \
+                 restore it with: koje up {name} --recover (or after koje down {name} --no-save)"
+            );
+            false
+        }
+        Action::Ask => {
+            let ago = found
+                .as_ref()
+                .and_then(|r| r.saved_at.elapsed().ok())
+                .map_or_else(|| "earlier".to_owned(), recovery::ago);
+            let yes = crate::prompt::confirm(
+                &format!("{name} did not shut down cleanly – restore its windows from {ago}?"),
+                true,
+            )?;
+            if !yes {
+                recovery::delete(paths, name)?;
+            }
+            yes
+        }
+    };
+    if take && let Some(r) = found {
+        for issue in &r.loaded.repaired {
+            println!("note: recovery file: repaired: {issue}");
+        }
+        return Ok(Some(("the recovery file".to_owned(), r.loaded.state)));
+    }
+    state_to_load(paths, name, cfg, requested)
+}
+
 fn state_to_load(
     paths: &Paths,
     name: &ContextName,
     cfg: &ContextConfig,
     requested: &StateName,
-) -> Result<Option<(StateName, koje_core::state::State)>> {
+) -> Result<Option<(String, koje_core::state::State)>> {
     use koje_core::state::{Resolved, resolve_load};
     match resolve_load(requested, &cfg.states, |s| {
         koje_core::states::exists(paths, name, s)
@@ -141,7 +214,7 @@ fn state_to_load(
             for issue in &loaded.repaired {
                 println!("note: state {state_name}: repaired: {issue}");
             }
-            Ok(Some((state_name, loaded.state)))
+            Ok(Some((format!("state {state_name}"), loaded.state)))
         }
     }
 }
@@ -210,6 +283,8 @@ pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) ->
         close_programs(&name)?;
         podman.stop(&name)?;
         println!("stopped {name}");
+        // A clean shutdown: no crash to recover from (ADR 0006).
+        koje_core::recovery::delete(paths, &name)?;
     }
     match plan {
         DownPlan::Stop | DownPlan::UnpauseAndStop => {}
