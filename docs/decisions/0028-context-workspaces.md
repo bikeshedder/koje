@@ -45,3 +45,7 @@ the user looks at context B. How several monitors share a context is still open
   signal `ContextsChanged`), lists the running contexts in their colors with
   the active one marked – the context of the focused workspace, also when it
   has no windows. A click opens a picker that runs `koje focus`.
+- Planned (M8.8): a **beacon window** per running context on its workspace,
+  koje's own small window with the context's controls, keeps the workspace
+  alive. (Renaming a workspace also removes it, which would make persistent
+  rules workable without reloads; not pursued in favor of the beacon.)
