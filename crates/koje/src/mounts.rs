@@ -69,17 +69,21 @@ pub fn sync(
         podman.live_unmount(&home_dir, &below)?;
         println!("unmounted {} from {name}", path.display());
     }
+    let recreate = format!("koje down {name} && podman rm koje-{name} && koje up {name}");
     for path in &plan.needs_recreate {
-        let why = if real.contains(path) {
-            "stays mounted"
+        if real.contains(path) {
+            println!(
+                "note: {} is no longer configured, but stays mounted in {name} until its \
+                 container is recreated ({recreate})",
+                path.display()
+            );
         } else {
-            "is outside the home and gets mounted"
-        };
-        println!(
-            "note: {} {why} only when {name}'s container is recreated \
-             (koje down {name} && podman rm koje-{name} && koje up {name})",
-            path.display()
-        );
+            println!(
+                "note: {} is outside the home and can't be mounted live – it gets mounted \
+                 when {name}'s container is recreated ({recreate})",
+                path.display()
+            );
+        }
     }
     Ok(())
 }
