@@ -10,6 +10,7 @@ use crate::layout::{Layout, Placement, plan_switch};
 use crate::layouts;
 use crate::name::{ContextName, LayoutName, WindowId};
 use crate::ports::CompositorCommand;
+use crate::state::{State, WindowSpec};
 use crate::windows;
 
 /// A context window as the compositor shows it now.
@@ -23,6 +24,19 @@ pub struct Shown {
 /// The stash of a context: a hidden special workspace (concept "Ablage").
 pub fn stash_workspace(ctx: &ContextName) -> String {
     format!("special:stash-{ctx}")
+}
+
+/// What a state switch needs done (see [`Live::switch_state`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StateChange {
+    /// Windows (addresses) to close.
+    pub close: Vec<String>,
+    /// Windows to start, as in a restore.
+    pub start: Vec<WindowSpec>,
+    /// How many windows stay.
+    pub kept: usize,
+    /// Arranging the windows that stay.
+    pub commands: Vec<CompositorCommand>,
 }
 
 /// A layout as `koje layout list` shows it.
@@ -92,8 +106,17 @@ impl Live {
         let view = self.view(ctx, shown);
         self.keep_arrangement(&view)?;
         layouts::activate(&mut self.state, target)?;
+        Ok(self.arrange(ctx, &view))
+    }
+
+    /// Commands that show the active layout: its windows at their places,
+    /// the other visible windows to the stash.
+    fn arrange(&self, ctx: &ContextName, view: &View) -> Vec<CompositorCommand> {
+        let Some(active) = self.state.layout.get(&self.state.active_layout) else {
+            return Vec::new();
+        };
         let running: BTreeSet<WindowId> = view.by_id.keys().cloned().collect();
-        let plan = plan_switch(&running, &view.visible, &self.state.layout[target]);
+        let plan = plan_switch(&running, &view.visible, active);
         let workspace = windows::workspace(ctx);
         let stash = stash_workspace(ctx);
         let mut commands = Vec::new();
@@ -120,7 +143,52 @@ impl Live {
                 placement,
             });
         }
-        Ok(commands)
+        commands
+    }
+
+    /// Switch the running context to another state (M5.9, concept "Zustand
+    /// wechseln"): windows whose id is in `target` stay and are arranged by
+    /// its active layout, the others are to be closed, the target's missing
+    /// windows are to be started (they wait like a restore). Windows asked to
+    /// close stay tracked (and visible) until they are gone: a program may ask
+    /// to save first.
+    pub fn switch_state(
+        &mut self,
+        ctx: &ContextName,
+        target: State,
+        shown: &[Shown],
+    ) -> StateChange {
+        let wanted: BTreeSet<&WindowId> = target.windows.iter().map(|w| &w.id).collect();
+        let close: Vec<String> = self
+            .windows
+            .iter()
+            .filter(|(_, w)| !wanted.contains(&w.id))
+            .map(|(a, _)| a.clone())
+            .collect();
+        let open: BTreeSet<&WindowId> = self.windows.values().map(|w| &w.id).collect();
+        let start: Vec<WindowSpec> = target
+            .windows
+            .iter()
+            .filter(|w| !open.contains(&w.id))
+            .cloned()
+            .collect();
+        let kept = target.windows.len() - start.len();
+        let mut state = target;
+        state.windows.clear();
+        self.state = state;
+        self.pending.clone_from(&start);
+        let staying: Vec<Shown> = shown
+            .iter()
+            .filter(|s| !close.contains(&s.address))
+            .cloned()
+            .collect();
+        let view = self.view(ctx, &staying);
+        StateChange {
+            commands: self.arrange(ctx, &view),
+            close,
+            start,
+            kept,
+        }
     }
 
     /// `layout next|prev` (`step` 1 or -1), in file order (ADR 0011).
@@ -385,5 +453,55 @@ mod tests {
         layouts::set_autosave(&mut live.state, &LayoutName::initial(), false).unwrap();
         live.save_layout(&ctx(), &[shown("0xb", "kp", 42)]).unwrap();
         assert_eq!(live.state.layout[&LayoutName::initial()].windows.len(), 1);
+    }
+
+    #[test]
+    fn switch_state_keeps_closes_starts() {
+        let mut live = live();
+        let target = crate::state::State::parse(
+            r#"
+active_layout = "talk"
+[[windows]]
+id = "terminal"
+command = "foot"
+app_id = "foot"
+[[windows]]
+id = "slides"
+command = "evince talk.pdf"
+app_id = "org.gnome.Evince"
+[layout.talk.windows]
+terminal = { monitor = "DP-1", x = 9, y = 0, w = 800, h = 600 }
+slides = { monitor = "DP-1", x = 900, y = 0, w = 800, h = 600 }
+"#,
+            std::path::Path::new("talk.toml"),
+        )
+        .unwrap()
+        .state;
+        let now = [shown("0xa", "kp", 0), shown("0xb", "kp", 100)];
+        let change = live.switch_state(&ctx(), target, &now);
+        assert_eq!(change.close, ["0xb"], "terminal-2 is not in the target");
+        assert_eq!(
+            change
+                .start
+                .iter()
+                .map(|w| w.id.as_str())
+                .collect::<Vec<_>>(),
+            ["slides"]
+        );
+        assert_eq!(change.kept, 1);
+        assert_eq!(
+            change.commands,
+            [CompositorCommand::Place {
+                address: "0xa".into(),
+                placement: at(9)
+            }],
+            "the closing window is left alone, not stashed"
+        );
+        assert_eq!(live.state.active_layout.as_str(), "talk");
+        // The started window takes its waiting id and place.
+        let added = live
+            .add("0xc", "org.gnome.Evince", &integration::built_in(), at(0))
+            .unwrap();
+        assert_eq!((added.id.as_str(), added.place), ("slides", Some(at(900))));
     }
 }

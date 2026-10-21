@@ -23,6 +23,7 @@ pub fn up(
     paths: &Paths,
     context: &str,
     state: Option<&str>,
+    no_save: bool,
     recover: bool,
     no_recover: bool,
 ) -> Result<()> {
@@ -40,7 +41,7 @@ pub fn up(
     // Running with windows: kojed has its live state, nothing to restore (its
     // recovery file is current). Otherwise a recovery file means a crash.
     let has_windows = plan == UpPlan::AlreadyRunning && live_windows(&name) > 0;
-    let to_load = if has_windows {
+    let mut to_load = if has_windows {
         state_to_load(paths, &name, &cfg, &requested)?
     } else {
         load_or_recover(paths, &name, &cfg, &requested, recover, no_recover)?
@@ -85,14 +86,10 @@ pub fn up(
             podman.start(&name)?;
             println!("started {name}");
         }
-        UpPlan::AlreadyRunning => {
-            println!("{name} is already running");
-            if has_windows && to_load.as_ref().is_some_and(|(_, s)| !s.windows.is_empty()) {
-                println!(
-                    "note: switching states in a running context comes with M5.9 – windows left as they are"
-                );
-            }
+        UpPlan::AlreadyRunning if has_windows && state.is_some() => {
+            switch_state(paths, &name, &cfg, &requested, to_load.take(), no_save)?;
         }
+        UpPlan::AlreadyRunning => println!("{name} is already running"),
         UpPlan::Paused => unreachable!("handled above"),
     }
     if host.host_bus_dir.is_some()
@@ -125,6 +122,45 @@ pub fn up(
 
 /// The state `up` loads: requested → `fresh` → `empty` (ADR 0005); `None` for
 /// `empty`. Says so when it falls back and what was repaired.
+/// `koje up -s <state>` on a running context (M5.9): save the current windows
+/// into `default` (unless `--no-save`), then kojed keeps, closes and starts.
+fn switch_state(
+    paths: &Paths,
+    name: &ContextName,
+    cfg: &ContextConfig,
+    requested: &StateName,
+    target: Option<(String, koje_core::state::State)>,
+    no_save: bool,
+) -> Result<()> {
+    let default = &cfg.states.default;
+    if !no_save {
+        let live = live_state(name)?;
+        koje_core::states::write(paths, name, default, &live)?;
+        println!(
+            "saved {} window(s) of {name} into state {default}",
+            live.windows.len()
+        );
+    }
+    if requested == default && !no_save {
+        println!("{name} is in state {default} already");
+        return Ok(());
+    }
+    let (label, target) = target.unwrap_or_else(|| {
+        (
+            "state empty".to_owned(),
+            koje_core::state::State::new(koje_core::name::LayoutName::initial()),
+        )
+    });
+    let text = target.to_toml(Path::new("state"))?;
+    let (kept, closed, started): (u32, u32, u32) =
+        crate::kojed::call("SwitchState", &(name.as_str(), text.as_str()))
+            .with_context(|| format!("switching {name} to {label}"))?;
+    println!(
+        "{name}: switched to {label} – {kept} window(s) kept, {closed} closed, {started} program(s) started"
+    );
+    Ok(())
+}
+
 /// Windows kojed knows of a running context (0 without kojed).
 fn live_windows(name: &ContextName) -> u32 {
     crate::kojed::call::<_, Vec<(String, String, u32, bool)>>("RunningContexts", &())

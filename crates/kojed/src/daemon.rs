@@ -286,6 +286,11 @@ where
         let live = Live::restoring(state);
         let plan = restore::plan(&live.pending, &self.integrations, &self.home);
         self.live.insert(ctx.clone(), live);
+        self.launch_all(ctx, &plan).await;
+        Ok(plan)
+    }
+
+    async fn launch_all(&self, ctx: &ContextName, plan: &restore::Plan) {
         for l in &plan.launches {
             let runtime = self.runtime.clone();
             let (c, command, workdir) = (ctx.clone(), l.command.clone(), l.workdir.clone());
@@ -308,7 +313,77 @@ where
         for (id, why) in &plan.skipped {
             tracing::info!(context = %ctx, %id, "not started: {why}");
         }
-        Ok(plan)
+    }
+
+    /// `koje up -s <state>` on a running context (M5.9): keep the windows the
+    /// target has, close the others, start its missing ones, arrange by its
+    /// active layout. Returns `(kept, closed, started programs)`.
+    pub async fn switch_state(
+        &mut self,
+        ctx: &ContextName,
+        target: State,
+    ) -> Result<(usize, usize, usize)> {
+        self.require(ctx)?;
+        let present = self
+            .compositor
+            .windows()
+            .await
+            .map_err(anyhow::Error::new)?;
+        let mine: Vec<&WindowInfo> = present
+            .iter()
+            .filter(|w| self.windows.context_of(&w.address) == Some(ctx))
+            .collect();
+        let shown: Vec<Shown> = mine
+            .iter()
+            .map(|w| Shown {
+                address: w.address.clone(),
+                workspace: w.workspace.clone(),
+                placement: w.placement.clone(),
+            })
+            .collect();
+        let change = self.live_mut(ctx)?.switch_state(ctx, target, &shown);
+        // SIGTERM only for programs whose every window goes; a program keeping
+        // a window has the others closed one by one.
+        let closing: Vec<(String, String, u32)> = mine
+            .iter()
+            .filter(|w| change.close.contains(&w.address))
+            .map(|w| (w.address.clone(), w.app_id.clone(), w.pid))
+            .collect();
+        let staying: BTreeSet<u32> = mine
+            .iter()
+            .filter(|w| !change.close.contains(&w.address))
+            .map(|w| w.pid)
+            .collect();
+        let quit = koje_core::capture::plan_quit(&closing, &self.integrations);
+        let mut commands: Vec<CompositorCommand> = quit
+            .close
+            .iter()
+            .map(|a| CompositorCommand::CloseWindow { address: a.clone() })
+            .collect();
+        let mut signal = Vec::new();
+        for pid in quit.signal {
+            if staying.contains(&pid) {
+                commands.extend(
+                    closing
+                        .iter()
+                        .filter(|(_, _, p)| *p == pid)
+                        .map(|(a, ..)| CompositorCommand::CloseWindow { address: a.clone() }),
+                );
+            } else {
+                signal.push(pid);
+            }
+        }
+        commands.extend(change.commands);
+        self.apply(&commands).await?;
+        for pid in signal {
+            let runtime = self.runtime.clone();
+            if let Ok(Err(e)) = tokio::task::spawn_blocking(move || runtime.terminate(pid)).await {
+                tracing::warn!(context = %ctx, pid, "SIGTERM: {e}");
+            }
+        }
+        let plan = restore::plan(&change.start, &self.integrations, &self.home);
+        self.launch_all(ctx, &plan).await;
+        Ok((change.kept, change.close.len(), plan.launches.len()))
     }
 
     /// `koje up` started `ctx` (for the bar: running contexts).
@@ -1660,6 +1735,62 @@ shell = { monitor = "DP-1", x = 5, y = 5, w = 1, h = 1 }
         assert_eq!(state.active_layout.as_str(), "review", "layouts kept");
         let ids: Vec<&str> = state.windows.iter().map(|w| w.id.as_str()).collect();
         assert_eq!(ids, ["shell"], "renamed id kept; the closed window left");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn switch_state_closes_without_killing_kept_windows() {
+        let s = setup();
+        s.runtime.pids.lock().unwrap().insert(20, ctx("work"));
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        comp.open("0xf", 20);
+        comp.open("0xg", 20);
+        for w in comp
+            .windows
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .filter(|w| w.pid == 20)
+        {
+            w.app_id = "firefox".into();
+        }
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+        let target = State::parse(
+            r#"
+active_layout = "main"
+[[windows]]
+id = "browser"
+integration = "browser"
+command = "firefox"
+app_id = "firefox"
+[[windows]]
+id = "viewer"
+command = "evince talk.pdf"
+app_id = "org.gnome.Evince"
+[layout.main.windows]
+browser = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
+"#,
+            std::path::Path::new("talk.toml"),
+        )
+        .unwrap()
+        .state;
+        let (kept, closed, started) = d.switch_state(&ctx("work"), target).await.unwrap();
+        assert_eq!((kept, closed, started), (1, 2, 1));
+        let commands = comp.take();
+        for a in ["0xa", "0xg"] {
+            assert!(
+                commands.contains(&CompositorCommand::CloseWindow { address: a.into() }),
+                "{a} closed: {commands:?}"
+            );
+        }
+        assert_eq!(
+            *s.runtime.terminated.lock().unwrap(),
+            Vec::<u32>::new(),
+            "Firefox keeps a window: no SIGTERM"
+        );
+        assert_eq!(s.runtime.launched.lock().unwrap()[0].0, "evince talk.pdf");
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -32,13 +32,14 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Up {
             ctx,
             state,
+            no_save,
             recover,
             no_recover,
-            ..
         } => crate::runtime::up(
             &paths,
             &ctx.context,
             state.as_deref(),
+            *no_save,
             *recover,
             *no_recover,
         ),

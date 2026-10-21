@@ -352,6 +352,30 @@ impl Api {
         d.toggle_stash(&ctx).await.map_err(|e| failed(&e))
     }
 
+    /// Switch a running context to another state (TOML, as a state file;
+    /// M5.9). Returns `(windows kept, windows closed, programs started)`.
+    /// New windows that do not appear within a minute leave the live state.
+    async fn switch_state(&self, context: &str, state: &str) -> fdo::Result<(u32, u32, u32)> {
+        let ctx = context_arg(context)?;
+        let state = koje_core::state::State::parse(state, std::path::Path::new("state from koje"))
+            .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?
+            .state;
+        let (kept, closed, started) = self
+            .daemon
+            .lock()
+            .await
+            .switch_state(&ctx, state)
+            .await
+            .map_err(|e| failed(&e))?;
+        let daemon = Arc::clone(&self.daemon);
+        tokio::spawn(async move {
+            tokio::time::sleep(RESTORE_TIMEOUT).await;
+            daemon.lock().await.expire_pending(&ctx);
+        });
+        let n = |x: usize| u32::try_from(x).unwrap_or(u32::MAX);
+        Ok((n(kept), n(closed), n(started)))
+    }
+
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
     async fn reload(&self) -> fdo::Result<()> {
         self.daemon
