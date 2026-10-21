@@ -10,7 +10,9 @@ use anyhow::{Context as _, Result};
 use koje_core::capture::{Live, Observed};
 use koje_core::color::Color;
 use koje_core::integration::Integration;
+use koje_core::live_layouts::{self, LayoutInfo, Shown};
 use koje_core::name::ContextName;
+use koje_core::name::{LayoutName, WindowId};
 use koje_core::paths::Paths;
 use koje_core::ports::WindowInfo;
 use koje_core::ports::{
@@ -118,10 +120,149 @@ where
             return None;
         };
         tracing::debug!(context = %ctx, id = %added.id, restored = added.place.is_some(), "window tracked");
+        if added.stash {
+            // Restored, but not in the active layout (M5.5).
+            return Some(CompositorCommand::MoveToWorkspace {
+                address: w.address.clone(),
+                workspace: live_layouts::stash_workspace(ctx),
+            });
+        }
         added.place.map(|placement| CompositorCommand::Place {
             address: w.address.clone(),
             placement,
         })
+    }
+
+    /// `""` → the active context (CLI commands without `-c`).
+    pub fn context_or_active(&mut self, given: &str) -> Result<ContextName> {
+        if given.is_empty() {
+            return self
+                .active_context()
+                .cloned()
+                .context("no active context – pass one with -c <context>");
+        }
+        let ctx = ContextName::new(given)?;
+        self.require(&ctx)?;
+        Ok(ctx)
+    }
+
+    /// Where the windows of `ctx` are now.
+    async fn shown(&self, ctx: &ContextName) -> Result<Vec<Shown>> {
+        let present = self
+            .compositor
+            .windows()
+            .await
+            .map_err(anyhow::Error::new)?;
+        Ok(present
+            .into_iter()
+            .filter(|w| self.windows.context_of(&w.address) == Some(ctx))
+            .map(|w| Shown {
+                address: w.address,
+                workspace: w.workspace,
+                placement: w.placement,
+            })
+            .collect())
+    }
+
+    fn live_mut(&mut self, ctx: &ContextName) -> Result<&mut Live> {
+        self.live
+            .get_mut(ctx)
+            .with_context(|| format!("{ctx} has no windows – start it with: koje up {ctx}"))
+    }
+
+    /// `koje layout <name>` (M5.5).
+    pub async fn switch_layout(&mut self, ctx: &ContextName, name: &LayoutName) -> Result<()> {
+        let shown = self.shown(ctx).await?;
+        let commands = self.live_mut(ctx)?.switch_layout(ctx, name, &shown)?;
+        self.apply(&commands).await
+    }
+
+    /// `koje layout next|prev`.
+    pub async fn cycle_layout(&mut self, ctx: &ContextName, step: i32) -> Result<LayoutName> {
+        let shown = self.shown(ctx).await?;
+        let (name, commands) = self.live_mut(ctx)?.cycle_layout(ctx, step, &shown)?;
+        self.apply(&commands).await?;
+        Ok(name)
+    }
+
+    /// `koje layout new <name> [--copy]`.
+    pub async fn new_layout(
+        &mut self,
+        ctx: &ContextName,
+        name: LayoutName,
+        copy: bool,
+    ) -> Result<()> {
+        let shown = self.shown(ctx).await?;
+        let commands = self.live_mut(ctx)?.new_layout(ctx, name, copy, &shown)?;
+        self.apply(&commands).await
+    }
+
+    /// `koje layout save`.
+    pub async fn save_layout(&mut self, ctx: &ContextName) -> Result<()> {
+        let shown = self.shown(ctx).await?;
+        self.live_mut(ctx)?.save_layout(ctx, &shown)?;
+        Ok(())
+    }
+
+    /// The live state of `ctx` for pure layout edits (`autosave`, `mv`, `rm`).
+    pub fn live_state_mut(&mut self, ctx: &ContextName) -> Result<&mut State> {
+        Ok(&mut self.live_mut(ctx)?.state)
+    }
+
+    pub fn layouts(&mut self, ctx: &ContextName) -> Result<Vec<LayoutInfo>> {
+        Ok(self.live_mut(ctx)?.layouts())
+    }
+
+    /// `koje stash`: the focused window (M5.6).
+    pub async fn stash_focused(&mut self) -> Result<(ContextName, String)> {
+        let address = self.focused.clone().context("no window has focus")?;
+        let ctx = self
+            .windows
+            .context_of(&address)
+            .cloned()
+            .context("the focused window belongs to no context")?;
+        let commands = self.live_mut(&ctx)?.stash(&ctx, &address)?;
+        let id = self
+            .live_mut(&ctx)?
+            .windows
+            .get(&address)
+            .map(|w| w.id.to_string())
+            .unwrap_or_default();
+        self.apply(&commands).await?;
+        Ok((ctx, id))
+    }
+
+    /// `koje unstash [<window>] [--to <layout>]`; without a window the
+    /// focused one (e.g. picked in the shown stash).
+    pub async fn unstash(
+        &mut self,
+        ctx: &ContextName,
+        window: Option<WindowId>,
+        to: Option<LayoutName>,
+    ) -> Result<WindowId> {
+        let id = if let Some(id) = window {
+            id
+        } else {
+            let address = self.focused.clone().context("no window has focus")?;
+            self.live_mut(ctx)?
+                .windows
+                .get(&address)
+                .map(|w| w.id.clone())
+                .with_context(|| format!("the focused window is not one of {ctx}"))?
+        };
+        let shown = self.shown(ctx).await?;
+        let commands = self.live_mut(ctx)?.unstash(ctx, &id, to.as_ref(), &shown)?;
+        self.apply(&commands).await?;
+        Ok(id)
+    }
+
+    /// `koje stash --show`: show or hide the context's stash.
+    pub async fn toggle_stash(&mut self, ctx: &ContextName) -> Result<()> {
+        let name = live_layouts::stash_workspace(ctx)
+            .trim_start_matches("special:")
+            .to_owned();
+        self.apply(&[CompositorCommand::ToggleSpecial { name }])
+            .await
     }
 
     /// Start the windows of `state` in the freshly started `ctx` (`koje up`,
@@ -1261,6 +1402,112 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
                 .all(|c| matches!(c, CompositorCommand::ContextRule { .. })),
             "only the sync's rules – no workspace commands"
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn layouts_and_the_stash() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        comp.open("0xb", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+        let work = ctx("work");
+        let stash_ws = "special:stash-work";
+        let to_stash = |a: &str| CompositorCommand::MoveToWorkspace {
+            address: a.into(),
+            workspace: stash_ws.into(),
+        };
+
+        d.new_layout(&work, LayoutName::new("review").unwrap(), false)
+            .await
+            .unwrap();
+        assert_eq!(comp.take(), [to_stash("0xa"), to_stash("0xb")]);
+        for w in comp.windows.lock().unwrap().iter_mut() {
+            w.workspace = stash_ws.into();
+        }
+        assert_eq!(
+            d.unstash(&work, Some(WindowId::new("terminal").unwrap()), None)
+                .await
+                .unwrap()
+                .as_str(),
+            "terminal"
+        );
+        assert_eq!(
+            comp.take(),
+            [CompositorCommand::MoveToWorkspace {
+                address: "0xa".into(),
+                workspace: "work".into()
+            }]
+        );
+        let names: Vec<(String, bool, usize)> = d
+            .layouts(&work)
+            .unwrap()
+            .into_iter()
+            .map(|l| (l.name.to_string(), l.active, l.windows))
+            .collect();
+        assert_eq!(
+            names,
+            [("main".into(), false, 2), ("review".into(), true, 1)]
+        );
+
+        // `koje stash` takes the focused window.
+        d.handle(CompositorEvent::WindowFocused {
+            address: Some("0xa".into()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            d.stash_focused().await.unwrap(),
+            (work.clone(), "terminal".to_owned())
+        );
+        assert_eq!(comp.take(), [to_stash("0xa")]);
+        assert_eq!(d.context_or_active("").unwrap(), work);
+
+        assert_eq!(d.cycle_layout(&work, 1).await.unwrap().as_str(), "main");
+        d.toggle_stash(&work).await.unwrap();
+        assert!(comp.take().contains(&CompositorCommand::ToggleSpecial {
+            name: "stash-work".into()
+        }));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_windows_outside_the_active_layout_go_to_the_stash() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let saved = State::parse(
+            r#"
+active_layout = "main"
+[[windows]]
+id = "term"
+command = "foot"
+app_id = "foot"
+[layout.main]
+[layout.review.windows]
+term = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
+"#,
+            std::path::Path::new("x"),
+        )
+        .unwrap()
+        .state;
+        d.restore(&ctx("work"), saved).await.unwrap();
+        comp.take();
+        comp.open("0xt", 10);
+        d.handle(CompositorEvent::WindowOpened {
+            address: "0xt".into(),
+            workspace: "1".into(),
+            class: "foot".into(),
+            title: String::new(),
+        })
+        .await
+        .unwrap();
+        assert!(comp.take().contains(&CompositorCommand::MoveToWorkspace {
+            address: "0xt".into(),
+            workspace: "special:stash-work".into(),
+        }));
     }
 
     #[tokio::test(flavor = "current_thread")]

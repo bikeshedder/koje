@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use koje_core::api::OBJECT_PATH;
-use koje_core::name::ContextName;
+use koje_core::name::{ContextName, LayoutName, WindowId};
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
 use tokio::sync::Mutex;
@@ -25,6 +25,10 @@ pub struct Api {
     pub sockets: Sockets,
     /// The host's `XDG_RUNTIME_DIR`.
     pub runtime: std::path::PathBuf,
+}
+
+fn layout_arg(name: &str) -> fdo::Result<LayoutName> {
+    LayoutName::new(name).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))
 }
 
 fn context_arg(context: &str) -> fdo::Result<ContextName> {
@@ -227,6 +231,126 @@ impl Api {
     /// window counts.
     #[zbus(signal)]
     async fn contexts_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    /// Switch the layout of a running context (`""` = the active one); `name`
+    /// may be `+next` or `+prev` (layout names start with a letter). Returns
+    /// the layout now active (M5.5).
+    async fn switch_layout(&self, context: &str, name: &str) -> fdo::Result<String> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        let result = match name {
+            "+next" => d.cycle_layout(&ctx, 1).await,
+            "+prev" => d.cycle_layout(&ctx, -1).await,
+            other => {
+                let layout = layout_arg(other)?;
+                d.switch_layout(&ctx, &layout).await.map(|()| layout)
+            }
+        };
+        result.map(|l| l.to_string()).map_err(|e| failed(&e))
+    }
+
+    /// `layout new <name> [--copy]`.
+    async fn new_layout(&self, context: &str, name: &str, copy: bool) -> fdo::Result<()> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        d.new_layout(&ctx, layout_arg(name)?, copy)
+            .await
+            .map_err(|e| failed(&e))
+    }
+
+    /// `layout save`: the current arrangement into the active layout.
+    async fn save_layout(&self, context: &str) -> fdo::Result<()> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        d.save_layout(&ctx).await.map_err(|e| failed(&e))
+    }
+
+    /// `layout autosave <name> on|off`.
+    async fn set_layout_autosave(&self, context: &str, name: &str, on: bool) -> fdo::Result<()> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        let state = d.live_state_mut(&ctx).map_err(|e| failed(&e))?;
+        koje_core::layouts::set_autosave(state, &layout_arg(name)?, on)
+            .map_err(|e| fdo::Error::Failed(e.to_string()))
+    }
+
+    /// `layout mv <from> <to>`.
+    async fn rename_layout(&self, context: &str, from: &str, to: &str) -> fdo::Result<()> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        let state = d.live_state_mut(&ctx).map_err(|e| failed(&e))?;
+        koje_core::layouts::rename(state, &layout_arg(from)?, layout_arg(to)?)
+            .map_err(|e| fdo::Error::Failed(e.to_string()))
+    }
+
+    /// `layout rm <name>` (not the active one).
+    async fn remove_layout(&self, context: &str, name: &str) -> fdo::Result<()> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        let state = d.live_state_mut(&ctx).map_err(|e| failed(&e))?;
+        koje_core::layouts::remove(state, &layout_arg(name)?)
+            .map_err(|e| fdo::Error::Failed(e.to_string()))
+    }
+
+    /// `layout list`: `(name, active, autosave, windows)` in cycle order, and
+    /// the context it is about.
+    async fn layouts(
+        &self,
+        context: &str,
+    ) -> fdo::Result<(String, Vec<(String, bool, bool, u32)>)> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        let list = d
+            .layouts(&ctx)
+            .map_err(|e| failed(&e))?
+            .into_iter()
+            .map(|l| {
+                (
+                    l.name.to_string(),
+                    l.active,
+                    l.autosave,
+                    u32::try_from(l.windows).unwrap_or(u32::MAX),
+                )
+            })
+            .collect();
+        Ok((ctx.to_string(), list))
+    }
+
+    /// `stash`: the focused window to its context's stash (M5.6); returns
+    /// `(context, window id)`.
+    async fn stash(&self) -> fdo::Result<(String, String)> {
+        let (ctx, id) = self
+            .daemon
+            .lock()
+            .await
+            .stash_focused()
+            .await
+            .map_err(|e| failed(&e))?;
+        Ok((ctx.to_string(), id))
+    }
+
+    /// `unstash [<window>] [--to <layout>]`; `""` for the focused window and
+    /// the active layout. Returns the window id.
+    async fn unstash(&self, context: &str, window: &str, to: &str) -> fdo::Result<String> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        let window = (!window.is_empty())
+            .then(|| WindowId::new(window))
+            .transpose()
+            .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?;
+        let to = (!to.is_empty()).then(|| layout_arg(to)).transpose()?;
+        d.unstash(&ctx, window, to)
+            .await
+            .map(|id| id.to_string())
+            .map_err(|e| failed(&e))
+    }
+
+    /// `stash --show`: show or hide the context's stash.
+    async fn toggle_stash(&self, context: &str) -> fdo::Result<()> {
+        let mut d = self.daemon.lock().await;
+        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
+        d.toggle_stash(&ctx).await.map_err(|e| failed(&e))
+    }
 
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
     async fn reload(&self) -> fdo::Result<()> {

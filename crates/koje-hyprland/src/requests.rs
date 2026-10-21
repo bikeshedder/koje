@@ -93,6 +93,9 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
         C::FocusWindow { address } => {
             vec![format!("dispatch focuswindow address:{}", arg(address)?)]
         }
+        C::ToggleSpecial { name } => {
+            vec![format!("dispatch togglespecialworkspace {}", arg(name)?)]
+        }
         C::CloseWindow { address } => {
             vec![format!("dispatch closewindow address:{}", arg(address)?)]
         }
@@ -203,6 +206,12 @@ mod tests {
                 address: "0x63b2".into()
             }),
             ["dispatch focuswindow address:0x63b2"]
+        );
+        assert_eq!(
+            one(CompositorCommand::ToggleSpecial {
+                name: "stash-kp".into()
+            }),
+            ["dispatch togglespecialworkspace stash-kp"]
         );
         assert_eq!(
             one(CompositorCommand::CloseWindow {

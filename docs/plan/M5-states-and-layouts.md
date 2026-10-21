@@ -10,8 +10,10 @@ Goal: koje remembers and restores the work environment.
   - Done (host-tested 2026-10-20: foot in its cwd, Firefox with 3 windows, nautilus, all in place): `koje up` resolves (requested → `fresh` → `empty`) and sends the state to kojed (`Restore`); `koje_core::restore::plan` (launch templates, `cwd`, `launch_once`), `ContainerRuntime::launch`, matching by app id in `Live::add`, placement from the active layout, 60 s expiry. Not yet: stash for windows outside the active layout (M5.5), dev container windows.
 - [x] **M5.4 `down` / `save` with `-s`**, ordered window close
   - Done (host-tested 2026-10-20; Firefox 158 quits cleanly on SIGTERM, reopens its windows with "Open previous windows and tabs"): `koje down [-s]` saves first, then kojed ends the programs (`CloseWindows`: close windows, or SIGTERM per process for `quit = "signal"`), waits up to 10 s for the windows and the signalled processes (Firefox writes its session after closing its windows – first host test showed the restore prompt), asks before stopping if something stays; without kojed it stops directly (`--no-save`) or refuses (would lose the state).
-- [ ] **M5.5 Layout switching** using `plan_switch`; stash as special workspace; focus handling
-- [ ] **M5.6 `stash` / `unstash`**; new/closed windows update layouts
+- [~] **M5.5 Layout switching** using `plan_switch`; stash as special workspace; focus handling
+  - Done in code (awaiting host test): `koje_core::live_layouts` (switch/next/prev/new/save on the live state, the active layout keeps its arrangement if it autosaves), per-context stash `special:stash-<context>`, D-Bus `SwitchLayout`/`NewLayout`/`SaveLayout`/`SetLayoutAutosave`/`RenameLayout`/`RemoveLayout`/`Layouts`, `koje layout …` (default: the active context), Super+[ / Super+]. Restored windows outside the active layout go to the stash. Focus handling: not yet (last active window per layout).
+- [~] **M5.6 `stash` / `unstash`**; new/closed windows update layouts
+  - Done in code (awaiting host test): `koje stash [--show]`, `koje unstash [<window>] [--to <layout>]` (D-Bus `Stash`/`Unstash`/`ToggleStash`), Super+H / Super+Shift+H / Super+Ctrl+H; new windows join the active layout, closed ones leave all (M5.1).
 - [ ] **M5.7 Autosave** of geometry changes into the active layout (debounced)
   - Notes: M2.2 – no event for moving/resizing floating windows; re-read `j/clients` on focus changes / debounced and diff.
 - [ ] **M5.8 Crash recovery**: continuous recovery file; `up` prompt, `--recover`/`--no-recover`

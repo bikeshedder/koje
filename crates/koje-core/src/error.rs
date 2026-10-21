@@ -72,6 +72,9 @@ pub enum Error {
     #[error("window {0} already exists")]
     WindowExists(crate::name::WindowId),
 
+    #[error("no window {0} in this context")]
+    UnknownWindow(String),
+
     #[error("could not determine the home directory")]
     NoHomeDir,
 

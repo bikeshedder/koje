@@ -82,12 +82,21 @@ pub enum Command {
         ctx: ActiveCtx,
     },
     /// Move the focused window to the stash (remove it from the active layout).
-    Stash,
+    Stash {
+        /// Instead: show or hide the context's stash.
+        #[arg(long)]
+        show: bool,
+        #[command(flatten)]
+        ctx: ActiveCtx,
+    },
     /// Bring a stashed window into the active (or given) layout.
     Unstash {
-        window: String,
+        /// Window id (default: the focused window, e.g. picked in the shown stash).
+        window: Option<String>,
         #[arg(long)]
         to: Option<String>,
+        #[command(flatten)]
+        ctx: ActiveCtx,
     },
     /// Switch to a context.
     Focus(Ctx),

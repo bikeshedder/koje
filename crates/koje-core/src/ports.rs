@@ -65,6 +65,11 @@ pub enum CompositorCommand {
     FocusWindow {
         address: String,
     },
+    /// Show or hide a special workspace (a context's stash), by its name
+    /// without `special:`.
+    ToggleSpecial {
+        name: String,
+    },
     /// Ask a window to close (the program may ask to save first).
     CloseWindow {
         address: String,

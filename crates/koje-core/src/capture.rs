@@ -315,6 +315,8 @@ pub struct Added {
     pub id: WindowId,
     /// Where the active layout wants it: a restored window (M5.3).
     pub place: Option<Placement>,
+    /// A restored window that is not in the active layout: to the stash (M5.5).
+    pub stash: bool,
 }
 
 impl Live {
@@ -373,6 +375,7 @@ impl Live {
             return Some(Added {
                 id: w.id.clone(),
                 place: None,
+                stash: false,
             });
         }
         let integration = integration::find(integrations, app_id).map(|i| i.name.as_str());
@@ -402,7 +405,12 @@ impl Live {
                 .get(&self.state.active_layout)
                 .and_then(|l| l.windows.get(&spec.id))
                 .cloned();
-            return Some(Added { id: spec.id, place });
+            let stash = place.is_none();
+            return Some(Added {
+                id: spec.id,
+                place,
+                stash,
+            });
         }
         let name = integration::find(integrations, app_id).map(|i| i.name.as_str());
         let id = new_id(&self.taken(), &base_id(name, app_id))?;
@@ -420,7 +428,11 @@ impl Live {
             .or_default()
             .windows
             .insert(id.clone(), placement);
-        Some(Added { id, place: None })
+        Some(Added {
+            id,
+            place: None,
+            stash: false,
+        })
     }
 
     /// A window closed: it leaves the state and every layout (ADR 0004).
@@ -682,7 +694,8 @@ mod tests {
             live.add("0x1", "org.mozilla.firefox", &all, at(9)).unwrap(),
             Added {
                 id: id("browser"),
-                place: None
+                place: None,
+                stash: false
             }
         );
         let a = live.add("0x2", "foot", &all, at(5)).unwrap();
@@ -690,7 +703,8 @@ mod tests {
             a,
             Added {
                 id: id("foot"),
-                place: Some(at(0))
+                place: Some(at(0)),
+                stash: false
             },
             "first waiting foot, placed from the layout"
         );
@@ -699,7 +713,8 @@ mod tests {
             b,
             Added {
                 id: id("foot-2"),
-                place: Some(at(100))
+                place: Some(at(100)),
+                stash: false
             }
         );
         let c = live.add("0x4", "foot", &all, at(5)).unwrap();
@@ -733,7 +748,8 @@ mod tests {
             added,
             Added {
                 id: id("browser"),
-                place: Some(at(1756))
+                place: Some(at(1756)),
+                stash: false
             }
         );
         // Not across integrations: a terminal does not take a waiting viewer.

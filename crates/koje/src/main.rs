@@ -10,6 +10,7 @@ mod commands;
 mod doctor;
 mod hostbus;
 mod kojed;
+mod layout;
 mod prompt;
 mod runtime;
 mod setup;

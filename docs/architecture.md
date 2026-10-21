@@ -135,7 +135,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje state list \| cp \| mv \| rm` | manage states (`rm` is the only way to delete) |
 | `koje layout <name> \| next \| prev` | switch layout |
 | `koje layout new \| save \| autosave \| list \| mv \| rm` | manage layouts |
-| `koje stash` / `koje unstash <window> [--to <layout>]` | stash / bring back a window |
+| `koje stash [--show]` / `koje unstash [<window>] [--to <layout>]` | stash the focused window / show the stash / bring a window back (default: the focused one); `-c <context>`, default the active one |
 | `koje focus <context>` | switch to a context |
 | `koje snap <zone>` | put focused window into a zone |
 | `koje overlay <name>` / `pin` / `unpin` | overlays |

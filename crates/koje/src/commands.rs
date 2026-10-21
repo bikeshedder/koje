@@ -51,7 +51,13 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Save { ctx, state } => {
             crate::runtime::save(&paths, &ctx.context, state.as_deref())
         }
-        Command::Stash | Command::Unstash { .. } | Command::Layout { .. } => todo_in("M5"),
+        Command::Layout { cmd, name, ctx } => {
+            crate::layout::run(cmd.as_ref(), name.as_deref(), ctx)
+        }
+        Command::Stash { show, ctx } => crate::layout::stash(*show, ctx),
+        Command::Unstash { window, to, ctx } => {
+            crate::layout::unstash(window.as_deref(), to.as_deref(), ctx)
+        }
 
         Command::Stats { .. } | Command::Limit { .. } => todo_in("M6"),
 

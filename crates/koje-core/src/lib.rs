@@ -22,6 +22,7 @@ pub mod integration;
 pub mod layout;
 pub mod layouts;
 pub mod lifecycle;
+pub mod live_layouts;
 pub mod memory;
 pub mod mount;
 pub mod name;
