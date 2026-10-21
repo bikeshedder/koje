@@ -36,6 +36,7 @@ in_ctr() { podman exec "$NAME" sh -c "$1"; }
 
 cleanup() {
   podman rm -f "$NAME" >/dev/null 2>&1
+  podman volume rm "$NAME-home" >/dev/null 2>&1
   in_ns "umount -R '$LIVE' 2>/dev/null; true"
   rm -rf "$SRC" "${LIVE%/live}"
 }
@@ -57,8 +58,10 @@ check "bind + make-rshared" in_ns "mount --bind '$LIVE' '$LIVE' && mount --make-
 check "a new podman unshare still sees it (persistent)" in_ns "findmnt -no TARGET,PROPAGATION '$LIVE'"
 
 step "3. container with the directory as rslave (koje's flags)"
+# Round 2: a home volume like a real context's (step 8).
 check "podman run" podman run -d --name "$NAME" --label io.koje.test=true \
   --userns=keep-id --security-opt label=disable \
+  --volume "$NAME-home:$HOME:U" \
   --volume "$LIVE:$IN:rslave" "$IMAGE" sleep infinity
 check "propagation inside" in_ctr "findmnt -no TARGET,PROPAGATION $IN"
 
@@ -68,8 +71,12 @@ check "container sees a/hello.txt" in_ctr "cat $IN/a/hello.txt"
 check "container writes a/back.txt" in_ctr "echo from-container > $IN/a/back.txt"
 check "host sees it, owned by the user" ls -ln "$SRC/a/back.txt"
 
-step "5. second folder b, read-only"
-check "mount --bind b, remount ro" in_ns "mkdir -p '$LIVE/b' && mount --bind '$SRC/b' '$LIVE/b' && mount -o remount,bind,ro '$LIVE/b'"
+step "5. second folder b, read-only (round 2: ro in a private staging dir, then bound)"
+# Round 1: `mount --bind` then `remount,ro` left the container's copy writable
+# (flags do not propagate). A bind copies its source's flags, so make the ro
+# mount where nothing propagates, then bind that into the shared directory.
+STAGE=${LIVE%/live}/stage
+check "ro bind in staging, then into the shared dir" in_ns "mkdir -p '$STAGE/b' '$LIVE/b' && mount --bind '$SRC/b' '$STAGE/b' && mount --make-private '$STAGE/b' && mount -o remount,bind,ro '$STAGE/b' && mount --bind '$STAGE/b' '$LIVE/b'"
 check "container sees b/hello.txt" in_ctr "cat $IN/b/hello.txt"
 if in_ctr "echo x > $IN/b/nope.txt" 2>/dev/null; then
   echo "-> FAIL  b is writable in the container"
@@ -90,10 +97,11 @@ step "7. restart the container: b still there?"
 check "podman restart" podman restart -t 1 "$NAME"
 check "b after restart" in_ctr "cat $IN/b/hello.txt"
 
-step "8. own path inside the container?"
-# The folder appears below $IN only. A symlink at its own path, created inside
-# the container, is one way to show it at its usual path:
-check "symlink at the folder's own path" in_ctr "mkdir -p '$(dirname "$SRC")' 2>&1 && ln -sfn $IN/b '$SRC-link' && cat '$SRC-link/hello.txt'"
+step "8. own path inside the container (home is a volume, as in a context)"
+# The folder appears below $IN only. A symlink at its own path in the
+# context's home shows it at its usual path:
+check "symlink at the folder's own path" in_ctr "mkdir -p '$(dirname "$SRC")' && ln -sfn $IN/b '$SRC' && cat '$SRC/hello.txt'"
+check "what programs see: pwd vs pwd -P" in_ctr "cd '$SRC' && pwd && pwd -P"
 
 step "9. host side"
 check "host does not see Podman-namespace mounts in $LIVE/b (expected: empty)" ls -A "$LIVE/b"
