@@ -38,10 +38,16 @@ pub fn up(
     let podman = Podman::new();
     let status = podman.status(&name)?;
     let plan = plan_up(status);
-    // Running with windows: kojed has its live state, nothing to restore (its
-    // recovery file is current). Otherwise a recovery file means a crash.
-    let has_windows = plan == UpPlan::AlreadyRunning && live_windows(&name) > 0;
-    let mut to_load = if has_windows {
+    // Running: kojed has its live state (even without windows, after
+    // `up -s empty`) and its recovery file is current – unless kojed found the
+    // windows lost (Hyprland or the session crashed). Stopped with a recovery
+    // file: it did not shut down cleanly.
+    let running = plan == UpPlan::AlreadyRunning;
+    let kojed_says = if running { windows_lost(&name) } else { None };
+    let lost = kojed_says == Some(true);
+    // Without kojed nothing can be restored or switched: "already running".
+    let live_known = running && kojed_says == Some(false);
+    let mut to_load = if running && !lost {
         state_to_load(paths, &name, &cfg, &requested)?
     } else {
         load_or_recover(paths, &name, &cfg, &requested, recover, no_recover)?
@@ -86,9 +92,10 @@ pub fn up(
             podman.start(&name)?;
             println!("started {name}");
         }
-        UpPlan::AlreadyRunning if has_windows && state.is_some() => {
+        UpPlan::AlreadyRunning if live_known && state.is_some() => {
             switch_state(paths, &name, &cfg, &requested, to_load.take(), no_save)?;
         }
+        UpPlan::AlreadyRunning if lost => println!("{name} is running, but its windows were lost"),
         UpPlan::AlreadyRunning => println!("{name} is already running"),
         UpPlan::Paused => unreachable!("handled above"),
     }
@@ -98,7 +105,7 @@ pub fn up(
     {
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
-    if !has_windows
+    if (!running || lost)
         && let Some((label, state)) = to_load
         && !state.windows.is_empty()
     {
@@ -161,12 +168,10 @@ fn switch_state(
     Ok(())
 }
 
-/// Windows kojed knows of a running context (0 without kojed).
-fn live_windows(name: &ContextName) -> u32 {
-    crate::kojed::call::<_, Vec<(String, String, u32, bool)>>("RunningContexts", &())
-        .ok()
-        .and_then(|all| all.into_iter().find(|(n, ..)| n == name.as_str()))
-        .map_or(0, |(_, _, windows, _)| windows)
+/// Whether kojed found the running context's windows lost; `None` without
+/// kojed.
+fn windows_lost(name: &ContextName) -> Option<bool> {
+    crate::kojed::call::<_, bool>("WindowsLost", &(name.as_str(),)).ok()
 }
 
 /// The state to load, or the recovery file after a crash (ADR 0006): asked,

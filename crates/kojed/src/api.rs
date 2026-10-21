@@ -352,6 +352,14 @@ impl Api {
         d.toggle_stash(&ctx).await.map_err(|e| failed(&e))
     }
 
+    /// Whether a running context lost its windows (Hyprland or the session
+    /// crashed, the container survived): `koje up` then offers its recovery
+    /// file (ADR 0006).
+    async fn windows_lost(&self, context: &str) -> fdo::Result<bool> {
+        let ctx = context_arg(context)?;
+        Ok(self.daemon.lock().await.is_lost(&ctx))
+    }
+
     /// Switch a running context to another state (TOML, as a state file;
     /// M5.9). Returns `(windows kept, windows closed, programs started)`.
     /// New windows that do not appear within a minute leave the live state.

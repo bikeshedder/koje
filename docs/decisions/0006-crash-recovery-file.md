@@ -23,3 +23,9 @@ is when that state was current ("restore the state from 15:42?").
 + No setting needed; state semantics unchanged.
 - Programs restore their own content (browser tabs, editor buffers); koje restores
   programs, layouts and geometry only.
+- Update (M5.8/M5.9): `up` asks when the context is stopped and has a
+  recovery file, or when it runs but kojed reports its windows lost (a
+  restarted kojed found the recovery file and none of its windows – Hyprland or
+  the session crashed, the container survived). A running context without
+  windows is not a crash (`up -s empty`); kojed keeps its recovery file current
+  also then.

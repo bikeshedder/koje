@@ -72,6 +72,10 @@ pub struct Daemon<C, R> {
     fm_cache: BTreeMap<ContextName, FolderCache>,
     /// The recovery file last written per context, to write only changes.
     recovery_written: BTreeMap<ContextName, String>,
+    /// Running contexts whose windows were lost: a restarted kojed found
+    /// their recovery file but none of its windows (Hyprland or the session
+    /// crashed, the container survived). `koje up` offers to restore them.
+    lost: BTreeMap<ContextName, State>,
 }
 
 type FolderCache = (Vec<(String, String)>, BTreeMap<String, String>);
@@ -98,6 +102,7 @@ where
             workspace: None,
             fm_cache: BTreeMap::new(),
             recovery_written: BTreeMap::new(),
+            lost: BTreeMap::new(),
         }
     }
 
@@ -283,6 +288,7 @@ where
                 "{ctx} already has windows – switching states in a running context comes with M5.9"
             );
         }
+        self.lost.remove(ctx);
         let live = Live::restoring(state);
         let plan = restore::plan(&live.pending, &self.integrations, &self.home);
         self.live.insert(ctx.clone(), live);
@@ -324,6 +330,7 @@ where
         target: State,
     ) -> Result<(usize, usize, usize)> {
         self.require(ctx)?;
+        self.lost.remove(ctx);
         let present = self
             .compositor
             .windows()
@@ -400,11 +407,14 @@ where
     /// compositor events for that, M2.2) – and write it to the recovery file
     /// when it changed (ADR 0006).
     pub async fn tick(&mut self) {
+        // Also contexts without windows: the file must not keep windows that
+        // were closed on purpose (`up -s empty`). Not lost ones: their file
+        // holds what may be restored.
         let contexts: Vec<ContextName> = self
             .live
-            .iter()
-            .filter(|(_, l)| !l.windows.is_empty() || !l.pending.is_empty())
-            .map(|(c, _)| c.clone())
+            .keys()
+            .filter(|c| !self.lost.contains_key(*c))
+            .cloned()
             .collect();
         for ctx in contexts {
             let state = match self.state(&ctx).await {
@@ -444,6 +454,7 @@ where
             match koje_core::recovery::read(&self.paths, &ctx) {
                 Ok(Some(r)) => {
                     tracing::info!(context = %ctx, "live state from the recovery file");
+                    self.lost.insert(ctx.clone(), r.loaded.state.clone());
                     self.live
                         .insert(ctx.clone(), Live::restoring(r.loaded.state));
                     recovered.push(ctx);
@@ -458,6 +469,7 @@ where
     /// `koje down` stopped `ctx`: its live state is over.
     pub async fn stopped(&mut self, ctx: &ContextName) {
         self.recovery_written.remove(ctx);
+        self.lost.remove(ctx);
         self.fm_cache.remove(ctx);
         self.running().await;
         if let Some(r) = self.running.as_mut() {
@@ -540,6 +552,11 @@ where
             }
         }
         open
+    }
+
+    /// Whether the windows of the running `ctx` were lost (see `lost`).
+    pub fn is_lost(&self, ctx: &ContextName) -> bool {
+        self.lost.contains_key(ctx)
     }
 
     /// Restored windows of `ctx` that did not appear leave its state.
@@ -804,9 +821,17 @@ where
             }
             self.windows.insert(&w.address, w.pid, ctx);
         }
-        // Windows of a recovered state that are not there any more.
+        // Windows of a recovered state that are not there any more. If none
+        // is left, the context's windows were lost (kept for `koje up`).
         for ctx in &recovered {
             self.expire_pending(ctx);
+            let empty = self.live.get(ctx).is_none_or(|l| l.windows.is_empty());
+            let had_windows = self.lost.get(ctx).is_some_and(|s| !s.windows.is_empty());
+            if empty && had_windows {
+                tracing::info!(context = %ctx, "its windows are gone: koje up offers to restore them");
+            } else {
+                self.lost.remove(ctx);
+            }
         }
         // Contexts created since the colors were loaded.
         if self
@@ -1791,6 +1816,60 @@ browser = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
             "Firefox keeps a window: no SIGTERM"
         );
         assert_eq!(s.runtime.launched.lock().unwrap()[0].0, "evince talk.pdf");
+    }
+
+    /// Host test of M5.9: after `up -s empty` the recovery file still had
+    /// the old windows, and `up -s default` asked to recover them.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_emptied_context_has_an_empty_recovery_file() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        d.tick().await;
+        let file = s.paths.recovery_file(&ctx("work"));
+        assert!(std::fs::read_to_string(&file).unwrap().contains("terminal"));
+        d.switch_state(
+            &ctx("work"),
+            State::new(koje_core::name::LayoutName::initial()),
+        )
+        .await
+        .unwrap();
+        d.handle(CompositorEvent::WindowClosed {
+            address: "0xa".into(),
+        })
+        .await
+        .unwrap();
+        comp.close("0xa");
+        d.tick().await;
+        assert!(!std::fs::read_to_string(&file).unwrap().contains("terminal"));
+        assert!(!d.is_lost(&ctx("work")));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn windows_lost_while_the_context_ran() {
+        let s = setup();
+        let saved = State::parse(
+            "active_layout = \"main\"\n[[windows]]\nid = \"term\"\ncommand = \"foot\"\napp_id = \"foot\"\n",
+            std::path::Path::new("x"),
+        )
+        .unwrap()
+        .state;
+        koje_core::recovery::write(&s.paths, &ctx("work"), &saved).unwrap();
+        // kojed restarts after a Hyprland crash: the container runs, no windows.
+        let comp = FakeCompositor::default();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        assert!(d.is_lost(&ctx("work")));
+        d.tick().await;
+        let file = s.paths.recovery_file(&ctx("work"));
+        assert!(
+            std::fs::read_to_string(&file).unwrap().contains("term"),
+            "kept for koje up"
+        );
+        d.restore(&ctx("work"), saved).await.unwrap();
+        assert!(!d.is_lost(&ctx("work")));
     }
 
     #[tokio::test(flavor = "current_thread")]
