@@ -22,10 +22,11 @@ pub struct Ctx {
     pub context: String,
 }
 
-/// Optional context; defaults to the context of the focused window.
+/// Optional context; defaults to the active context.
 #[derive(Debug, Args)]
 pub struct ActiveCtx {
-    /// Context to act on (default: the context of the focused window).
+    /// Context to act on (default: the active one – the context of the focused
+    /// workspace, else of the focused window).
     #[arg(short, long)]
     pub context: Option<String>,
 }
