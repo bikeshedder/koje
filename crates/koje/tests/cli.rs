@@ -80,7 +80,7 @@ printf '%s\n' "$*" >> {log}
 case "$1" in
   container) if [ -f {status} ]; then cat {status}; else echo "Error: no such container" >&2; exit 125; fi ;;
   image) exit 0 ;;
-  volume) case "$2" in exists) test -f {status}.volume ;; rm) rm -f {status}.volume ;; esac ;;
+  volume) case "$2" in exists) test -f {status}.volume ;; rm) rm -f {status}.volume ;; create) touch {status}.volume ;; inspect) echo {status}.voldata ;; esac ;;
   rm) rm -f {status} ;;
   create) echo exited > {status}; touch {status}.volume ;;
   start) echo running > {status} ;;
@@ -579,7 +579,12 @@ fn rm_removes_container_and_home_volume() {
     let log = podman_log(tmp.path());
     let tail: Vec<&str> = log
         .lines()
-        .filter(|l| !l.starts_with("container") && !l.starts_with("volume exists"))
+        .filter(|l| {
+            !l.starts_with("container")
+                && !l.starts_with("volume exists")
+                && !l.starts_with("volume inspect")
+                && !l.starts_with("unshare")
+        })
         .collect();
     assert!(
         tail.ends_with(&[
@@ -985,15 +990,15 @@ fn up_prepares_live_mounts() {
     stdout(&koje(tmp.path(), &["new", "kp"]));
     stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
     let log = podman_log(tmp.path());
-    let dir = tmp.path().join("run/koje/kp/mounts");
+    let data = tmp.path().join("podman.status.voldata");
+    assert!(log.contains("volume create koje-kp-home"), "{log}");
     assert!(
         log.contains("unshare sh -c"),
-        "the live dir is shared first: {log}"
+        "the home is shared first: {log}"
     );
     assert!(
-        log.contains(&format!("--volume {}:", dir.display())),
-        "{log}"
+        log.contains(&format!("--volume {}:", data.display())) && log.contains(":rslave"),
+        "the home volume's directory at $HOME, rslave: {log}"
     );
-    assert!(log.contains("/koje-mounts:rslave"), "{log}");
-    assert!(log.contains("--label io.koje.mounts=[]"), "{log}");
+    assert!(log.contains("--label io.koje.home-mounts=[]"), "{log}");
 }

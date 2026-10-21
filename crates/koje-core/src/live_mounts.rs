@@ -1,48 +1,18 @@
 //! Folders mounted into a running context (M5.11, spike M2.12, ADR 0033).
 //!
 //! Mounts in `context.toml` are real mounts at their own path when the
-//! container is created; the container records them in a label. Each context
-//! also has a *live directory*: shared inside rootless Podman's namespace and
-//! mounted into the container with `rslave`, so folders bound into it later
-//! appear in the running context. There a symlink at the folder's own path
-//! shows it where it belongs. This module decides; koje-podman executes.
+//! container is created; the container records them in a label. The
+//! context's home is the home volume's directory, shared inside rootless
+//! Podman's namespace and mounted at `$HOME` with `rslave`: a folder bound to
+//! `<volume dir>/<its path below $HOME>` there appears at its own path in the
+//! running context, as a real mount. This module decides; koje-podman executes.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::name::ContextName;
-
-/// Label with the configured mounts a container was created with (JSON list).
-pub const LABEL_MOUNTS: &str = "io.koje.mounts";
-
-/// The live directory on the host: `<runtime>/koje/<context>/mounts`.
-pub fn host_dir(runtime: &Path, ctx: &ContextName) -> PathBuf {
-    runtime.join("koje").join(ctx.as_str()).join("mounts")
-}
-
-/// Where the live directory is in the context, below its `XDG_RUNTIME_DIR`.
-pub const DIR_IN_CONTEXT: &str = "koje-mounts";
-
-/// FNV-1a, enough to tell paths apart in a directory name.
-fn short_hash(s: &str) -> u32 {
-    s.bytes().fold(0x811c_9dc5_u32, |h, b| {
-        (h ^ u32::from(b)).wrapping_mul(0x0100_0193)
-    })
-}
-
-/// The name of a folder's entry in the live directory: readable path parts
-/// plus a hash (`/home/mj/src/kp` → `home-mj-src-kp-1a2b3c4d`).
-pub fn slot(path: &Path) -> String {
-    let text = path.display().to_string();
-    let readable: String = text
-        .trim_start_matches('/')
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let mut readable = readable.trim_matches('-').to_owned();
-    readable.truncate(60);
-    format!("{readable}-{:08x}", short_hash(&text))
-}
+/// Label with the configured mounts a container was created with (a TOML
+/// array). Only containers whose home is shared for live mounts have it.
+pub const LABEL_MOUNTS: &str = "io.koje.home-mounts";
 
 /// The label value for the configured mounts: a TOML array of paths.
 pub fn encode(mounts: &[PathBuf]) -> String {
@@ -66,14 +36,24 @@ pub fn decode(label: &str) -> Option<Vec<PathBuf>> {
     Some(w.m.into_iter().map(PathBuf::from).collect())
 }
 
+/// Where a folder is mounted live: its path below `home`; `None` outside the
+/// home (or the home itself).
+pub fn below_home(path: &Path, home: &Path) -> Option<PathBuf> {
+    path.strip_prefix(home)
+        .ok()
+        .filter(|rel| !rel.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+}
+
 /// What to do so the running context has exactly the configured mounts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Plan {
-    /// Configured but neither a real nor a live mount yet: mount live.
+    /// Configured, below the home, neither real nor live yet: mount live.
     pub add: Vec<PathBuf>,
-    /// Live entries (slots) no longer configured: unmount (lazily).
-    pub remove: Vec<String>,
-    /// Real mounts no longer configured: only a recreate removes them.
+    /// Live mounts no longer configured: unmount (lazily).
+    pub remove: Vec<PathBuf>,
+    /// Only a recreate helps: real mounts no longer configured, and new mounts
+    /// outside the home.
     pub needs_recreate: Vec<PathBuf>,
 }
 
@@ -84,34 +64,30 @@ impl Plan {
 }
 
 /// `desired`: the configured mounts (resolved); `real`: those the container
-/// was created with (its label); `live`: the slots mounted in the live
-/// directory now.
-pub fn plan(desired: &[PathBuf], real: &[PathBuf], live: &[String]) -> Plan {
+/// was created with (its label); `live`: the folders mounted live now.
+pub fn plan(desired: &[PathBuf], real: &[PathBuf], live: &[PathBuf], home: &Path) -> Plan {
     let real_set: BTreeSet<&PathBuf> = real.iter().collect();
     let desired_set: BTreeSet<&PathBuf> = desired.iter().collect();
-    let live_set: BTreeSet<&str> = live.iter().map(String::as_str).collect();
-    let wanted_slots: BTreeSet<String> = desired
+    let live_set: BTreeSet<&PathBuf> = live.iter().collect();
+    let mut plan = Plan::default();
+    for p in desired
         .iter()
-        .filter(|p| !real_set.contains(p))
-        .map(|p| slot(p))
-        .collect();
-    Plan {
-        add: desired
-            .iter()
-            .filter(|p| !real_set.contains(p) && !live_set.contains(slot(p).as_str()))
-            .cloned()
-            .collect(),
-        remove: live
-            .iter()
-            .filter(|s| !wanted_slots.contains(*s))
-            .cloned()
-            .collect(),
-        needs_recreate: real
-            .iter()
-            .filter(|p| !desired_set.contains(p))
-            .cloned()
-            .collect(),
+        .filter(|p| !real_set.contains(p) && !live_set.contains(p))
+    {
+        if below_home(p, home).is_some() {
+            plan.add.push(p.clone());
+        } else {
+            plan.needs_recreate.push(p.clone());
+        }
     }
+    plan.remove = live
+        .iter()
+        .filter(|p| !desired_set.contains(p))
+        .cloned()
+        .collect();
+    plan.needs_recreate
+        .extend(real.iter().filter(|p| !desired_set.contains(p)).cloned());
+    plan
 }
 
 #[cfg(test)]
@@ -120,19 +96,6 @@ mod tests {
 
     fn p(s: &str) -> PathBuf {
         PathBuf::from(s)
-    }
-
-    #[test]
-    fn slots_are_readable_and_distinct() {
-        let a = slot(&p("/home/mj/src/kp"));
-        assert!(a.starts_with("home-mj-src-kp-"), "{a}");
-        assert_eq!(a.len(), "home-mj-src-kp-".len() + 8);
-        assert_ne!(
-            slot(&p("/home/mj/a-b")),
-            slot(&p("/home/mj/a/b")),
-            "same readable part"
-        );
-        assert_eq!(slot(&p("/x")), slot(&p("/x")));
     }
 
     #[test]
@@ -145,18 +108,37 @@ mod tests {
     }
 
     #[test]
+    fn below_the_home() {
+        let home = p("/home/mj");
+        assert_eq!(below_home(&p("/home/mj/src/kp"), &home), Some(p("src/kp")));
+        assert_eq!(below_home(&p("/home/mj"), &home), None);
+        assert_eq!(below_home(&p("/home/mjx/a"), &home), None);
+        assert_eq!(below_home(&p("/srv/data"), &home), None);
+    }
+
+    #[test]
     fn plan_adds_removes_and_asks() {
+        let home = p("/home/mj");
         let real = [p("/home/mj/src/kp"), p("/home/mj/docs")];
-        let live = [slot(&p("/home/mj/old")), slot(&p("/home/mj/new"))];
-        let desired = [p("/home/mj/src/kp"), p("/home/mj/new"), p("/home/mj/more")];
-        let plan = plan(&desired, &real, &live);
+        let live = [p("/home/mj/old"), p("/home/mj/new")];
+        let desired = [
+            p("/home/mj/src/kp"),
+            p("/home/mj/new"),
+            p("/home/mj/more"),
+            p("/srv/data"),
+        ];
+        let plan = plan(&desired, &real, &live, &home);
         assert_eq!(
             plan.add,
             [p("/home/mj/more")],
             "new is live already, kp real"
         );
-        assert_eq!(plan.remove, [slot(&p("/home/mj/old"))]);
-        assert_eq!(plan.needs_recreate, [p("/home/mj/docs")]);
-        assert!(super::plan(&real, &real, &[]).is_empty());
+        assert_eq!(plan.remove, [p("/home/mj/old")]);
+        assert_eq!(
+            plan.needs_recreate,
+            [p("/srv/data"), p("/home/mj/docs")],
+            "outside the home; a removed real mount"
+        );
+        assert!(super::plan(&real, &real, &[], &home).is_empty());
     }
 }

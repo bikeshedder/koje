@@ -253,6 +253,8 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
         podman.remove(&name)?;
     }
     if has_volume {
+        // Shared for live mounts (ADR 0033): unmount it in Podman's namespace first.
+        podman.release_home(&name)?;
         podman.remove_volume(&volume)?;
     }
     crate::hostbus::stop_proxy(&name);

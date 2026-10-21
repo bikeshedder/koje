@@ -128,10 +128,6 @@ fn prepare_host(
     plan: UpPlan,
 ) -> Result<koje_core::spec::HostEnv> {
     let mut host = koje_podman::host::detect().context("detecting the host environment")?;
-    // The live mounts directory: shared before the container starts (ADR 0033).
-    if plan != UpPlan::AlreadyRunning {
-        host.live_mounts_dir = Some(crate::mounts::prepare(podman, name)?);
-    }
     // kojed's security-context socket (ADR 0022); it must exist before the
     // container starts, since its directory is mounted.
     if access.wayland {
@@ -144,6 +140,11 @@ fn prepare_host(
         let dir: String = crate::kojed::call("SoundSockets", &(name.as_str(),))
             .context("getting the context's sound sockets from kojed")?;
         host.sound_dir = Some(dir.into());
+    }
+    // The home, shared for live mounts before the container starts (ADR 0033);
+    // after kojed's sockets, so nothing is created when those fail.
+    if plan != UpPlan::AlreadyRunning {
+        host.home_dir = Some(crate::mounts::prepare(podman, name)?);
     }
     // The proxy first: its directory must exist when the container starts.
     if koje_core::hostbus::needed(access) {

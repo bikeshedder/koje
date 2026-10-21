@@ -1,38 +1,29 @@
 //! Mounts of a running context follow `context.toml` (M5.11, ADR 0033):
-//! configured mounts the container was not created with are mounted live
-//! (below its live directory, with a symlink at their own path); live ones no
-//! longer configured are unmounted lazily; removed real mounts need a recreate.
+//! configured folders below the home that the container was not created with
+//! are mounted live at their own path (bound below the shared home in Podman's
+//! namespace); live ones no longer configured are unmounted lazily; removed
+//! real mounts and new ones outside the home need a recreate.
 
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 use koje_core::config::ContextConfig;
-use koje_core::live_mounts::{self, DIR_IN_CONTEXT};
+use koje_core::live_mounts::{self, below_home};
 use koje_core::name::ContextName;
 use koje_core::paths::Paths;
 use koje_podman::Podman;
-use koje_podman::live::Link;
 
-/// `$XDG_RUNTIME_DIR` on the host.
-fn runtime_dir() -> Result<PathBuf> {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .context("XDG_RUNTIME_DIR is not set")
-}
-
-/// Prepare the context's live directory before its container starts; the
+/// Share the home volume's directory before the container starts; the
 /// directory for the spec.
 pub fn prepare(podman: &Podman, name: &ContextName) -> Result<PathBuf> {
-    let dir = live_mounts::host_dir(&runtime_dir()?, name);
     podman
-        .prepare_live_dir(&dir)
-        .with_context(|| format!("preparing the live mounts of {name}"))?;
-    Ok(dir)
+        .prepare_home(name)
+        .with_context(|| format!("preparing {name}'s home for live mounts"))
 }
 
 /// Bring the running context's mounts in line with `cfg`. `previous`: the
-/// mounts before an edit, to find the paths of live entries to remove;
-/// `None` when nothing was edited (`koje up`: no note for old containers).
+/// mounts before an edit (live ones among them may have to go); `None` when
+/// nothing was edited (`koje up`: no note for old containers).
 pub fn sync(
     paths: &Paths,
     name: &ContextName,
@@ -41,57 +32,51 @@ pub fn sync(
 ) -> Result<()> {
     let podman = Podman::new();
     let Some(real) = podman.container_mounts(name)? else {
-        if previous.is_none() {
-            return Ok(());
+        if previous.is_some() {
+            println!(
+                "note: {name}'s container is from before live mounts – mount changes apply \
+                 after recreating it: koje down {name} && podman rm koje-{name} && koje up {name}"
+            );
         }
-        println!(
-            "note: {name}'s container is from before live mounts – mount changes apply \
-             after recreating it: koje down {name} && podman rm koje-{name} && koje up {name}"
-        );
         return Ok(());
     };
-    let desired = koje_podman::host::resolve_mounts(cfg, &paths.host_dirs()?)?;
-    let dir = live_mounts::host_dir(&runtime_dir()?, name);
-    let live = podman.live_slots(&dir)?;
-    let plan = live_mounts::plan(&desired, &real, &live);
-    if plan.is_empty() {
-        return Ok(());
-    }
     let user = koje_podman::host::image_user().context("finding the current user")?;
     let home = PathBuf::from(&user.home);
-    let inside = PathBuf::from(format!("/run/user/{}", user.uid)).join(DIR_IN_CONTEXT);
+    let desired = koje_podman::host::resolve_mounts(cfg, &paths.host_dirs()?)?;
+    let home_dir = prepare(&podman, name)?;
+    // Live now: of the configured and previous mounts below the home.
+    let candidates: Vec<PathBuf> = desired
+        .iter()
+        .chain(previous.unwrap_or_default())
+        .filter(|p| !real.contains(p))
+        .filter_map(|p| below_home(p, &home))
+        .collect();
+    let live: Vec<PathBuf> = podman
+        .live_mounted(&home_dir, &candidates)?
+        .into_iter()
+        .map(|rel| home.join(rel))
+        .collect();
+    let plan = live_mounts::plan(&desired, &real, &live, &home);
     for path in &plan.add {
-        let slot = live_mounts::slot(path);
+        let below = below_home(path, &home).unwrap_or_default();
         podman
-            .live_mount(&dir, &slot, path)
+            .live_mount(&home_dir, &below, path)
             .with_context(|| format!("mounting {} into {name}", path.display()))?;
-        let target = inside.join(&slot);
-        match podman.link_in_context(name, path, &target, !path.starts_with(&home))? {
-            Link::Created => println!("mounted {} into {name} (live)", path.display()),
-            Link::Occupied => println!(
-                "mounted {} into {name} at {} – its own path is taken inside the context",
-                path.display(),
-                target.display()
-            ),
-        }
+        println!("mounted {} into {name} (live)", path.display());
     }
-    for slot in &plan.remove {
-        podman.live_unmount(&dir, slot)?;
-        match previous
-            .unwrap_or_default()
-            .iter()
-            .find(|p| live_mounts::slot(p) == *slot)
-        {
-            Some(path) => {
-                podman.unlink_in_context(name, path)?;
-                println!("unmounted {} from {name}", path.display());
-            }
-            None => println!("unmounted {slot} from {name}"),
-        }
+    for path in &plan.remove {
+        let below = below_home(path, &home).unwrap_or_default();
+        podman.live_unmount(&home_dir, &below)?;
+        println!("unmounted {} from {name}", path.display());
     }
     for path in &plan.needs_recreate {
+        let why = if real.contains(path) {
+            "stays mounted"
+        } else {
+            "is outside the home and gets mounted"
+        };
         println!(
-            "note: {} stays mounted in {name} until its container is recreated \
+            "note: {} {why} only when {name}'s container is recreated \
              (koje down {name} && podman rm koje-{name} && koje up {name})",
             path.display()
         );
