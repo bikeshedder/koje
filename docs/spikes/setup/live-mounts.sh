@@ -37,7 +37,9 @@ in_ctr() { podman exec "$NAME" sh -c "$1"; }
 cleanup() {
   podman rm -f "$NAME" >/dev/null 2>&1
   podman volume rm "$NAME-home" >/dev/null 2>&1
-  in_ns "umount -R '$LIVE' 2>/dev/null; true"
+  # The shared dir and the staging dir: nothing of the spike stays mounted
+  # in Podman's namespace. Lazily, in case something still uses them.
+  in_ns "umount -R -l '$LIVE' 2>/dev/null; umount -R -l '${LIVE%/live}/stage/b' 2>/dev/null; true"
   rm -rf "$SRC" "${LIVE%/live}"
 }
 trap cleanup EXIT
