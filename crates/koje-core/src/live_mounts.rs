@@ -45,49 +45,118 @@ pub fn below_home(path: &Path, home: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// What to do so the running context has exactly the configured mounts.
+/// The folders mounted live, from `findmnt -rn -o TARGET -R <home dir>`
+/// inside Podman's namespace: below `home_dir`, top-level ones only (a mount
+/// inside a mounted folder belongs to it), as paths below the home.
+pub fn parse_findmnt(out: &str, home_dir: &Path) -> Vec<PathBuf> {
+    let unescape = |s: &str| {
+        // findmnt -r writes unusual characters as \xHH.
+        let mut bytes = Vec::new();
+        let b = s.as_bytes();
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'\\'
+                && b.get(i + 1) == Some(&b'x')
+                && let Some(v) = s
+                    .get(i + 2..i + 4)
+                    .and_then(|h| u8::from_str_radix(h, 16).ok())
+            {
+                bytes.push(v);
+                i += 4;
+            } else {
+                bytes.push(b[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    let mut rels: Vec<PathBuf> = out
+        .lines()
+        .map(|l| PathBuf::from(unescape(l.trim())))
+        .filter_map(|t| t.strip_prefix(home_dir).ok().map(Path::to_path_buf))
+        .filter(|r| !r.as_os_str().is_empty())
+        .collect();
+    rels.sort();
+    let mut top: Vec<PathBuf> = Vec::new();
+    for r in rels {
+        if !top.iter().any(|t| r.starts_with(t)) {
+            top.push(r);
+        }
+    }
+    top
+}
+
+/// What to do so the context has exactly the configured mounts: folders
+/// below the home are live mounts (added and removed at any time), folders
+/// outside it real mounts made when the container is created.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Plan {
-    /// Configured, below the home, neither real nor live yet: mount live.
+    /// Configured below the home, not mounted live yet: mount.
     pub add: Vec<PathBuf>,
-    /// Live mounts no longer configured: unmount (lazily).
+    /// Mounted live, no longer configured: unmount (lazily).
     pub remove: Vec<PathBuf>,
-    /// Only a recreate helps: real mounts no longer configured, and new mounts
-    /// outside the home.
-    pub needs_recreate: Vec<PathBuf>,
+    /// Real mounts no longer configured: stay until the container is recreated.
+    pub stale_real: Vec<PathBuf>,
+    /// Configured outside the home, not a real mount: needs a recreate.
+    pub missing_real: Vec<PathBuf>,
 }
 
 impl Plan {
     pub fn is_empty(&self) -> bool {
-        self.add.is_empty() && self.remove.is_empty() && self.needs_recreate.is_empty()
+        self.add.is_empty()
+            && self.remove.is_empty()
+            && self.stale_real.is_empty()
+            && self.missing_real.is_empty()
     }
 }
 
-/// `desired`: the configured mounts (resolved); `real`: those the container
-/// was created with (its label); `live`: the folders mounted live now.
-pub fn plan(desired: &[PathBuf], real: &[PathBuf], live: &[PathBuf], home: &Path) -> Plan {
-    let real_set: BTreeSet<&PathBuf> = real.iter().collect();
-    let desired_set: BTreeSet<&PathBuf> = desired.iter().collect();
-    let live_set: BTreeSet<&PathBuf> = live.iter().collect();
-    let mut plan = Plan::default();
-    for p in desired
+/// The real mounts for a new container: the configured folders outside the
+/// home (those below it are mounted live, ADR 0033).
+pub fn real_mounts(desired: &[PathBuf], home: &Path) -> Vec<PathBuf> {
+    desired
         .iter()
-        .filter(|p| !real_set.contains(p) && !live_set.contains(p))
-    {
-        if below_home(p, home).is_some() {
-            plan.add.push(p.clone());
-        } else {
-            plan.needs_recreate.push(p.clone());
-        }
-    }
-    plan.remove = live
-        .iter()
-        .filter(|p| !desired_set.contains(p))
+        .filter(|p| below_home(p, home).is_none())
         .cloned()
+        .collect()
+}
+
+/// `desired`: the configured mounts (resolved); `real`: the real mounts of the
+/// container (its label; `None` before it exists – then it will get
+/// [`real_mounts`]); `live`: the folders mounted live now.
+pub fn plan(desired: &[PathBuf], real: Option<&[PathBuf]>, live: &[PathBuf], home: &Path) -> Plan {
+    let live_set: BTreeSet<&PathBuf> = live.iter().collect();
+    let desired_set: BTreeSet<&PathBuf> = desired.iter().collect();
+    let below: Vec<&PathBuf> = desired
+        .iter()
+        .filter(|p| below_home(p, home).is_some())
         .collect();
-    plan.needs_recreate
-        .extend(real.iter().filter(|p| !desired_set.contains(p)).cloned());
-    plan
+    let below_set: BTreeSet<&PathBuf> = below.iter().copied().collect();
+    let exists = real.is_some();
+    let real = real.unwrap_or_default();
+    let real_set: BTreeSet<&PathBuf> = real.iter().collect();
+    Plan {
+        add: below
+            .iter()
+            .filter(|p| !live_set.contains(*p) && !real_set.contains(*p))
+            .map(|p| (*p).clone())
+            .collect(),
+        remove: live
+            .iter()
+            .filter(|p| !below_set.contains(p))
+            .cloned()
+            .collect(),
+        stale_real: real
+            .iter()
+            .filter(|p| !desired_set.contains(p))
+            .cloned()
+            .collect(),
+        // A new container gets them; an existing one only when recreated.
+        missing_real: desired
+            .iter()
+            .filter(|p| exists && below_home(p, home).is_none() && !real_set.contains(p))
+            .cloned()
+            .collect(),
+    }
 }
 
 #[cfg(test)]
@@ -117,28 +186,38 @@ mod tests {
     }
 
     #[test]
+    fn findmnt_output() {
+        let data = p("/v/koje-kp-home/_data");
+        let out = "/v/koje-kp-home/_data\n/v/koje-kp-home/_data/src/kp\n/v/koje-kp-home/_data/src/kp/sub\n/v/koje-kp-home/_data/My\\x20Docs\n";
+        assert_eq!(parse_findmnt(out, &data), [p("My Docs"), p("src/kp")]);
+        assert_eq!(parse_findmnt("", &data), Vec::<PathBuf>::new());
+    }
+
+    #[test]
     fn plan_adds_removes_and_asks() {
         let home = p("/home/mj");
-        let real = [p("/home/mj/src/kp"), p("/home/mj/docs")];
-        let live = [p("/home/mj/old"), p("/home/mj/new")];
-        let desired = [
-            p("/home/mj/src/kp"),
-            p("/home/mj/new"),
-            p("/home/mj/more"),
-            p("/srv/data"),
-        ];
-        let plan = plan(&desired, &real, &live, &home);
-        assert_eq!(
-            plan.add,
-            [p("/home/mj/more")],
-            "new is live already, kp real"
+        let desired = [p("/home/mj/src/kp"), p("/home/mj/more"), p("/srv/data")];
+        // A new container: below the home live, outside it real.
+        let fresh = plan(&desired, None, &[], &home);
+        assert_eq!(fresh.add, [p("/home/mj/src/kp"), p("/home/mj/more")]);
+        assert_eq!(real_mounts(&desired, &home), [p("/srv/data")]);
+        // Running: kp live already, an old live mount goes; a real mount
+        // removed from the config stays; /srv/data was never a real mount.
+        let live = [p("/home/mj/src/kp"), p("/home/mj/old")];
+        let real = [p("/srv/old")];
+        let running = plan(&desired, Some(&real), &live, &home);
+        assert_eq!(running.add, [p("/home/mj/more")]);
+        assert_eq!(running.remove, [p("/home/mj/old")]);
+        assert_eq!(running.stale_real, [p("/srv/old")]);
+        assert_eq!(running.missing_real, [p("/srv/data")]);
+        // A container from before (a creation-time mount below the home in
+        // its label): not mounted live a second time.
+        let old = plan(
+            &[p("/home/mj/src/kp")],
+            Some(&[p("/home/mj/src/kp")]),
+            &[],
+            &home,
         );
-        assert_eq!(plan.remove, [p("/home/mj/old")]);
-        assert_eq!(
-            plan.needs_recreate,
-            [p("/srv/data"), p("/home/mj/docs")],
-            "outside the home; a removed real mount"
-        );
-        assert!(super::plan(&real, &real, &[], &home).is_empty());
+        assert!(old.is_empty(), "{old:?}");
     }
 }

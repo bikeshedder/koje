@@ -371,7 +371,14 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
     );
     p.gpu(a.gpu);
     p.nested(a.nested);
-    for folder in ctx.mounts {
+    // With a shared home, folders below it are mounted live (ADR 0033); only
+    // those outside it are mounts of the container.
+    let real = if host.home_dir.is_some() {
+        crate::live_mounts::real_mounts(ctx.mounts, &host.home)
+    } else {
+        ctx.mounts.to_vec()
+    };
+    for folder in &real {
         p.mounts.push(bind(folder, folder, false));
     }
 
@@ -391,7 +398,7 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
                 if host.home_dir.is_some() {
                     labels.insert(
                         crate::live_mounts::LABEL_MOUNTS.to_owned(),
-                        crate::live_mounts::encode(ctx.mounts),
+                        crate::live_mounts::encode(&real),
                     );
                 }
                 labels
@@ -482,7 +489,8 @@ mod tests {
         assert_eq!(s.labels["io.koje.context"], "kp");
         assert_eq!(
             crate::live_mounts::decode(&s.labels["io.koje.home-mounts"]),
-            Some(vec![PathBuf::from("/home/mj/src/kp")])
+            Some(vec![]),
+            "~/src/kp is mounted live (ADR 0033), not by the container"
         );
         assert_eq!(
             s.env["WAYLAND_DISPLAY"],
@@ -518,7 +526,6 @@ mod tests {
                 "/usr/local/libexec/koje/koje-forward",
                 "/run/user/1000/koje-host",
                 "/usr/lib64/gbm/nvidia-drm_gbm.so",
-                "/home/mj/src/kp",
             ]
         );
         assert_eq!(
@@ -686,5 +693,35 @@ mod tests {
         let b = built(Profile::Full.access(), &Limits::default(), &[], &host);
         assert!(!b.spec.env.contains_key("PULSE_SERVER"));
         assert!(b.notes.iter().any(|n| n.contains("sound")), "{:?}", b.notes);
+    }
+
+    #[test]
+    fn only_folders_outside_the_home_are_container_mounts() {
+        let b = built(
+            Profile::Full.access(),
+            &Limits::default(),
+            &["/home/mj/src/kp".into(), "/srv/data".into()],
+            &host(),
+        );
+        let t = targets(&b.spec);
+        assert!(t.contains(&"/srv/data".to_owned()));
+        assert!(!t.contains(&"/home/mj/src/kp".to_owned()));
+        assert_eq!(
+            crate::live_mounts::decode(&b.spec.labels["io.koje.home-mounts"]),
+            Some(vec![PathBuf::from("/srv/data")])
+        );
+        // Without a shared home (older callers): all of them, no label.
+        let plain = HostEnv {
+            home_dir: None,
+            ..host()
+        };
+        let b = built(
+            Profile::Full.access(),
+            &Limits::default(),
+            &["/home/mj/src/kp".into()],
+            &plain,
+        );
+        assert!(targets(&b.spec).contains(&"/home/mj/src/kp".to_owned()));
+        assert!(!b.spec.labels.contains_key("io.koje.home-mounts"));
     }
 }

@@ -56,6 +56,11 @@ pub fn up(
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
     let host = prepare_host(&podman, &name, &access, plan)?;
+    // Folders below the home: mounted live into the shared home, before the
+    // container starts (ADR 0033).
+    if let Err(e) = crate::mounts::sync(paths, &name, &cfg, false) {
+        println!("note: mounts not brought up to date: {e:#}");
+    }
     match plan {
         UpPlan::CreateAndStart => {
             ensure_image(&podman, &cfg)?;
@@ -83,10 +88,6 @@ pub fn up(
         && let Err(e) = crate::hostbus::start_forwarder(&podman, &name, &access, host.uid)
     {
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
-    }
-    // Configured mounts the container was not created with: live (ADR 0033).
-    if let Err(e) = crate::mounts::sync(paths, &name, &cfg, None) {
-        println!("note: mounts not brought up to date: {e:#}");
     }
     if (!running || lost)
         && let Some(Load {

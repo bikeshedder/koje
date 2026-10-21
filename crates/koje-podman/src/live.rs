@@ -50,20 +50,11 @@ impl<R: Runner> Podman<R> {
         .map(drop)
     }
 
-    /// Of `rels` (paths below the home), those mounted live now.
-    pub fn live_mounted(&self, home_dir: &Path, rels: &[PathBuf]) -> Result<Vec<PathBuf>> {
-        if rels.is_empty() {
-            return Ok(Vec::new());
-        }
+    /// The folders mounted live in the shared home now, as paths below it.
+    pub fn live_mounts(&self, home_dir: &Path) -> Result<Vec<PathBuf>> {
         let d = home_dir.display().to_string();
-        let strs: Vec<String> = rels.iter().map(|r| r.display().to_string()).collect();
-        let mut args = vec![d.as_str()];
-        args.extend(strs.iter().map(String::as_str));
-        let out = self.unshare(
-            r#"d=$1; shift; for r; do mountpoint -q "$d/$r" && printf '%s\n' "$r"; done; true"#,
-            &args,
-        )?;
-        Ok(out.lines().map(PathBuf::from).collect())
+        let out = self.unshare(r#"findmnt -rn -o TARGET -R "$1" || true"#, &[&d])?;
+        Ok(koje_core::live_mounts::parse_findmnt(&out, home_dir))
     }
 
     /// Bind `source` to `home_dir/rel`: it appears at its own path in the
