@@ -14,11 +14,11 @@ Goal: koje remembers and restores the work environment.
   - Done (host-tested 2026-10-21): `koje_core::live_layouts` (switch/next/prev/new/save on the live state, the active layout keeps its arrangement if it autosaves), per-context stash `special:stash-<context>`, D-Bus `SwitchLayout`/`NewLayout`/`SaveLayout`/`SetLayoutAutosave`/`RenameLayout`/`RemoveLayout`/`Layouts`, `koje layout …` (default: the active context), Super+[ / Super+]. Restored windows outside the active layout go to the stash. Focus handling: not yet (last active window per layout).
 - [x] **M5.6 `stash` / `unstash`**; new/closed windows update layouts
   - Done (host-tested 2026-10-21): `koje stash [--show]`, `koje unstash [<window>] [--to <layout>]` (D-Bus `Stash`/`Unstash`/`ToggleStash`), Super+H / Super+Shift+H / Super+Ctrl+H; new windows join the active layout, closed ones leave all (M5.1).
-- [~] **M5.7 Autosave** of geometry changes into the active layout (debounced)
+- [x] **M5.7 Autosave** of geometry changes into the active layout (debounced)
   - Notes: M2.2 – no event for moving/resizing floating windows; re-read `j/clients` on focus changes / debounced and diff.
-  - Done in code (awaiting host test): kojed takes each running context's live state every 5 s (`Daemon::tick`): the active layout (if autosave) follows moved/resized windows; the file manager is asked only when a title changed.
-- [~] **M5.8 Crash recovery**: continuous recovery file; `up` prompt, `--recover`/`--no-recover`
-  - Done in code (awaiting host test), ADR 0006: the tick writes `recovery.toml` when the state changed; a clean `down` deletes it; `up` of a stopped (or windowless) context with a recovery file asks (default yes), `--recover`/`--no-recover` decide, without a terminal it is kept; a restarted kojed takes running contexts' live states from their recovery files (ids, layouts kept).
+  - Done (host-tested 2026-10-21): kojed takes each running context's live state every 5 s (`Daemon::tick`): the active layout (if autosave) follows moved/resized windows; the file manager is asked only when a title changed.
+- [x] **M5.8 Crash recovery**: continuous recovery file; `up` prompt, `--recover`/`--no-recover`
+  - Done (host-tested 2026-10-21), ADR 0006: the tick writes `recovery.toml` when the state changed; a clean `down` deletes it; `up` of a stopped (or windowless) context with a recovery file asks (default yes), `--recover`/`--no-recover` decide, without a terminal it is kept; a restarted kojed takes running contexts' live states from their recovery files (ids, layouts kept).
 - [ ] **M5.9 State switching in a running context** (uses M1.9)
 - [ ] **M5.10 Matching several windows of the same program** (open question → spike/ADR)
 - [ ] **M5.11 Apply access changes to a running context** (from M3.13, ADR 0017): on `koje edit`/config change ask "now (save state, recreate, restore windows) or at next `up`"; note that recreating loses what was installed in the container; mounts without recreating depend on spike M2.12
