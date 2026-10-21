@@ -175,6 +175,17 @@ const SYSTEM_DIRS: &[&str] = &[
     "/dev", "/run", "/var", "/boot",
 ];
 
+/// Mounts are folders below the home (ADR 0034): the home is where they can be
+/// mounted live (ADR 0033). Not lifted by `allow_unsafe`.
+fn outside_home(path: &Path, host: &HostDirs) -> Option<String> {
+    (!path.starts_with(&host.home) || path == host.home).then(|| {
+        format!(
+            "is not below your home {} – koje mounts only folders below the home",
+            host.home.display()
+        )
+    })
+}
+
 /// Why `path` is a refused mount target, if it is one.
 fn refusal(path: &Path, host: &HostDirs) -> Option<String> {
     if host.home.starts_with(path) {
@@ -205,9 +216,11 @@ pub fn expand_all(mounts: &[Mount], host: &HostDirs) -> Result<Vec<PathBuf>> {
     let mut seen: Vec<(PathBuf, &MountPath)> = Vec::with_capacity(mounts.len());
     for mount in mounts {
         let path = mount.path.expand(&host.home);
-        if !mount.allow_unsafe
-            && let Some(reason) = refusal(&path, host)
-        {
+        let refused = (!mount.allow_unsafe)
+            .then(|| refusal(&path, host))
+            .flatten()
+            .or_else(|| outside_home(&path, host));
+        if let Some(reason) = refused {
             return Err(Error::RefusedMount {
                 value: mount.path.raw.clone(),
                 reason,
@@ -229,10 +242,11 @@ pub fn expand_all(mounts: &[Mount], host: &HostDirs) -> Result<Vec<PathBuf>> {
 /// below an allowed folder may point into a protected one. `resolved` is the
 /// canonical host path of `mount`; resolving it is the caller's I/O.
 pub fn check_resolved(mount: &Mount, resolved: &Path, host: &HostDirs) -> Result<()> {
-    if mount.allow_unsafe {
-        return Ok(());
-    }
-    match refusal(resolved, host) {
+    let refused = (!mount.allow_unsafe)
+        .then(|| refusal(resolved, host))
+        .flatten()
+        .or_else(|| outside_home(resolved, host));
+    match refused {
         None => Ok(()),
         Some(reason) => Err(Error::RefusedMount {
             value: mount.path.raw.clone(),
@@ -371,7 +385,9 @@ mod tests {
             allow_unsafe: true,
             ..m
         };
-        assert!(check_resolved(&unsafe_mount, Path::new("/etc"), &host()).is_ok());
+        assert!(check_resolved(&unsafe_mount, Path::new("/home/mj/.config/koje"), &host()).is_ok());
+        // A link out of the home is refused, also with allow_unsafe (ADR 0034).
+        assert!(check_resolved(&unsafe_mount, Path::new("/srv/data"), &host()).is_err());
     }
 
     #[test]
@@ -393,13 +409,12 @@ mod tests {
 
     #[test]
     fn nested_mounts_are_not_duplicates() {
-        let paths = expand_all(&mounts(&["~/src", "~/src/kp", "/srv/data"]), &host()).unwrap();
+        let paths = expand_all(&mounts(&["~/src", "~/src/kp"]), &host()).unwrap();
         assert_eq!(
             paths,
             [
                 PathBuf::from("/home/mj/src"),
-                PathBuf::from("/home/mj/src/kp"),
-                PathBuf::from("/srv/data"),
+                PathBuf::from("/home/mj/src/kp")
             ]
         );
     }
@@ -445,13 +460,10 @@ mod tests {
         ] {
             assert!(refused(raw).contains("system"), "{raw}");
         }
-        assert!(
-            expand_all(
-                &mounts(&["/srv", "/opt/tools", "/mnt/usb", "/usrdata"]),
-                &host()
-            )
-            .is_ok()
-        );
+        // Not system folders, but outside the home (ADR 0034).
+        for raw in ["/srv", "/opt/tools", "/mnt/usb", "/usrdata"] {
+            assert!(refused(raw).contains("not below your home"), "{raw}");
+        }
     }
 
     #[test]
@@ -471,11 +483,17 @@ mod tests {
 
     #[test]
     fn unsafe_bypasses_refusal_but_not_duplicates() {
-        let mut list = mounts(&["~/.config", "/etc"]);
+        let mut list = mounts(&["~/.config", "~/.local/share/koje"]);
         for m in &mut list {
             m.allow_unsafe = true;
         }
         assert!(expand_all(&list, &host()).is_ok());
+        let mut outside = mounts(&["/etc"]);
+        outside[0].allow_unsafe = true;
+        assert!(
+            matches!(expand_all(&outside, &host()), Err(Error::RefusedMount { reason, .. }) if reason.contains("not below your home")),
+            "outside the home is not lifted by allow_unsafe"
+        );
         list.push(list[0].clone());
         assert!(matches!(
             expand_all(&list, &host()),

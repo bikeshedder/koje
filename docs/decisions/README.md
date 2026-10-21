@@ -38,3 +38,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0031 | [Integrations are declarative](0031-declarative-integrations.md) | Accepted |
 | 0032 | [Saving goes into the state a context is in](0032-save-into-the-current-state.md) | Accepted |
 | 0033 | [Mounts follow `context.toml` while a context runs](0033-live-mounts.md) | Accepted |
+| 0034 | [Mounts are folders below the home](0034-mounts-below-the-home.md) | Accepted |

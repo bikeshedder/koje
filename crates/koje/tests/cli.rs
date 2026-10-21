@@ -16,6 +16,8 @@ fn command(xdg: &Path, args: &[&str]) -> Command {
         .env("XDG_DATA_HOME", xdg.join("data"))
         .env("XDG_STATE_HOME", xdg.join("state"))
         .env("XDG_RUNTIME_DIR", xdg.join("run"))
+        // A home of its own: mounts must be below it (ADR 0034).
+        .env("HOME", xdg)
         .env(
             "DBUS_SESSION_BUS_ADDRESS",
             format!("unix:path={}", xdg.join("no-bus").display()),

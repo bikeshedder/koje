@@ -57,3 +57,5 @@ mounts = [
   protected one. The container adapter (M3.2) must canonicalize mount sources
   before binding and re-check the rules.
 - `mounts` entries become "string or table"; `koje new`/`edit` must keep both forms.
+- Update (ADR 0034): in addition, a mount must be below the home; that rule is
+  not lifted by `allow_unsafe`.

@@ -34,3 +34,4 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 - **UI toolkit** – iced, egui or Slint for the panel? *(M8.3)*
 - **Language** – CLI text and messages in English, German or both?
 - **License and publishing** – open source? Which license?
+- **Mounts outside the home** – ADR 0034 limits `mounts` to folders below the home (live mounts, ADR 0033). If folders elsewhere are needed: make the container's root propagate (OCI `rootfsPropagation`, a spike) or recreate the container on `up` while keeping its changes (`podman commit`)?

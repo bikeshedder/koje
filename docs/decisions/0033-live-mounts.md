@@ -27,9 +27,10 @@ is below `$HOME`.
   context. `koje edit` (running or stopped) and the next `koje up` add new ones
   and unmount removed ones lazily (`umount -l`: a process using it keeps
   running). koje finds them by listing the mounts below the shared home.
-- **Folders outside `$HOME` are mounts of the container**, made when it is
-  created and recorded in the label `io.koje.home-mounts` (only containers with a
-  shared home have it); changing them needs a recreate, and koje says so.
+- **Folders outside `$HOME`** were planned as mounts of the container (label
+  `io.koje.home-mounts`, changed by a recreate); ADR 0034 refuses them for the
+  first version. The label stays (empty) to recognize containers with a shared
+  home.
 - Mounts are read-write. Read-only mounts, if they come to `context.toml`, need a
   recreate (or the staging trick of M2.12 round 2).
 - `koje rm` releases the shared home in Podman's namespace before it removes the
@@ -45,7 +46,7 @@ is below `$HOME`.
   at its usual path, without symlinks, and `koje down`/`koje up` follow the
   config – no recreate for mounts below the home.
 + After a reboot `koje up` mounts them again before the container starts.
-- Only folders below `$HOME` can be added live.
+- Only folders below `$HOME` (ADR 0034).
 - A folder mounted over an existing directory of the context's home hides that
   directory's content while mounted.
 - Containers created before this need one recreate to get the shared home.

@@ -81,7 +81,8 @@ browser profile per project. Put common programs into the base image.
   shared exchange folder (e.g. `~/Austausch`) is a deliberate hole. Context A →
   context B fails by design. Mounts that would hide the context's home, expose
   koje's own files or host sockets, or replace system folders are refused unless
-  marked `unsafe` (ADR 0009).
+  marked `unsafe` (ADR 0009). Mounts are folders below the home (ADR 0034) and
+  follow `context.toml` while the context runs (ADR 0033).
 - **Wayland:** each context gets its own socket created by kojed through
   `security-context-v1`; its programs get normal windows but cannot capture the
   screen directly – screen sharing goes through the portal (ADR 0022).
