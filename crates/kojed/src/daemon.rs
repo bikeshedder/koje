@@ -222,6 +222,20 @@ where
         Ok(name)
     }
 
+    /// `koje sleep` (M7.4): all windows of `ctx` into its stash first.
+    pub async fn hide(&mut self, ctx: &ContextName) -> Result<()> {
+        let shown = self.shown(ctx).await?;
+        let commands = self.live_mut(ctx)?.hide_all(ctx, &shown)?;
+        self.apply(&commands).await
+    }
+
+    /// `koje wake` (M7.4): the active layout back.
+    pub async fn show(&mut self, ctx: &ContextName) -> Result<()> {
+        let shown = self.shown(ctx).await?;
+        let commands = self.live_mut(ctx)?.show_active(ctx, &shown);
+        self.apply(&commands).await
+    }
+
     /// `koje layout new <name> [--copy]`.
     pub async fn new_layout(
         &mut self,
@@ -714,7 +728,9 @@ where
                 title: w.title.clone(),
                 process: crate::procfs::observe(&proc_root, w.pid),
             };
-            Some((observed, w.placement.clone()))
+            // Placements only of shown windows (not from the stash, M7.4).
+            let shown = w.workspace == windows::workspace(ctx);
+            Some((observed, shown.then(|| w.placement.clone())))
         }))
     }
 
@@ -1841,7 +1857,9 @@ term = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
         std::fs::remove_file(&file).unwrap();
         d.tick().await;
         assert!(!file.exists());
-        // Moved (no compositor event for that): the active layout follows.
+        // Moved (no compositor event for that): the active layout follows –
+        // for a window on the context's workspace (kojed moved it there).
+        comp.windows.lock().unwrap()[0].workspace = "work".into();
         comp.windows.lock().unwrap()[0].placement.rect.x = 777;
         d.tick().await;
         assert!(std::fs::read_to_string(&file).unwrap().contains("x = 777"));
@@ -2129,6 +2147,47 @@ cwd = "/home/mj/src/kp"
         );
         d.stop_container(&work).await.unwrap();
         assert!(!d.running().await.contains(&work));
+    }
+
+    /// M7.4: sleep hides every window, autosave leaves the stash's positions
+    /// out, wake brings the active layout back.
+    #[tokio::test(flavor = "current_thread")]
+    async fn sleep_and_wake_hide_and_show() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        comp.windows.lock().unwrap()[0].workspace = "work".into();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+        let work = ctx("work");
+        d.hide(&work).await.unwrap();
+        assert_eq!(
+            comp.take(),
+            [CompositorCommand::MoveToWorkspace {
+                address: "0xa".into(),
+                workspace: "special:stash-work".into()
+            }]
+        );
+        {
+            let mut w = comp.windows.lock().unwrap();
+            w[0].workspace = "special:stash-work".into();
+            w[0].placement.rect.x = 5000;
+        }
+        let state = d.state(&work).await.unwrap();
+        let main = koje_core::name::LayoutName::initial();
+        assert_eq!(
+            state.layout[&main].windows[&WindowId::new("terminal").unwrap()]
+                .rect
+                .x,
+            0,
+            "the stash's position is not autosaved"
+        );
+        d.show(&work).await.unwrap();
+        assert!(comp.take().contains(&CompositorCommand::MoveToWorkspace {
+            address: "0xa".into(),
+            workspace: "work".into()
+        }));
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -355,6 +355,28 @@ impl Api {
             .map_err(|e| failed(&e))
     }
 
+    /// Before `koje sleep` (M7.4): every window of the context into its stash.
+    async fn hide(&self, context: &str) -> fdo::Result<()> {
+        let ctx = context_arg(context)?;
+        self.daemon
+            .lock()
+            .await
+            .hide(&ctx)
+            .await
+            .map_err(|e| failed(&e))
+    }
+
+    /// After `koje wake` (M7.4): the active layout back.
+    async fn show(&self, context: &str) -> fdo::Result<()> {
+        let ctx = context_arg(context)?;
+        self.daemon
+            .lock()
+            .await
+            .show(&ctx)
+            .await
+            .map_err(|e| failed(&e))
+    }
+
     /// `stash --show`: show or hide the context's stash.
     async fn toggle_stash(&self, context: &str) -> fdo::Result<()> {
         let mut d = self.daemon.lock().await;

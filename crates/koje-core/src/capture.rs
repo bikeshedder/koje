@@ -481,11 +481,13 @@ impl Live {
     }
 
     /// The state with fresh specs and, if the active layout autosaves, the
-    /// current placements. `observe` gives what kojed sees of a window now.
+    /// current placements. `observe` gives what kojed sees of a window now:
+    /// its placement only while it is shown – a window in the stash (or a
+    /// sleeping context's windows, M7.4) must not move its layout place.
     pub fn snapshot(
         &mut self,
         integrations: &[Integration],
-        mut observe: impl FnMut(&str) -> Option<(Observed, Placement)>,
+        mut observe: impl FnMut(&str) -> Option<(Observed, Option<Placement>)>,
     ) -> State {
         let active = self.state.active_layout.clone();
         let autosave = self.state.layout.get(&active).is_none_or(|l| l.autosave);
@@ -496,6 +498,7 @@ impl Live {
             };
             specs.push(spec(w.id.clone(), &observed, integrations));
             if autosave
+                && let Some(placement) = placement
                 && let Some(layout) = self.state.layout.get_mut(&active)
                 && let Some(p) = layout.windows.get_mut(&w.id)
             {
@@ -935,7 +938,7 @@ mod tests {
             process: Some(proc(&["foot"], "/")),
         };
         let state = live.snapshot(&all, |a| {
-            Some((observed(), at(if a == "0xa" { 42 } else { 7 })))
+            Some((observed(), Some(at(if a == "0xa" { 42 } else { 7 }))))
         });
         assert_eq!(
             state

@@ -662,6 +662,11 @@ pub fn sleep(paths: &Paths, context: &str) -> Result<()> {
     let podman = Podman::new();
     match plan_sleep(podman.status(&name)?) {
         PausePlan::Do => {
+            // Its windows out of the way first (M7.4): frozen windows would
+            // still be drawn and may be reported as not responding.
+            if let Err(e) = crate::kojed::call::<_, ()>("Hide", &(name.as_str(),)) {
+                println!("note: windows stay where they are ({e:#})");
+            }
             podman.pause(&name)?;
             println!("{name} is asleep – wake it with: koje wake {name}");
         }
@@ -681,6 +686,9 @@ pub fn wake(paths: &Paths, context: &str) -> Result<()> {
     match plan_wake(podman.status(&name)?) {
         PausePlan::Do => {
             podman.unpause(&name)?;
+            if let Err(e) = crate::kojed::call::<_, ()>("Show", &(name.as_str(),)) {
+                println!("note: windows not brought back ({e:#}) – Super+Shift+H shows the stash");
+            }
             println!("{name} is awake");
         }
         PausePlan::Already => println!("{name} is not asleep"),

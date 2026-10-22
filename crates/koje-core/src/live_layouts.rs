@@ -191,6 +191,32 @@ impl Live {
         }
     }
 
+    /// `koje sleep` (M7.4): every shown window into the stash, the active
+    /// layout keeping where they were (if it autosaves); layouts unchanged.
+    pub fn hide_all(
+        &mut self,
+        ctx: &ContextName,
+        shown: &[Shown],
+    ) -> Result<Vec<CompositorCommand>> {
+        let view = self.view(ctx, shown);
+        self.keep_arrangement(&view)?;
+        let stash = stash_workspace(ctx);
+        Ok(view
+            .visible
+            .iter()
+            .filter_map(|id| view.by_id.get(id))
+            .map(|s| CompositorCommand::MoveToWorkspace {
+                address: s.address.clone(),
+                workspace: stash.clone(),
+            })
+            .collect())
+    }
+
+    /// `koje wake` (M7.4): show the active layout again, as it was.
+    pub fn show_active(&self, ctx: &ContextName, shown: &[Shown]) -> Vec<CompositorCommand> {
+        self.arrange(ctx, &self.view(ctx, shown))
+    }
+
     /// `layout next|prev` (`step` 1 or -1), in file order (ADR 0011).
     pub fn cycle_layout(
         &mut self,
@@ -503,5 +529,40 @@ slides = { monitor = "DP-1", x = 900, y = 0, w = 800, h = 600 }
             .add("0xc", "org.gnome.Evince", &integration::built_in(), at(0))
             .unwrap();
         assert_eq!((added.id.as_str(), added.place), ("slides", Some(at(900))));
+    }
+
+    #[test]
+    fn sleep_hides_everything_wake_shows_the_layout() {
+        let mut live = live();
+        // terminal-2 was stashed before; terminal is shown and was moved.
+        live.stash(&ctx(), "0xb").unwrap();
+        let now = [
+            shown("0xa", "kp", 33),
+            shown("0xb", "special:stash-kp", 100),
+        ];
+        assert_eq!(
+            live.hide_all(&ctx(), &now).unwrap(),
+            [mv("0xa", "special:stash-kp")]
+        );
+        assert_eq!(
+            live.state.layout[&LayoutName::initial()].windows[&id("terminal")],
+            at(33),
+            "kept"
+        );
+        let asleep = [
+            shown("0xa", "special:stash-kp", 33),
+            shown("0xb", "special:stash-kp", 100),
+        ];
+        assert_eq!(
+            live.show_active(&ctx(), &asleep),
+            [
+                mv("0xa", "kp"),
+                CompositorCommand::Place {
+                    address: "0xa".into(),
+                    placement: at(33)
+                }
+            ],
+            "only the active layout's windows come back"
+        );
     }
 }
