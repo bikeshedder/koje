@@ -18,15 +18,39 @@ use koje_core::spec::{Built, ContextInputs, build};
 use koje_podman::Podman;
 use koje_podman::image::BASE_IMAGE;
 
-/// `koje up <context> -s empty`: create (first time) and start the context.
-pub fn up(
-    paths: &Paths,
-    context: &str,
-    state: Option<&str>,
-    no_save: bool,
-    recover: bool,
-    no_recover: bool,
-) -> Result<()> {
+/// The flags of `koje up`.
+#[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)] // independent CLI flags
+pub struct UpOptions {
+    /// Switching a running context: do not save the current windows first.
+    pub no_save: bool,
+    /// After a crash: restore / discard the recovery file without asking.
+    pub recover: bool,
+    pub no_recover: bool,
+    /// Switch to the context's workspace before its programs start.
+    pub focus: bool,
+}
+
+impl Default for UpOptions {
+    fn default() -> Self {
+        Self {
+            no_save: false,
+            recover: false,
+            no_recover: false,
+            focus: true,
+        }
+    }
+}
+
+/// `koje up <context> [-s <state>]`: create (first time) and start the
+/// context, restore a state, or switch a running one to another state.
+pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) -> Result<()> {
+    let UpOptions {
+        no_save,
+        recover,
+        no_recover,
+        focus,
+    } = opts;
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let requested = match state {
@@ -102,8 +126,8 @@ pub fn up(
     if let Err(e) = crate::kojed::call::<_, ()>("Started", &(name.as_str(),)) {
         tracing::debug!("not telling kojed that {name} started: {e:#}");
     }
-    if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
-        tracing::debug!("not focusing {name}: {e:#}");
+    if focus {
+        show_workspace(&name);
     }
     if (!running || lost)
         && let Some(Load {
@@ -126,6 +150,13 @@ pub fn up(
         );
     }
     Ok(())
+}
+
+/// Switch to the context's workspace (kojed `Focus`, ADR 0028); best effort.
+fn show_workspace(name: &ContextName) {
+    if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
+        tracing::debug!("not focusing {name}: {e:#}");
+    }
 }
 
 /// The container was made with other settings (image, access, limits) than
@@ -497,7 +528,7 @@ pub fn recreate(paths: &Paths, context: &str, yes: bool) -> Result<()> {
         .with_context(|| format!("removing {name}'s container"))?;
     println!("removed {name}'s container (its home is kept)");
     if running {
-        up(paths, context, Some(state.as_str()), false, false, false)
+        up(paths, context, Some(state.as_str()), UpOptions::default())
     } else {
         println!("{name}'s container is created again at the next: koje up {name}");
         Ok(())
@@ -569,7 +600,7 @@ pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
 /// `koje run <context> <program> [args…]`: start a program in the running
 /// context, detached; in the current directory if the context mounts it, else
 /// in the home directory.
-pub fn run(paths: &Paths, context: &str, command: &[String]) -> Result<()> {
+pub fn run(paths: &Paths, context: &str, command: &[String], focus: bool) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let podman = Podman::new();
@@ -579,6 +610,9 @@ pub fn run(paths: &Paths, context: &str, command: &[String]) -> Result<()> {
     let workdir = cwd
         .filter(|d| koje_core::open::visible_in(d, &mounts))
         .map(|d| d.display().to_string());
+    if focus {
+        show_workspace(&name);
+    }
     // `exec` so the program replaces the shell that starts it.
     let line = format!("exec {}", koje_core::capture::shell_join(command));
     podman.launch(&name, &line, workdir.as_deref())?;

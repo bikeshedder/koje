@@ -49,3 +49,7 @@ the user looks at context B. How several monitors share a context is still open
   koje's own small window with the context's controls, keeps the workspace
   alive. (Renaming a workspace also removes it, which would make persistent
   rules workable without reloads; not pursued in favor of the beacon.)
+- Update (2026-10-22): `koje up` and `koje run` switch to the context's
+  workspace *before* starting programs, so their windows open where the user
+  looks and need no move; `--no-focus` stays on the current workspace. A
+  switch changes the workspace only – no window is focused.

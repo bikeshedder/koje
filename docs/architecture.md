@@ -128,7 +128,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 
 | Command | Effect |
 |---|---|
-| `koje up <context> [-s <state>] [--no-save]` | start, open and arrange the state's windows (default role `default`); if running, switch to the state (saving the current windows into `default` first unless `--no-save`) |
+| `koje up <context> [-s <state>] [--no-save] [--no-focus]` | start, show the context's workspace (unless `--no-focus`), open and arrange the state's windows (default role `default`); if running, switch to the state (saving the current windows into the state it is in first unless `--no-save`) |
 | `koje up <context> --recover \| --no-recover` | after a crash, take or discard the recovery file without asking |
 | `koje down <context> [-s <state>]` | save (only that state), close windows in order, stop container |
 | `koje down <context> --no-save` | shut down without saving; all states unchanged |
@@ -143,7 +143,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje sleep \| wake <context>` | pause / resume (CPU 0, memory kept) |
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
-| `koje run <context> <program> [args…]` | start a program in the running context, detached (in the current directory if mounted) |
+| `koje run <context> [--no-focus] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |

@@ -50,6 +50,10 @@ pub enum Command {
         /// After a crash, discard the recovery file without asking.
         #[arg(long)]
         no_recover: bool,
+        /// Stay on the current workspace (default: switch to the context's
+        /// before its programs start).
+        #[arg(long)]
+        no_focus: bool,
     },
     /// Save the current state, close windows in order and stop the context.
     Down {
@@ -139,6 +143,10 @@ pub enum Command {
     Run {
         #[command(flatten)]
         ctx: Ctx,
+        /// Stay on the current workspace (default: switch to the context's
+        /// first, so the window opens where you look).
+        #[arg(long)]
+        no_focus: bool,
         /// The program and its arguments, passed as they are (no shell).
         #[arg(
             required = true,
