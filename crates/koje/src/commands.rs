@@ -114,7 +114,7 @@ fn focus(paths: &Paths, ctx: &Ctx) -> Result<()> {
 /// with a valid result.
 fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
     let name = context_name(ctx)?;
-    context::load(paths, &name)?;
+    let before = context::load(paths, &name)?;
     let original_path = paths.context_config(&name);
     let original = std::fs::read_to_string(&original_path)
         .with_context(|| format!("reading {}", original_path.display()))?;
@@ -126,16 +126,34 @@ fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
     let result = edit_loop(paths, &name, &draft, &original);
     let _ = std::fs::remove_file(&draft);
     result?;
-    apply_edit(paths, &name);
+    apply_edit(paths, &name, &before);
     Ok(())
 }
 
 /// The context follows the edited config where it can (ADR 0033): mounts
-/// below the home at once, running or not.
-fn apply_edit(paths: &Paths, name: &ContextName) {
+/// below the home at once, running or not; image, access and limits need a new
+/// container (M5.11).
+fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::ContextConfig) {
     let Ok(after) = context::load(paths, name) else {
         return;
     };
+    if let Ok(global) = koje_core::config::GlobalConfig::load(&paths.global_config()) {
+        let fp = |c: &koje_core::config::ContextConfig| {
+            c.effective_limits(&global).ok().map(|l| {
+                koje_core::container::fingerprint(&c.image, &c.effective_access(&global), &l)
+            })
+        };
+        let podman = koje_podman::Podman::new();
+        let exists = !matches!(
+            koje_core::ports::ContainerRuntime::status(&podman, name),
+            Ok(koje_core::ports::ContainerStatus::Missing) | Err(_)
+        );
+        if exists && fp(before) != fp(&after) {
+            println!(
+                "note: the new image, access or limits apply to a new container: koje recreate {name}"
+            );
+        }
+    }
     if let Err(e) = crate::mounts::sync(paths, name, &after, true) {
         println!("note: mounts of {name} not changed: {e:#}");
     }

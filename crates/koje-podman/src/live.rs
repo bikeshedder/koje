@@ -83,6 +83,20 @@ impl<R: Runner> Podman<R> {
         .map(drop)
     }
 
+    /// A label of the context's container; `None` if it has none.
+    pub fn label(&self, ctx: &ContextName, key: &str) -> Result<Option<String>> {
+        let format = format!("{{{{index .Config.Labels \"{key}\"}}}}");
+        let out = self.podman(&[
+            "container",
+            "inspect",
+            "--format",
+            &format,
+            &container_name(ctx),
+        ])?;
+        let value = out.trim();
+        Ok((!value.is_empty() && value != "<no value>").then(|| value.to_owned()))
+    }
+
     /// The configured mounts the container was created with; `None` for a
     /// container without a shared home (from before live mounts).
     pub fn container_mounts(&self, ctx: &ContextName) -> Result<Option<Vec<PathBuf>>> {

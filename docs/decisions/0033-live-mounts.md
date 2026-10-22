@@ -35,10 +35,13 @@ is below `$HOME`.
   recreate (or the staging trick of M2.12 round 2).
 - `koje rm` releases the shared home in Podman's namespace before it removes the
   volume.
-- **Other access changes** (M5.11 part 2): koje notices them (a fingerprint of the
-  container's settings as a label) on `koje edit` and `koje up` and asks whether
-  to recreate now – saving the state first and restoring it after; it never
-  recreates without asking.
+- **Other changes** (M5.11 part 2): image, effective access and limits only take
+  effect in a new container. The container carries their fingerprint
+  (`io.koje.config`; only configured values, no host details, so koje does not
+  ask without a reason). `koje up` of a stopped context with other settings asks
+  whether to recreate it now; a running context and `koje edit` point to `koje
+  recreate`, which saves the windows and restores them. koje never recreates
+  without asking – what was installed in the container is lost.
 
 ## Consequences
 

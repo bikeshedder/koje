@@ -55,6 +55,9 @@ pub fn up(
     if plan == UpPlan::Paused {
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
+    let fingerprint =
+        koje_core::container::fingerprint(&cfg.image, &access, &cfg.effective_limits(&global)?);
+    let plan = recreate_if_changed(&podman, &name, plan, &fingerprint)?;
     let host = prepare_host(&podman, &name, &access, plan)?;
     // Folders below the home: mounted live into the shared home, before the
     // container starts (ADR 0033).
@@ -64,8 +67,13 @@ pub fn up(
     match plan {
         UpPlan::CreateAndStart => {
             ensure_image(&podman, &cfg)?;
-            let built = spec(paths, &cfg, &global, access, &host)?;
+            let mut built = spec(paths, &cfg, &global, access, &host)?;
             print_notes(&built);
+            // What only a new container applies (M5.11): checked at every `up`.
+            built.spec.labels.insert(
+                koje_core::container::LABEL_CONFIG.to_owned(),
+                fingerprint.clone(),
+            );
             podman
                 .create(&built.spec)
                 .with_context(|| format!("creating the container for {name}"))?;
@@ -117,6 +125,51 @@ pub fn up(
         tracing::debug!("not focusing {name}: {e:#}");
     }
     Ok(())
+}
+
+/// The container was made with other settings (image, access, limits) than
+/// the config has now (M5.11): a stopped one may be recreated right away
+/// (asked; what was installed in it is lost), a running one says how.
+fn recreate_if_changed(
+    podman: &Podman,
+    name: &ContextName,
+    plan: UpPlan,
+    fingerprint: &str,
+) -> Result<UpPlan> {
+    if !matches!(plan, UpPlan::Start | UpPlan::AlreadyRunning) {
+        return Ok(plan);
+    }
+    // No label: from before fingerprints – nothing to compare.
+    let Some(old) = podman.label(name, koje_core::container::LABEL_CONFIG)? else {
+        return Ok(plan);
+    };
+    if old == fingerprint {
+        return Ok(plan);
+    }
+    let hint = format!(
+        "note: {name}'s image, access or limits changed since its container was created – \
+         they apply after: koje recreate {name}"
+    );
+    if plan == UpPlan::AlreadyRunning || !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        println!("{hint}");
+        return Ok(plan);
+    }
+    let now = crate::prompt::confirm(
+        &format!(
+            "{name}'s image, access or limits changed since its container was created. \
+             Recreate it now? Everything installed in it outside your home is lost."
+        ),
+        false,
+    )?;
+    if !now {
+        println!("{hint}");
+        return Ok(plan);
+    }
+    podman
+        .remove(name)
+        .with_context(|| format!("removing {name}'s container"))?;
+    println!("removed {name}'s container (its home is kept)");
+    Ok(UpPlan::CreateAndStart)
 }
 
 /// What the context gets from the host, prepared before its container

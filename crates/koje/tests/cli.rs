@@ -80,7 +80,8 @@ fn fake_podman(tmp: &Path) -> String {
         r#"#!/bin/sh
 printf '%s\n' "$*" >> {log}
 case "$1" in
-  container) if [ -f {status} ]; then cat {status}; else echo "Error: no such container" >&2; exit 125; fi ;;
+  container) if [ ! -f {status} ]; then echo "Error: no such container" >&2; exit 125; fi
+    case "$*" in *io.koje.config*) cat {status}.fp 2>/dev/null || echo "<no value>" ;; *Labels*) echo "<no value>" ;; *) cat {status} ;; esac ;;
   image) exit 0 ;;
   volume) case "$2" in exists) test -f {status}.volume ;; rm) rm -f {status}.volume ;; create) touch {status}.volume ;; inspect) echo {status}.voldata ;; esac ;;
   rm) rm -f {status} ;;
@@ -1026,4 +1027,34 @@ fn recreate_asks_and_keeps_the_home() {
     let log = podman_log(tmp.path());
     assert!(log.lines().any(|l| l == "rm koje-kp"), "{log}");
     assert!(!log.contains("volume rm"), "{log}");
+}
+
+#[test]
+fn up_notices_changed_settings() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    let log = podman_log(tmp.path());
+    let label = log
+        .split_whitespace()
+        .find(|w| w.starts_with("io.koje.config="))
+        .expect("a fingerprint label on the new container")
+        .to_owned();
+    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    // Same settings: nothing to say.
+    std::fs::write(
+        tmp.path().join("podman.status.fp"),
+        label.trim_start_matches("io.koje.config="),
+    )
+    .unwrap();
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    assert!(!out.contains("changed since"), "{out}");
+    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    // Another fingerprint (the access profile was changed): a hint, no
+    // terminal to ask – the old container starts.
+    std::fs::write(tmp.path().join("podman.status.fp"), "0000000000000000").unwrap();
+    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    assert!(out.contains("apply after: koje recreate kp"), "{out}");
+    assert!(!podman_log(tmp.path()).lines().any(|l| l == "rm koje-kp"));
 }
