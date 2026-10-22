@@ -78,7 +78,8 @@ fn lifecycle_memory_and_pid_mapping() {
     );
 
     let memory = podman.memory_usage(&c.ctx).expect("memory");
-    assert!(memory.0 > 0, "memory.current should be positive");
+    assert!(memory.current.0 > 0, "memory.current should be positive");
+    assert!(memory.working_set() <= memory.current);
 
     let pid = c.host_pid();
     assert_eq!(

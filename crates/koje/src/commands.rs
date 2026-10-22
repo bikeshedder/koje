@@ -139,7 +139,7 @@ fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
 }
 
 /// The context follows the edited config where it can (ADR 0033): mounts
-/// below the home at once, running or not; image, access and limits need a new
+/// below the home at once, running or not; image and access need a new
 /// container (M5.11).
 fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::ContextConfig) {
     let Ok(after) = context::load(paths, name) else {
@@ -147,9 +147,7 @@ fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::Con
     };
     if let Ok(global) = koje_core::config::GlobalConfig::load(&paths.global_config()) {
         let fp = |c: &koje_core::config::ContextConfig| {
-            c.effective_limits(&global).ok().map(|l| {
-                koje_core::container::fingerprint(&c.image, &c.effective_access(&global), &l)
-            })
+            koje_core::container::fingerprint(&c.image, &c.effective_access(&global))
         };
         let podman = koje_podman::Podman::new();
         let exists = !matches!(
@@ -158,7 +156,7 @@ fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::Con
         );
         if exists && fp(before) != fp(&after) {
             println!(
-                "note: the new image, access or limits apply to a new container: koje recreate {name}"
+                "note: the new image or access apply to a new container: koje recreate {name}"
             );
         }
     }

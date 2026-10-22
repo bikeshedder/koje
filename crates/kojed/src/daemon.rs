@@ -1001,8 +1001,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use koje_core::layout::{Placement, Rect};
+    use koje_core::memory::MemoryUsage;
     use koje_core::ports::WindowInfo;
-    use koje_core::size::ByteSize;
     use koje_core::spec::ContainerSpec;
 
     use super::*;
@@ -1076,6 +1076,7 @@ mod tests {
         launched: Arc<Mutex<Vec<Launched>>>,
         terminated: Arc<Mutex<Vec<u32>>>,
         query_reply: Arc<Mutex<String>>,
+        memory: Arc<Mutex<HashMap<ContextName, MemoryUsage>>>,
     }
 
     impl ContainerRuntime for FakeRuntime {
@@ -1102,8 +1103,14 @@ mod tests {
         fn unpause(&self, _: &ContextName) -> std::io::Result<()> {
             Ok(())
         }
-        fn memory_usage(&self, _: &ContextName) -> std::io::Result<ByteSize> {
-            Ok(ByteSize(0))
+        fn memory_usage(&self, ctx: &ContextName) -> std::io::Result<MemoryUsage> {
+            Ok(self
+                .memory
+                .lock()
+                .unwrap()
+                .get(ctx)
+                .copied()
+                .unwrap_or_default())
         }
         fn launch(
             &self,

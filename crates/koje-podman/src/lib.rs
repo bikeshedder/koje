@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use koje_core::container::{LABEL_CONTEXT, container_name};
+use koje_core::memory::MemoryUsage;
 use koje_core::name::ContextName;
 use koje_core::ports::{ContainerRuntime, ContainerStatus};
 use koje_core::size::ByteSize;
@@ -343,7 +344,7 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
         self.podman(&["unpause", &container_name(ctx)]).map(drop)
     }
 
-    fn memory_usage(&self, ctx: &ContextName) -> Result<ByteSize> {
+    fn memory_usage(&self, ctx: &ContextName) -> Result<MemoryUsage> {
         let name = container_name(ctx);
         let cgroup = self
             .inspect(&name, "{{.State.CgroupPath}}")?
@@ -352,18 +353,25 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
                 what: "cgroup path (container not running?)",
                 value: name,
             })?;
-        let path = self
-            .cgroup_root
-            .join(cgroup.trim_start_matches('/'))
-            .join("memory.current");
-        let text = read(&path)?;
-        text.trim()
+        let dir = self.cgroup_root.join(cgroup.trim_start_matches('/'));
+        let text = read(&dir.join("memory.current"))?;
+        let current = text
+            .trim()
             .parse::<u64>()
             .map(ByteSize)
             .map_err(|_| Error::Unexpected {
                 what: "memory.current",
                 value: text.trim().to_owned(),
-            })
+            })?;
+        // Without memory.stat (unusual): everything counts.
+        let (anon, inactive_file) = read(&dir.join("memory.stat"))
+            .map(|t| koje_core::memory::parse_stat(&t))
+            .unwrap_or_default();
+        Ok(MemoryUsage {
+            current,
+            anon,
+            inactive_file,
+        })
     }
 
     fn launch(&self, ctx: &ContextName, command: &str, workdir: Option<&str>) -> Result<()> {
@@ -545,7 +553,15 @@ pub(crate) mod tests {
         .unwrap();
         let fake = Fake::default().answer(true, &format!("/{scope}\n"), "");
         let podman = Podman::with_runner(&fake, tmp.path(), "/x");
-        assert_eq!(podman.memory_usage(&kp()).unwrap(), ByteSize(1_019_215_872));
+        std::fs::write(
+            tmp.path().join(scope).join("memory.stat"),
+            "anon 500000000\ninactive_file 300000000\n",
+        )
+        .unwrap();
+        let u = podman.memory_usage(&kp()).unwrap();
+        assert_eq!(u.current, ByteSize(1_019_215_872));
+        assert_eq!(u.working_set(), ByteSize(719_215_872));
+        assert_eq!(u.anon, ByteSize(500_000_000));
     }
 
     fn spec() -> ContainerSpec {

@@ -12,8 +12,8 @@ use std::future::Future;
 
 use crate::color::Color;
 use crate::layout::Placement;
+use crate::memory::MemoryUsage;
 use crate::name::ContextName;
-use crate::size::ByteSize;
 use crate::spec::ContainerSpec;
 
 /// A window as reported by the compositor.
@@ -146,8 +146,8 @@ pub trait ContainerRuntime {
     fn stop(&self, ctx: &ContextName) -> Result<(), Self::Error>;
     fn pause(&self, ctx: &ContextName) -> Result<(), Self::Error>;
     fn unpause(&self, ctx: &ContextName) -> Result<(), Self::Error>;
-    /// Current memory usage of the context's cgroup.
-    fn memory_usage(&self, ctx: &ContextName) -> Result<ByteSize, Self::Error>;
+    /// Memory of the context's cgroup (ADR 0035; dev containers included, M2.6).
+    fn memory_usage(&self, ctx: &ContextName) -> Result<MemoryUsage, Self::Error>;
     /// Start `command` (for `sh -c`) in the running context, detached, in
     /// `workdir` if given (restoring a state, M5.3).
     fn launch(

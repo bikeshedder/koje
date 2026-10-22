@@ -9,7 +9,9 @@ use crate::error::{Error, Result};
 
 /// A size in bytes. Suffixes `K`, `M`, `G`, `T` are binary (powers of 1024),
 /// matching what Podman and cgroups accept.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(try_from = "String", into = "String")]
 pub struct ByteSize(pub u64);
 

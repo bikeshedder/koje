@@ -79,8 +79,7 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
     if plan == UpPlan::Paused {
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
-    let fingerprint =
-        koje_core::container::fingerprint(&cfg.image, &access, &cfg.effective_limits(&global)?);
+    let fingerprint = koje_core::container::fingerprint(&cfg.image, &access);
     let plan = recreate_if_changed(&podman, &name, plan, &fingerprint)?;
     let host = prepare_host(&podman, &name, &access, plan)?;
     // Folders below the home: mounted live into the shared home, before the
@@ -159,7 +158,7 @@ fn show_workspace(name: &ContextName) {
     }
 }
 
-/// The container was made with other settings (image, access, limits) than
+/// The container was made with other settings (image, access) than
 /// the config has now (M5.11): a stopped one may be recreated right away
 /// (asked; what was installed in it is lost), a running one says how.
 fn recreate_if_changed(
@@ -179,7 +178,7 @@ fn recreate_if_changed(
         return Ok(plan);
     }
     let hint = format!(
-        "note: {name}'s image, access or limits changed since its container was created – \
+        "note: {name}'s image or access changed since its container was created – \
          they apply after: koje recreate {name}"
     );
     if plan == UpPlan::AlreadyRunning || !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
@@ -188,7 +187,7 @@ fn recreate_if_changed(
     }
     let now = crate::prompt::confirm(
         &format!(
-            "{name}'s image, access or limits changed since its container was created. \
+            "{name}'s image or access changed since its container was created. \
              Recreate it now? Everything installed in it outside your home is lost."
         ),
         false,

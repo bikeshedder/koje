@@ -4,7 +4,6 @@
 use serde::Serialize;
 
 use crate::access::Access;
-use crate::config::Limits;
 use crate::name::ContextName;
 
 /// Label carrying the context name on every container koje creates.
@@ -24,25 +23,19 @@ pub fn home_volume(ctx: &ContextName) -> String {
 }
 
 /// Label with the fingerprint of the settings a container was created with
-/// (M5.11 part 2, ADR 0033): image, access, limits.
+/// (M5.11 part 2, ADR 0033): image and access. Limits change live (ADR 0035).
 pub const LABEL_CONFIG: &str = "io.koje.config";
 
 /// The fingerprint of the settings that only a new container can apply. Only
 /// what the user configures – host details (sockets present, driver files)
 /// would make koje ask without a reason. Mounts are live (ADR 0033, 0034).
-pub fn fingerprint(image: &str, access: &Access, limits: &Limits) -> String {
+pub fn fingerprint(image: &str, access: &Access) -> String {
     #[derive(Serialize)]
     struct Settings<'a> {
         image: &'a str,
         access: &'a Access,
-        limits: &'a Limits,
     }
-    let text = toml::to_string(&Settings {
-        image,
-        access,
-        limits,
-    })
-    .unwrap_or_default();
+    let text = toml::to_string(&Settings { image, access }).unwrap_or_default();
     let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
@@ -64,26 +57,13 @@ mod tests {
     fn fingerprints() {
         use crate::access::Profile;
         let full = Profile::Full.access();
-        let base = fingerprint("koje/base:latest", &full, &Limits::default());
+        let base = fingerprint("koje/base:latest", &full);
         assert_eq!(base.len(), 16);
-        assert_eq!(
-            base,
-            fingerprint("koje/base:latest", &full, &Limits::default()),
-            "stable"
-        );
-        assert_ne!(base, fingerprint("fedora:44", &full, &Limits::default()));
+        assert_eq!(base, fingerprint("koje/base:latest", &full), "stable");
+        assert_ne!(base, fingerprint("fedora:44", &full));
         assert_ne!(
             base,
-            fingerprint(
-                "koje/base:latest",
-                &Profile::Isolated.access(),
-                &Limits::default()
-            )
+            fingerprint("koje/base:latest", &Profile::Isolated.access())
         );
-        let limited = Limits {
-            memory_soft: None,
-            memory_hard: Some(crate::size::ByteSize(1 << 30)),
-        };
-        assert_ne!(base, fingerprint("koje/base:latest", &full, &limited));
     }
 }
