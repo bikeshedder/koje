@@ -36,8 +36,11 @@ would change between saves.
   the same app id, else the first of the same integration (programs may change
   their app id after opening – Firefox), else, without integrations, the same
   program name and is placed from the active layout. Waiting windows that do
-  not appear within 60 s leave the state. Several windows of one program are
-  matched in start order until M5.10 decides better.
+  not appear within 60 s leave the state. Several windows of one program
+  (M5.10): the new window's process is read at once (as for saving) and it
+  takes the waiting window whose remembered values match most (a terminal's
+  directory, an editor's folder); with no match, the earliest started. Programs
+  without remembered values (browsers) stay in start order.
 
 ## Consequences
 

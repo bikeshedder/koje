@@ -376,6 +376,21 @@ impl Live {
         integrations: &[Integration],
         placement: Placement,
     ) -> Option<Added> {
+        self.add_observed(address, app_id, None, integrations, placement)
+    }
+
+    /// [`Live::add`] with what the window reveals about itself (its process:
+    /// a terminal's directory, an editor's folder): among the waiting windows
+    /// of the program it takes the one whose remembered values match most,
+    /// then the first in start order (M5.10).
+    pub fn add_observed(
+        &mut self,
+        address: &str,
+        app_id: &str,
+        observed: Option<&Observed>,
+        integrations: &[Integration],
+        placement: Placement,
+    ) -> Option<Added> {
         if let Some(w) = self.windows.get(address) {
             return Some(Added {
                 id: w.id.clone(),
@@ -386,15 +401,30 @@ impl Live {
         let integration = integration::find(integrations, app_id).map(|i| i.name.as_str());
         // The same app id first; then the same integration: programs may
         // change their app id after the window opens (Firefox: host test).
-        let waiting = self
-            .pending
+        let mut candidates: Vec<usize> = (0..self.pending.len())
+            .filter(|&i| self.pending[i].app_id.as_deref() == Some(app_id))
+            .collect();
+        if candidates.is_empty() {
+            candidates = (0..self.pending.len())
+                .filter(|&i| waits_for(&self.pending[i], app_id, integration))
+                .collect();
+        }
+        let revealed = observed
+            .zip(WindowId::new("window").ok())
+            .map(|(o, id)| spec(id, o, integrations).remembered)
+            .unwrap_or_default();
+        let matching = |i: usize| {
+            self.pending[i]
+                .remembered
+                .iter()
+                .filter(|(k, v)| revealed.get(*k) == Some(*v))
+                .count()
+        };
+        // Most matching remembered values, then the earliest started.
+        let waiting = candidates
             .iter()
-            .position(|p| p.app_id.as_deref() == Some(app_id))
-            .or_else(|| {
-                self.pending
-                    .iter()
-                    .position(|p| waits_for(p, app_id, integration))
-            });
+            .copied()
+            .max_by_key(|&i| (matching(i), std::cmp::Reverse(i)));
         if let Some(i) = waiting {
             let spec = self.pending.remove(i);
             self.windows.insert(
@@ -733,6 +763,49 @@ mod tests {
 
     /// Host test of M5.3: Firefox's window opened as `org.mozilla.firefox`,
     /// the state had `firefox`; the window got `browser-2` and no place.
+    /// M5.10: two terminals appear in the other order than they were
+    /// started; their directories tell them apart.
+    #[test]
+    fn several_windows_of_a_program_match_by_remembered_values() {
+        let all = integration::built_in();
+        let main = LayoutName::initial();
+        let term = |i: &str, cwd: &str| WindowSpec {
+            id: id(i),
+            integration: Some("terminal".into()),
+            command: Some("foot".into()),
+            app_id: Some("foot".into()),
+            where_: Where::Context,
+            remembered: BTreeMap::from([("cwd".to_owned(), toml::Value::String(cwd.into()))]),
+        };
+        let mut saved = State::new(main.clone());
+        saved.windows = vec![
+            term("terminal", "/home/mj/a"),
+            term("terminal-2", "/home/mj/b"),
+        ];
+        saved.layout[&main].windows.insert(id("terminal"), at(0));
+        saved.layout[&main]
+            .windows
+            .insert(id("terminal-2"), at(500));
+        let mut live = Live::restoring(saved);
+        let shows = |cwd: &str| Observed {
+            app_id: "foot".into(),
+            title: String::new(),
+            process: Some(Proc {
+                children: vec![proc(&["bash"], cwd)],
+                ..proc(&["foot"], "/home/mj")
+            }),
+            folder: None,
+        };
+        // The second terminal's window comes first.
+        let b = live
+            .add_observed("0x1", "foot", Some(&shows("/home/mj/b")), &all, at(9))
+            .unwrap();
+        assert_eq!((b.id.as_str(), b.place), ("terminal-2", Some(at(500))));
+        // Nothing revealing: start order.
+        let a = live.add_observed("0x2", "foot", None, &all, at(9)).unwrap();
+        assert_eq!(a.id.as_str(), "terminal");
+    }
+
     #[test]
     fn an_app_id_change_still_matches_by_integration() {
         let all = integration::built_in();

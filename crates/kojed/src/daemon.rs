@@ -123,9 +123,19 @@ where
     /// A context window appeared: into its live state (ADR 0030).
     /// Returns the command placing a restored window from its layout (M5.3).
     fn track(&mut self, ctx: &ContextName, w: &WindowInfo) -> Option<CompositorCommand> {
-        let added = self.live.entry(ctx.clone()).or_default().add(
+        let live = self.live.entry(ctx.clone()).or_default();
+        // Restored windows wait: what the window's process shows (a terminal's
+        // directory) tells several windows of a program apart (M5.10).
+        let observed = (!live.pending.is_empty()).then(|| Observed {
+            app_id: w.app_id.clone(),
+            title: w.title.clone(),
+            process: crate::procfs::observe(&self.proc_root, w.pid),
+            folder: None,
+        });
+        let added = live.add_observed(
             &w.address,
             &w.app_id,
+            observed.as_ref(),
             &self.integrations,
             w.placement.clone(),
         );
@@ -1929,6 +1939,55 @@ browser = { monitor = "DP-1", x = 1, y = 2, w = 3, h = 4 }
         let mut again = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
         again.handle(CompositorEvent::Connected).await.unwrap();
         assert_eq!(again.current_state(&work), Some(&talk));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_terminals_find_their_ids_by_directory() {
+        let s = setup();
+        let proc_root = s.tmp.path().join("proc");
+        fake_proc(&proc_root); // pid 10: foot, its shell in /home/mj/src/kp
+        let comp = FakeCompositor::default();
+        let mut d =
+            Daemon::new(&comp, s.runtime.clone(), s.paths.clone()).with_proc_root(proc_root);
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let saved = State::parse(
+            r#"
+active_layout = "main"
+[[windows]]
+id = "elsewhere"
+integration = "terminal"
+command = "foot"
+app_id = "foot"
+cwd = "/tmp"
+[[windows]]
+id = "project"
+integration = "terminal"
+command = "foot"
+app_id = "foot"
+cwd = "/home/mj/src/kp"
+"#,
+            std::path::Path::new("x"),
+        )
+        .unwrap()
+        .state;
+        d.restore(&ctx("work"), saved, None).await.unwrap();
+        comp.open("0xp", 10);
+        d.handle(CompositorEvent::WindowOpened {
+            address: "0xp".into(),
+            workspace: "work".into(),
+            class: "foot".into(),
+            title: String::new(),
+        })
+        .await
+        .unwrap();
+        let state = d.state(&ctx("work")).await.unwrap();
+        let ids: Vec<&str> = state.windows.iter().map(|w| w.id.as_str()).collect();
+        assert_eq!(ids, ["elsewhere", "project"], "both still in the state");
+        assert_eq!(
+            d.open_windows(&ctx("work")),
+            ["project (foot)"],
+            "the first window took `project` by its directory, not `elsewhere` by order"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

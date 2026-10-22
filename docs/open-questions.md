@@ -24,7 +24,6 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 - **Closed windows** – leave all layouts (current plan) or keep a placeholder an identical program can take again?
 - **Multiple monitors** – what happens to a layout when a stored monitor is missing? One context workspace per monitor or one for all?
 - **Pinned windows** – part of the active layout or floating above all?
-- **Matching windows of the same program** – how to map several windows of one program reliably on restore and state switch? *(M5.10)*
 - **Layout switch animation** – batched moves are fast (M2.2: 0.1 ms for 10 commands); which animation looks right? *(M5.5)*
 - **Hyprland versions** – how does koje cope with config/IPC changes between releases?
 
