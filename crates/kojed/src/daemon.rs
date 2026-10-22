@@ -76,6 +76,18 @@ pub struct Daemon<C, R> {
     /// their recovery file but none of its windows (Hyprland or the session
     /// crashed, the container survived). `koje up` offers to restore them.
     lost: BTreeMap<ContextName, State>,
+    /// Memory notifications per context (ADR 0035).
+    watches: BTreeMap<ContextName, koje_core::memory::Watch>,
+}
+
+/// A context crossed a memory limit (ADR 0035): notify, or at the hard limit
+/// shut it down.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryAlert {
+    pub ctx: ContextName,
+    pub level: koje_core::memory::MemoryLevel,
+    pub used: koje_core::size::ByteSize,
+    pub limit: koje_core::size::ByteSize,
 }
 
 type FolderCache = (Vec<(String, String)>, BTreeMap<String, String>);
@@ -103,6 +115,7 @@ where
             fm_cache: BTreeMap::new(),
             recovery_written: BTreeMap::new(),
             lost: BTreeMap::new(),
+            watches: BTreeMap::new(),
         }
     }
 
@@ -460,6 +473,75 @@ where
                 Err(e) => tracing::warn!(context = %ctx, "recovery file: {e}"),
             }
         }
+    }
+
+    /// Every tick (M6.2, M6.3): the working set of each running context with
+    /// limits against them, read from the config files each time (always
+    /// current, no reload needed).
+    pub async fn check_memory(&mut self) -> Vec<MemoryAlert> {
+        use koje_core::memory::MemoryLevel;
+        let Ok(global) = koje_core::config::GlobalConfig::load(&self.paths.global_config()) else {
+            return Vec::new();
+        };
+        let mut alerts = Vec::new();
+        for ctx in self.running().await {
+            let Ok(limits) = koje_core::context::load(&self.paths, &ctx)
+                .and_then(|c| c.effective_limits(&global))
+            else {
+                continue;
+            };
+            if limits.memory_soft.is_none() && limits.memory_hard.is_none() {
+                self.watches.remove(&ctx);
+                continue;
+            }
+            let runtime = self.runtime.clone();
+            let c = ctx.clone();
+            let Ok(Ok(usage)) = tokio::task::spawn_blocking(move || runtime.memory_usage(&c)).await
+            else {
+                continue;
+            };
+            let used = usage.working_set();
+            let watch = self.watches.entry(ctx.clone()).or_default();
+            if let Some(level) = watch.step(used, &limits) {
+                let limit = if level == MemoryLevel::OverHard {
+                    limits.memory_hard
+                } else {
+                    limits.memory_soft
+                };
+                alerts.push(MemoryAlert {
+                    ctx,
+                    level,
+                    used,
+                    limit: limit.unwrap_or_default(),
+                });
+            }
+        }
+        alerts
+    }
+
+    /// Before a hard-limit shutdown: the windows into the state the context is
+    /// in, else the `default` role (ADR 0032, 0035).
+    pub async fn save_before_shutdown(&mut self, ctx: &ContextName) -> Result<StateName> {
+        let state = self.state(ctx).await?;
+        let target = match self.current_state(ctx) {
+            Some(s) => s.clone(),
+            None => koje_core::context::load(&self.paths, ctx)?.states.default,
+        };
+        koje_core::states::write(&self.paths, ctx, &target, &state)?;
+        Ok(target)
+    }
+
+    /// Stop the context's container (after its programs were asked to end).
+    pub async fn stop_container(&mut self, ctx: &ContextName) -> Result<()> {
+        let runtime = self.runtime.clone();
+        let c = ctx.clone();
+        tokio::task::spawn_blocking(move || runtime.stop(&c))
+            .await?
+            .map_err(anyhow::Error::new)?;
+        self.stopped(ctx).await;
+        koje_core::recovery::delete(&self.paths, ctx)?;
+        self.watches.remove(ctx);
+        Ok(())
     }
 
     /// After a kojed restart: running contexts get their live state back from
@@ -1995,6 +2077,58 @@ cwd = "/home/mj/src/kp"
             ["project (foot)"],
             "the first window took `project` by its directory, not `elsewhere` by order"
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn memory_limits_notify_and_shut_down() {
+        use koje_core::memory::{MemoryLevel, MemoryUsage};
+        use koje_core::size::ByteSize;
+        let s = setup();
+        let work = ctx("work");
+        let file = s.paths.context_config(&work);
+        let text = std::fs::read_to_string(&file).unwrap()
+            + "\n[limits]\nmemory_soft = \"1G\"\nmemory_hard = \"2G\"\n";
+        koje_core::context::replace_config(&s.paths, &work, &text).unwrap();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        let set = |current: u64, inactive: u64| {
+            s.runtime.memory.lock().unwrap().insert(
+                work.clone(),
+                MemoryUsage {
+                    current: ByteSize(current),
+                    anon: ByteSize(0),
+                    inactive_file: ByteSize(inactive),
+                },
+            );
+        };
+        // 1.5 GiB charged, but 1 GiB of it inactive cache: 0.5 GiB counts.
+        set(3 << 29, 1 << 30);
+        assert_eq!(d.check_memory().await, []);
+        set(980 << 20, 0);
+        let alerts = d.check_memory().await;
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(
+            (alerts[0].level, alerts[0].limit),
+            (MemoryLevel::NearSoft, ByteSize(1 << 30))
+        );
+        assert_eq!(d.check_memory().await, [], "once per crossing");
+        set(2 << 30, 0);
+        assert_eq!(d.check_memory().await[0].level, MemoryLevel::OverHard);
+
+        // The shutdown: windows saved (into `default`: no current state), stopped.
+        assert_eq!(
+            d.save_before_shutdown(&work).await.unwrap().as_str(),
+            "default"
+        );
+        assert!(
+            s.paths
+                .state_file(&work, &StateName::new("default").unwrap())
+                .is_file()
+        );
+        d.stop_container(&work).await.unwrap();
+        assert!(!d.running().await.contains(&work));
     }
 
     #[tokio::test(flavor = "current_thread")]

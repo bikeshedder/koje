@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
         })?;
     tracing::info!("serving {BUS_NAME}");
     tokio::spawn(relink_sound(runtime));
-    tokio::spawn(tick(Arc::clone(&daemon)));
+    tokio::spawn(tick(Arc::clone(&daemon), sockets.clone(), conn.clone()));
     loop {
         let event = events.next().await;
         if event == CompositorEvent::Connected {
@@ -99,14 +99,124 @@ async fn main() -> Result<()> {
 /// How often kojed takes the live states (autosave, recovery file).
 const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// M5.7, M5.8: autosave of geometry and the recovery files.
-async fn tick(daemon: api::Shared) {
+/// M5.7, M5.8: autosave of geometry and the recovery files; M6: memory
+/// limits (notify, shut down at the hard limit).
+async fn tick(daemon: api::Shared, sockets: wayland::Sockets, conn: zbus::Connection) {
+    use koje_core::memory::MemoryLevel;
     let mut interval = tokio::time::interval(TICK);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
-        daemon.lock().await.tick().await;
+        let alerts = {
+            let mut d = daemon.lock().await;
+            d.tick().await;
+            d.check_memory().await
+        };
+        for a in alerts {
+            let (ctx, used, limit) = (&a.ctx, a.used.human(), a.limit);
+            match a.level {
+                MemoryLevel::Normal => {}
+                MemoryLevel::NearSoft => {
+                    notify_logged(
+                        &conn,
+                        &format!("{ctx} uses {used}"),
+                        &format!("90 % of its soft limit {limit}"),
+                    )
+                    .await;
+                }
+                MemoryLevel::OverSoft => {
+                    notify_logged(
+                        &conn,
+                        &format!("{ctx} uses {used}"),
+                        &format!("over its soft limit {limit}"),
+                    )
+                    .await;
+                }
+                MemoryLevel::OverHard => {
+                    tracing::warn!(context = %ctx, used, %limit, "hard limit reached, shutting down");
+                    tokio::spawn(hard_stop(
+                        Arc::clone(&daemon),
+                        sockets.clone(),
+                        conn.clone(),
+                        a,
+                    ));
+                }
+            }
+        }
     }
+}
+
+/// How long programs get to end before a hard-limit stop (as `koje down`).
+const HARD_STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The hard limit (ADR 0035): save, end the programs in order, stop, notify.
+async fn hard_stop(
+    daemon: api::Shared,
+    sockets: wayland::Sockets,
+    conn: zbus::Connection,
+    alert: daemon::MemoryAlert,
+) {
+    let ctx = &alert.ctx;
+    let saved = daemon.lock().await.save_before_shutdown(ctx).await;
+    if let Err(e) = daemon.lock().await.close_windows(ctx).await {
+        tracing::warn!(context = %ctx, "closing windows: {e:#}");
+    }
+    let deadline = tokio::time::Instant::now() + HARD_STOP_WAIT;
+    while tokio::time::Instant::now() < deadline
+        && !daemon.lock().await.open_windows(ctx).is_empty()
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    let stopped = daemon.lock().await.stop_container(ctx).await;
+    sockets.release(ctx);
+    let _ = api::contexts_changed(&conn).await;
+    let saved = match &saved {
+        Ok(state) => format!("windows saved into state {state}"),
+        Err(e) => format!("windows not saved: {e:#}"),
+    };
+    let body = match stopped {
+        Ok(()) => format!("{saved}; start it again with: koje up {ctx}"),
+        Err(e) => format!("{saved}; stopping failed: {e:#}"),
+    };
+    notify_logged(
+        &conn,
+        &format!(
+            "{ctx} reached its hard limit {} and was shut down",
+            alert.limit
+        ),
+        &body,
+    )
+    .await;
+}
+
+async fn notify_logged(conn: &zbus::Connection, summary: &str, body: &str) {
+    if let Err(e) = notify(conn, summary, body).await {
+        tracing::warn!("notifying ({summary}): {e}");
+    }
+}
+
+/// A desktop notification on the session bus.
+async fn notify(conn: &zbus::Connection, summary: &str, body: &str) -> zbus::Result<()> {
+    let hints: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> =
+        std::collections::HashMap::new();
+    conn.call_method(
+        Some("org.freedesktop.Notifications"),
+        "/org/freedesktop/Notifications",
+        Some("org.freedesktop.Notifications"),
+        "Notify",
+        &(
+            "koje",
+            0u32,
+            "",
+            summary,
+            body,
+            Vec::<&str>::new(),
+            hints,
+            -1i32,
+        ),
+    )
+    .await
+    .map(drop)
 }
 
 /// M4.11 (ADR 0029): keep the contexts' sound links on the current sockets.
