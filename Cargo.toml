@@ -25,6 +25,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 toml = { version = "1", features = ["preserve_order"] }
+# Edits of hand-written files that keep their comments (`koje limit`).
+toml_edit = "0.25"
 # 5.x: 6.0 is too fresh (ADR 0025 / M3.16).
 zbus = { version = "5.19", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time", "net", "io-util"] }

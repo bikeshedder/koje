@@ -742,9 +742,9 @@ fn up_falls_back_to_empty_and_restores_through_kojed() {
 #[test]
 fn unimplemented_commands_name_their_milestone() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = koje(tmp.path(), &["stats"]);
+    let out = koje(tmp.path(), &["pin"]);
     assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M6"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M7"));
 }
 
 #[test]
@@ -1057,4 +1057,57 @@ fn up_notices_changed_settings() {
     let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
     assert!(out.contains("apply after: koje recreate kp"), "{out}");
     assert!(!podman_log(tmp.path()).lines().any(|l| l == "rm koje-kp"));
+}
+
+#[test]
+fn stats_and_limit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let out = stdout(&koje_fake(tmp.path(), &path, &["stats"]));
+    assert!(out.contains("kp") && out.contains("not created"), "{out}");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(&koje_fake(tmp.path(), &path, &["stats", "--json"]))).unwrap();
+    assert_eq!(json[0]["context"], "kp");
+    assert!(json[0]["soft"].is_null(), "no limits by default (ADR 0035)");
+
+    let out = stdout(&koje_fake(
+        tmp.path(),
+        &path,
+        &["limit", "kp", "--soft", "6G", "--hard", "8G"],
+    ));
+    assert!(out.contains("soft 6G, hard 8G"), "{out}");
+    let cfg = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
+    assert!(
+        cfg.contains("memory_soft = \"6G\"") && cfg.contains("# Host folders"),
+        "{cfg}"
+    );
+    let out = koje_fake(tmp.path(), &path, &["limit", "kp", "--soft", "9G"]);
+    assert!(!out.status.success(), "soft above hard");
+    // With a default hard limit in config.toml: refused before writing.
+    let global = tmp.path().join("config/koje/config.toml");
+    let g = std::fs::read_to_string(&global).unwrap();
+    std::fs::write(
+        &global,
+        format!("{g}\n[default_limits]\nmemory_hard = \"4G\"\n"),
+    )
+    .unwrap();
+    let before = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
+    let out = koje_fake(tmp.path(), &path, &["limit", "kp", "--hard", "none"]);
+    assert!(
+        !out.status.success(),
+        "context soft 6G over the default hard 4G"
+    );
+    assert_eq!(
+        std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap(),
+        before,
+        "unchanged"
+    );
+    std::fs::write(&global, g).unwrap();
+    let out = stdout(&koje_fake(
+        tmp.path(),
+        &path,
+        &["limit", "kp", "--hard", "none"],
+    ));
+    assert!(out.contains("soft 6G, hard none"), "{out}");
 }

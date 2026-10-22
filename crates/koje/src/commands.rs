@@ -79,7 +79,10 @@ pub fn run(command: &Command) -> Result<()> {
             crate::layout::unstash(window.as_deref(), to.as_deref(), ctx)
         }
 
-        Command::Stats { .. } | Command::Limit { .. } => todo_in("M6"),
+        Command::Stats { context, json } => crate::memory::stats(&paths, context.as_deref(), *json),
+        Command::Limit { ctx, soft, hard } => {
+            crate::memory::limit(&paths, &ctx.context, soft.as_deref(), hard.as_deref())
+        }
 
         Command::Snap { .. } | Command::Overlay { .. } | Command::Pin | Command::Unpin => {
             todo_in("M7")

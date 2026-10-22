@@ -10,6 +10,7 @@ use crate::error::{Error, Result};
 use crate::fsutil;
 use crate::name::ContextName;
 use crate::paths::Paths;
+use crate::size::ByteSize;
 
 /// Colors `koje new` picks from, in order (ADR 0012).
 pub const PALETTE: [Color; 10] = [
@@ -158,6 +159,53 @@ pub fn create(
     let cfg = ContextConfig::from_toml(&text, &path)?;
     fsutil::write_atomic(&path, text.as_bytes())?;
     Ok(cfg)
+}
+
+/// A change of one limit (`koje limit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LimitChange {
+    Keep,
+    Set(ByteSize),
+    /// Remove it from `context.toml` (then `config.toml`'s default applies).
+    Clear,
+}
+
+/// `text` with the limits changed, comments and layout kept.
+pub fn with_limits(text: &str, soft: LimitChange, hard: LimitChange) -> Result<String> {
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| Error::InvalidLimits(e.to_string()))?;
+    if !doc.contains_key("limits") {
+        doc["limits"] = toml_edit::table();
+    }
+    let limits = doc["limits"]
+        .as_table_mut()
+        .ok_or_else(|| Error::InvalidLimits("`limits` is not a table".into()))?;
+    for (key, change) in [("memory_soft", soft), ("memory_hard", hard)] {
+        match change {
+            LimitChange::Keep => {}
+            LimitChange::Set(size) => limits[key] = toml_edit::value(size.to_string()),
+            LimitChange::Clear => {
+                limits.remove(key);
+            }
+        }
+    }
+    Ok(doc.to_string())
+}
+
+/// `koje limit`: change the limits in `context.toml` (validated, atomic).
+pub fn set_limits(
+    paths: &Paths,
+    name: &ContextName,
+    soft: LimitChange,
+    hard: LimitChange,
+) -> Result<ContextConfig> {
+    let path = paths.context_config(name);
+    let text = std::fs::read_to_string(&path).map_err(|source| Error::Read {
+        path: path.clone(),
+        source,
+    })?;
+    replace_config(paths, name, &with_limits(&text, soft, hard)?)
 }
 
 /// Check an edited `context.toml` for `name` completely: syntax and values,
@@ -354,5 +402,29 @@ mod tests {
         std::fs::create_dir_all(paths.contexts_dir().join("no-config")).unwrap();
         create(&paths, &n("kp"), None, None).unwrap();
         assert_eq!(list(&paths).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn limits_change_and_comments_stay() {
+        let name = ContextName::new("kp").unwrap();
+        let text = new_config_toml(&name, "KP", Color::rgb(1, 2, 3));
+        let six = ByteSize(6 << 30);
+        let out = with_limits(&text, LimitChange::Set(six), LimitChange::Keep).unwrap();
+        assert!(
+            out.contains("# Host folders bound into the context"),
+            "comments kept"
+        );
+        assert!(out.contains("memory_soft = \"6G\""), "{out}");
+        let cfg = ContextConfig::from_toml(&out, std::path::Path::new("x")).unwrap();
+        assert_eq!(cfg.limits.memory_soft, Some(six));
+        assert_eq!(cfg.limits.memory_hard, None);
+        let both =
+            with_limits(&out, LimitChange::Keep, LimitChange::Set(ByteSize(8 << 30))).unwrap();
+        let cleared = with_limits(&both, LimitChange::Clear, LimitChange::Keep).unwrap();
+        let cfg = ContextConfig::from_toml(&cleared, std::path::Path::new("x")).unwrap();
+        assert_eq!(
+            (cfg.limits.memory_soft, cfg.limits.memory_hard),
+            (None, Some(ByteSize(8 << 30)))
+        );
     }
 }

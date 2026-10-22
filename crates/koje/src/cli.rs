@@ -120,15 +120,20 @@ pub enum Command {
     /// Resume a paused context.
     Wake(Ctx),
     /// Show memory usage per context.
-    Stats { context: Option<String> },
+    Stats {
+        context: Option<String>,
+        /// Machine-readable output (JSON array; sizes in bytes).
+        #[arg(long)]
+        json: bool,
+    },
     /// Change memory limits of a running or stopped context.
     Limit {
         #[command(flatten)]
         ctx: Ctx,
-        /// Soft limit, e.g. `6G` (warns at 90 % and 100 %).
+        /// Soft limit, e.g. `6G` (warns at 90 % and 100 %); `none` removes it.
         #[arg(long)]
         soft: Option<String>,
-        /// Hard limit, e.g. `8G` (orderly shutdown).
+        /// Hard limit, e.g. `8G` (orderly shutdown); `none` removes it.
         #[arg(long)]
         hard: Option<String>,
     },

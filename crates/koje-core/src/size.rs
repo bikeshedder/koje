@@ -58,6 +58,30 @@ impl From<ByteSize> for String {
     }
 }
 
+impl ByteSize {
+    /// Rounded for people: `1.4 GiB`, `512 MiB`, `880 KiB`.
+    pub fn human(self) -> String {
+        const UNITS: [(&str, u64); 4] = [
+            ("TiB", 1 << 40),
+            ("GiB", 1 << 30),
+            ("MiB", 1 << 20),
+            ("KiB", 1 << 10),
+        ];
+        for (unit, factor) in UNITS {
+            if self.0 >= factor {
+                // One decimal below 10 of a unit.
+                let tenths = self.0.saturating_mul(10) / factor;
+                return if tenths < 100 {
+                    format!("{}.{} {unit}", tenths / 10, tenths % 10)
+                } else {
+                    format!("{} {unit}", (self.0 + factor / 2) / factor)
+                };
+            }
+        }
+        format!("{} B", self.0)
+    }
+}
+
 impl fmt::Display for ByteSize {
     /// Uses the largest unit that divides the value exactly.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -73,6 +97,15 @@ impl fmt::Display for ByteSize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn human_sizes() {
+        assert_eq!(ByteSize(1_503_238_553).human(), "1.3 GiB");
+        assert_eq!(ByteSize(512 << 20).human(), "512 MiB");
+        assert_eq!(ByteSize(6 << 30).human(), "6.0 GiB");
+        assert_eq!(ByteSize(20 << 30).human(), "20 GiB");
+        assert_eq!(ByteSize(900).human(), "900 B");
+    }
 
     #[test]
     fn parses_suffixes() {

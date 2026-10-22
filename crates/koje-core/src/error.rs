@@ -13,6 +13,9 @@ pub enum Error {
     #[error("invalid color {0:?}: expected #RRGGBB")]
     InvalidColor(String),
 
+    #[error("cannot change the limits: {0}")]
+    InvalidLimits(String),
+
     #[error("invalid size {0:?}: expected a number with optional K, M, G or T suffix")]
     InvalidSize(String),
 

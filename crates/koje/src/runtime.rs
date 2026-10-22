@@ -104,6 +104,12 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
             println!("started {name} (container created)");
         }
         UpPlan::Start => {
+            // Limits may have changed while it was stopped (ADR 0035).
+            if let Err(e) =
+                crate::memory::apply_kernel_limit(&podman, &name, &cfg.effective_limits(&global)?)
+            {
+                println!("note: {e:#}");
+            }
             podman.start(&name)?;
             println!("started {name}");
         }

@@ -11,6 +11,7 @@ mod doctor;
 mod hostbus;
 mod kojed;
 mod layout;
+mod memory;
 mod mounts;
 mod prompt;
 mod runtime;

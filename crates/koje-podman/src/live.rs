@@ -97,6 +97,36 @@ impl<R: Runner> Podman<R> {
         Ok((!value.is_empty() && value != "<no value>").then(|| value.to_owned()))
     }
 
+    /// The container's kernel memory limit (`memory.max`); `None` without one.
+    pub fn memory_max(&self, ctx: &ContextName) -> Result<Option<koje_core::size::ByteSize>> {
+        let out = self.podman(&[
+            "container",
+            "inspect",
+            "--format",
+            "{{.HostConfig.Memory}}",
+            &container_name(ctx),
+        ])?;
+        Ok(out
+            .trim()
+            .parse::<u64>()
+            .ok()
+            .filter(|b| *b > 0)
+            .map(koje_core::size::ByteSize))
+    }
+
+    /// Set the kernel memory limit of a running or stopped container (ADR
+    /// 0035); `None` removes it. Stored by Podman, so it also holds after a
+    /// restart.
+    pub fn set_memory_max(
+        &self,
+        ctx: &ContextName,
+        max: Option<koje_core::size::ByteSize>,
+    ) -> Result<()> {
+        let value = max.map_or_else(|| "-1".to_owned(), |b| b.0.to_string());
+        self.podman(&["update", "--memory", &value, &container_name(ctx)])
+            .map(drop)
+    }
+
     /// The configured mounts the container was created with; `None` for a
     /// container without a shared home (from before live mounts).
     pub fn container_mounts(&self, ctx: &ContextName) -> Result<Option<Vec<PathBuf>>> {
