@@ -97,6 +97,14 @@ pub fn up(
     {
         println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
+    // Show the context's workspace before its programs start (ADR 0028): their
+    // windows open where the user looks, kojed does not have to move them.
+    if let Err(e) = crate::kojed::call::<_, ()>("Started", &(name.as_str(),)) {
+        tracing::debug!("not telling kojed that {name} started: {e:#}");
+    }
+    if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
+        tracing::debug!("not focusing {name}: {e:#}");
+    }
     if (!running || lost)
         && let Some(Load {
             label,
@@ -116,13 +124,6 @@ pub fn up(
             "restoring {label}: {} window(s), {started} program(s) started",
             state.windows.len()
         );
-    }
-    // Its workspace stays while empty, and its windows go there (M4.6): show it.
-    if let Err(e) = crate::kojed::call::<_, ()>("Started", &(name.as_str(),)) {
-        tracing::debug!("not telling kojed that {name} started: {e:#}");
-    }
-    if let Err(e) = crate::kojed::call::<_, ()>("Focus", &(name.as_str(),)) {
-        tracing::debug!("not focusing {name}: {e:#}");
     }
     Ok(())
 }
