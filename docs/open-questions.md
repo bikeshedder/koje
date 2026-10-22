@@ -15,7 +15,6 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 
 ## Memory
 
-- **Default limits** – fixed values or a share of RAM? *(M6.6)*
 - **Hard limit** – how long may an orderly shutdown take before a hard stop? Distance to `memory.max` (currently 10 %)?
 - **Swap** – limit swap per context, and does it count towards the limit?
 

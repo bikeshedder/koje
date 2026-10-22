@@ -39,3 +39,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0032 | [Saving goes into the state a context is in](0032-save-into-the-current-state.md) | Accepted |
 | 0033 | [Mounts follow `context.toml` while a context runs](0033-live-mounts.md) | Accepted |
 | 0034 | [Mounts are folders below the home](0034-mounts-below-the-home.md) | Accepted |
+| 0035 | [Memory limits use the working set; no limits by default](0035-memory-accounting.md) | Accepted |
