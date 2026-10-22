@@ -9,7 +9,7 @@
 - [~] **M6.3 Hard limit**: orderly shutdown with save to `default`, timeout, then hard stop
   - Done in code (awaiting host test): saves into the current state (ADR 0032; else `default`), ends the programs in order, waits 10 s, stops the container, notifies (kojed `hard_stop`).
 - [~] **M6.4 Kernel safety net** (`memory.max`) set at container creation and on `koje limit`
-  - Done in code (awaiting host test): at creation (spec), on `koje limit` and before `koje up` starts an existing container (`podman update --memory … --memory-swap -1`; no limit = 1 PiB, `-1` is refused by `--memory`).
+  - Done in code (awaiting host test): after every start and on `koje limit` (koje writes the scope's `memory.max` itself after every start – `podman update` refused `-1` and its stored swap made crun refuse to start).
 - [~] **M6.5 `koje stats`** (table + `--json` for the bar module) and **`koje limit`** (`podman update`)
   - Done in code (awaiting host test): `koje stats [<context>] [--json]` (working set, charged, limits, level), `koje limit <context> [--soft X|none] [--hard X|none]` (edits `context.toml` with comments kept, checked with `config.toml`'s defaults first, kernel limit live, kojed reload).
 - [x] **M6.6 Default limits** policy (open question → ADR)

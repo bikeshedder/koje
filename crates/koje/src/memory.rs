@@ -119,13 +119,13 @@ fn change(value: Option<&str>) -> Result<LimitChange> {
     })
 }
 
-/// The kernel limit of an existing container follows the hard limit (ADR
-/// 0035): before `koje up` starts it, and after `koje limit`.
+/// The kernel limit of a running context follows the hard limit (ADR 0035):
+/// after `koje up` started it, and after `koje limit`.
 pub fn apply_kernel_limit(podman: &Podman, name: &ContextName, limits: &Limits) -> Result<()> {
     let want = memory::kernel_limit(limits);
-    if podman.memory_max(name)? != want {
+    if podman.kernel_limit(name)? != want {
         podman
-            .set_memory_max(name, want)
+            .set_kernel_limit(name, want)
             .with_context(|| format!("setting {name}'s kernel memory limit"))?;
     }
     Ok(())
@@ -156,7 +156,10 @@ pub fn limit(paths: &Paths, context: &str, soft: Option<&str>, hard: Option<&str
     let limits = context::validate(paths, &name, &new)?.effective_limits(&global)?;
     let cfg = context::replace_config(paths, &name, &new)?;
     let podman = Podman::new();
-    if podman.status(&name)? != ContainerStatus::Missing {
+    if matches!(
+        podman.status(&name)?,
+        ContainerStatus::Running | ContainerStatus::Paused
+    ) {
         apply_kernel_limit(&podman, &name, &limits)?;
     }
     crate::kojed::reload();

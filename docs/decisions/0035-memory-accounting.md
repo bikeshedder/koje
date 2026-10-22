@@ -24,9 +24,14 @@ warn or shut down a context that only read many files.
   it – and notifies. If that takes too long, the container is stopped anyway.
 - **Safety net:** the kernel limit `memory.max` is 10 % above the hard limit
   (the kernel then reclaims cache and, as a last resort, kills inside this
-  context only).
+  context only). koje writes it into the container's scope cgroup
+  (`…/libpod-<id>.scope`, delegated to the user) after every start and on
+  `koje limit` – not through Podman: `podman update --memory` refuses
+  "unlimited", and its stored swap values made crun refuse to start (host
+  test). The scope, not the `…/container` cgroup Podman reports: that one holds
+  only the init, programs started with `podman exec` are elsewhere in the scope.
 - **Limits change live:** `koje limit` writes `context.toml` and applies the
-  safety net to a running container with `podman update`; limits are not part
+  safety net to a running container; limits are not part
   of the settings fingerprint (M5.11), so they never need a recreate.
 - **No limits by default:** a context without limits in `context.toml` and in
   `config.toml` (`default_limits`) has none; `koje stats` still shows its use.

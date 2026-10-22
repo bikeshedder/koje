@@ -38,10 +38,6 @@ pub const PULSE_LINK: &str = "pulse-native";
 /// `/dev/shm` size (ADR 0015): a limit, not reserved memory.
 pub const SHM_SIZE: ByteSize = ByteSize(1 << 30);
 
-/// The kernel's `memory.max` lies this many percent above the hard limit, as a
-/// safety net if the orderly shutdown does not happen in time (open question).
-pub const MEMORY_MAX_HEADROOM_PERCENT: u64 = 10;
-
 /// Facts about the host that the spec depends on (detected by the adapter).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostEnv {
@@ -124,8 +120,6 @@ pub struct ContainerSpec {
     /// `false` → no network at all.
     pub network: bool,
     pub shm_size: ByteSize,
-    /// The kernel's hard cap (`memory.max`), above koje's own hard limit.
-    pub memory_max: Option<ByteSize>,
     pub workdir: PathBuf,
     /// The main process: the context's own session bus (ADR 0015), under `--init`.
     pub command: Vec<String>,
@@ -382,11 +376,6 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
         p.mounts.push(bind(folder, folder, false));
     }
 
-    let memory_max = ctx
-        .limits
-        .memory_hard
-        .map(|h| ByteSize(h.0 + h.0 / 100 * MEMORY_MAX_HEADROOM_PERCENT));
-
     Built {
         spec: ContainerSpec {
             name: container_name(ctx.name),
@@ -409,7 +398,6 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
             security_opts: p.security_opts,
             network: a.network,
             shm_size: SHM_SIZE,
-            memory_max,
             workdir: host.home.clone(),
             command: vec![
                 "dbus-daemon".into(),
@@ -667,21 +655,6 @@ mod tests {
         // Without the gpu switch no hint at all.
         let b = built(Profile::Desktop.access(), &Limits::default(), &[], &no_cdi);
         assert_eq!(b.notes, Vec::<String>::new());
-    }
-
-    #[test]
-    fn memory_max_is_above_the_hard_limit() {
-        let limits = Limits {
-            memory_soft: Some(ByteSize(6 << 30)),
-            memory_hard: Some(ByteSize(8 << 30)),
-        };
-        let s = built(Profile::Full.access(), &limits, &[], &host()).spec;
-        assert_eq!(
-            s.memory_max,
-            Some(ByteSize((8 << 30) + (8 << 30) / 100 * 10))
-        );
-        let s = built(Profile::Full.access(), &Limits::default(), &[], &host()).spec;
-        assert_eq!(s.memory_max, None);
     }
 
     #[test]

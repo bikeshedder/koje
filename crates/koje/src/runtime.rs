@@ -104,12 +104,6 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
             println!("started {name} (container created)");
         }
         UpPlan::Start => {
-            // Limits may have changed while it was stopped (ADR 0035).
-            if let Err(e) =
-                crate::memory::apply_kernel_limit(&podman, &name, &cfg.effective_limits(&global)?)
-            {
-                println!("note: {e:#}");
-            }
             podman.start(&name)?;
             println!("started {name}");
         }
@@ -119,6 +113,13 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
         UpPlan::AlreadyRunning if lost => println!("{name} is running, but its windows were lost"),
         UpPlan::AlreadyRunning => println!("{name} is already running"),
         UpPlan::Paused => unreachable!("handled above"),
+    }
+    // The kernel's safety net above the hard limit, on the running scope
+    // (ADR 0035; not stored by Podman, so after every start).
+    if let Err(e) =
+        crate::memory::apply_kernel_limit(&podman, &name, &cfg.effective_limits(&global)?)
+    {
+        println!("note: {e:#}");
     }
     if host.host_bus_dir.is_some()
         && host.forwarder.is_some()

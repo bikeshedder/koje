@@ -272,9 +272,6 @@ pub fn create_args(spec: &ContainerSpec) -> Vec<String> {
         a.extend(["--network".into(), "none".into()]);
     }
     a.extend(["--shm-size".into(), spec.shm_size.0.to_string()]);
-    if let Some(max) = spec.memory_max {
-        a.extend(["--memory".into(), max.0.to_string()]);
-    }
     a.extend(["--workdir".into(), spec.workdir.display().to_string()]);
     a.push(image_ref(&spec.image));
     a.extend(spec.command.iter().cloned());
@@ -305,6 +302,56 @@ pub fn container_id_from_cgroup(text: &str) -> Option<&str> {
         let id = rest.get(..64)?;
         id.bytes().all(|b| b.is_ascii_hexdigit()).then_some(id)
     })
+}
+
+impl<R: Runner> Podman<R> {
+    /// The cgroup of a running context: Podman's `…/libpod-<id>.scope`. Its
+    /// `CgroupPath` ends in `/container`, which holds only the container's
+    /// init; programs started with `podman exec` are elsewhere in the scope
+    /// (host test, M6) – the scope counts and limits them all.
+    fn scope_dir(&self, ctx: &ContextName) -> Result<PathBuf> {
+        let name = container_name(ctx);
+        let cgroup = self
+            .inspect(&name, "{{.State.CgroupPath}}")?
+            .filter(|p| !p.is_empty())
+            .ok_or(Error::Unexpected {
+                what: "cgroup path (container not running?)",
+                value: name,
+            })?;
+        let dir = self.cgroup_root.join(cgroup.trim_start_matches('/'));
+        Ok(match dir.parent() {
+            Some(scope) if dir.file_name().is_some_and(|n| n == "container") => scope.to_path_buf(),
+            _ => dir,
+        })
+    }
+
+    /// The kernel memory limit of a running context (`memory.max` of its
+    /// scope); `None` for no limit.
+    pub fn kernel_limit(&self, ctx: &ContextName) -> Result<Option<ByteSize>> {
+        let path = self.scope_dir(ctx)?.join("memory.max");
+        let text = read(&path)?;
+        let t = text.trim();
+        if t == "max" {
+            return Ok(None);
+        }
+        t.parse::<u64>()
+            .map(|b| Some(ByteSize(b)))
+            .map_err(|_| Error::Unexpected {
+                what: "memory.max",
+                value: t.to_owned(),
+            })
+    }
+
+    /// Set the kernel memory limit of a running context (ADR 0035): koje writes
+    /// its scope's `memory.max` itself (delegated to the user) – Podman's own
+    /// limit gets in the way (`podman update` refuses "unlimited" and stores
+    /// swap values crun then refuses at start). Lost at a restart; `koje up`
+    /// writes it again.
+    pub fn set_kernel_limit(&self, ctx: &ContextName, max: Option<ByteSize>) -> Result<()> {
+        let path = self.scope_dir(ctx)?.join("memory.max");
+        let value = max.map_or_else(|| "max".to_owned(), |b| b.0.to_string());
+        std::fs::write(&path, value).map_err(|source| Error::Read { path, source })
+    }
 }
 
 impl<R: Runner> ContainerRuntime for Podman<R> {
@@ -345,23 +392,7 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
     }
 
     fn memory_usage(&self, ctx: &ContextName) -> Result<MemoryUsage> {
-        let name = container_name(ctx);
-        let cgroup = self
-            .inspect(&name, "{{.State.CgroupPath}}")?
-            .filter(|p| !p.is_empty())
-            .ok_or(Error::Unexpected {
-                what: "cgroup path (container not running?)",
-                value: name,
-            })?;
-        let mut dir = self.cgroup_root.join(cgroup.trim_start_matches('/'));
-        // Podman's `…/libpod-<id>.scope/container` holds only the container's
-        // init; programs started with `podman exec` are elsewhere in the scope
-        // (host test, M6): the scope counts them all.
-        if dir.file_name().is_some_and(|n| n == "container")
-            && let Some(scope) = dir.parent()
-        {
-            dir = scope.to_path_buf();
-        }
+        let dir = self.scope_dir(ctx)?;
         let text = read(&dir.join("memory.current"))?;
         let current = text
             .trim()
@@ -550,8 +581,38 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn kernel_limit_in_the_scope() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scope = "user.slice/libpod-abc.scope";
+        std::fs::create_dir_all(tmp.path().join(scope).join("container")).unwrap();
+        std::fs::write(tmp.path().join(scope).join("memory.max"), "max\n").unwrap();
+        let answer = format!("/{scope}/container\n");
+        let fake = Fake::default()
+            .answer(true, &answer, "")
+            .answer(true, &answer, "")
+            .answer(true, &answer, "")
+            .answer(true, &answer, "");
+        let podman = Podman::with_runner(&fake, tmp.path(), "/x");
+        assert_eq!(podman.kernel_limit(&kp()).unwrap(), None);
+        podman
+            .set_kernel_limit(&kp(), Some(ByteSize(3 << 30)))
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join(scope).join("memory.max")).unwrap(),
+            (3u64 << 30).to_string(),
+            "the scope, not the init's cgroup"
+        );
+        assert_eq!(podman.kernel_limit(&kp()).unwrap(), Some(ByteSize(3 << 30)));
+        podman.set_kernel_limit(&kp(), None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join(scope).join("memory.max")).unwrap(),
+            "max"
+        );
+    }
+
     /// Host test of M6: `CgroupPath` ends in `/container`, which holds only
     /// the init; the scope above it has the programs.
+    #[test]
     fn memory_usage_reads_the_scope_not_the_init_cgroup() {
         let tmp = tempfile::tempdir().unwrap();
         let scope = "user.slice/libpod-abc.scope";
@@ -645,7 +706,6 @@ pub(crate) mod tests {
             "--volume /home/mj/src/kp:/home/mj/src/kp",
             "--device /dev/dri --device /dev/fuse --device /dev/net/tun",
             "--shm-size 1073741824",
-            "--memory 9448928042",
             "--workdir /home/mj",
             "localhost/koje/base:latest dbus-daemon --session --nofork --nopidfile --address=unix:path=/run/user/1000/bus",
         ] {
