@@ -327,6 +327,37 @@ mod tests {
     }
 
     #[test]
+    fn no_focus_for_up_and_run() {
+        assert!(matches!(
+            parse(&["up", "kp", "--no-focus"]).unwrap().command,
+            Command::Up { no_focus: true, .. }
+        ));
+        match parse(&["run", "kp", "--no-focus", "foot", "--app-id=x"])
+            .unwrap()
+            .command
+        {
+            Command::Run {
+                no_focus, command, ..
+            } => {
+                assert!(no_focus);
+                assert_eq!(
+                    command,
+                    ["foot", "--app-id=x"],
+                    "the program's own flags stay its own"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            parse(&["run", "kp", "foot", "--no-focus"]).unwrap().command,
+            Command::Run {
+                no_focus: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn recover_flags_conflict() {
         assert!(parse(&["up", "kp", "--recover", "--no-recover"]).is_err());
     }
