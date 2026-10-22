@@ -353,7 +353,15 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
                 what: "cgroup path (container not running?)",
                 value: name,
             })?;
-        let dir = self.cgroup_root.join(cgroup.trim_start_matches('/'));
+        let mut dir = self.cgroup_root.join(cgroup.trim_start_matches('/'));
+        // Podman's `…/libpod-<id>.scope/container` holds only the container's
+        // init; programs started with `podman exec` are elsewhere in the scope
+        // (host test, M6): the scope counts them all.
+        if dir.file_name().is_some_and(|n| n == "container")
+            && let Some(scope) = dir.parent()
+        {
+            dir = scope.to_path_buf();
+        }
         let text = read(&dir.join("memory.current"))?;
         let current = text
             .trim()
@@ -538,6 +546,31 @@ pub(crate) mod tests {
         assert_eq!(
             err.to_string(),
             "`podman pause koje-kp` failed: Error: container is not running"
+        );
+    }
+
+    #[test]
+    /// Host test of M6: `CgroupPath` ends in `/container`, which holds only
+    /// the init; the scope above it has the programs.
+    fn memory_usage_reads_the_scope_not_the_init_cgroup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scope = "user.slice/libpod-abc.scope";
+        std::fs::create_dir_all(tmp.path().join(scope).join("container")).unwrap();
+        std::fs::write(
+            tmp.path().join(scope).join("memory.current"),
+            "2000000000\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join(scope).join("container/memory.current"),
+            "3000000\n",
+        )
+        .unwrap();
+        let fake = Fake::default().answer(true, &format!("/{scope}/container\n"), "");
+        let podman = Podman::with_runner(&fake, tmp.path(), "/x");
+        assert_eq!(
+            podman.memory_usage(&kp()).unwrap().current,
+            ByteSize(2_000_000_000)
         );
     }
 

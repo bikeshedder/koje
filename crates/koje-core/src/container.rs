@@ -39,7 +39,17 @@ pub fn fingerprint(image: &str, access: &Access) -> String {
     let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
-    format!("{hash:016x}")
+    // Versioned: a container fingerprinted by an older koje (limits were part
+    // of it) is not compared (see `fingerprint_matches`).
+    format!("{FINGERPRINT_VERSION}-{hash:016x}")
+}
+
+const FINGERPRINT_VERSION: &str = "v2";
+
+/// Whether a container's label says its settings differ from `current`;
+/// `false` for labels of an older format (nothing to compare).
+pub fn fingerprint_differs(label: &str, current: &str) -> bool {
+    label.starts_with(&format!("{FINGERPRINT_VERSION}-")) && label != current
 }
 
 #[cfg(test)]
@@ -58,7 +68,13 @@ mod tests {
         use crate::access::Profile;
         let full = Profile::Full.access();
         let base = fingerprint("koje/base:latest", &full);
-        assert_eq!(base.len(), 16);
+        assert!(base.starts_with("v2-") && base.len() == 19, "{base}");
+        assert!(!fingerprint_differs(&base, &base));
+        assert!(fingerprint_differs("v2-0000000000000000", &base));
+        assert!(
+            !fingerprint_differs("3f1c2a…old", &base),
+            "an older koje's label"
+        );
         assert_eq!(base, fingerprint("koje/base:latest", &full), "stable");
         assert_ne!(base, fingerprint("fedora:44", &full));
         assert_ne!(

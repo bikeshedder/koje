@@ -180,7 +180,7 @@ fn recreate_if_changed(
     let Some(old) = podman.label(name, koje_core::container::LABEL_CONFIG)? else {
         return Ok(plan);
     };
-    if old == fingerprint {
+    if !koje_core::container::fingerprint_differs(&old, fingerprint) {
         return Ok(plan);
     }
     let hint = format!(

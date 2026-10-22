@@ -12,6 +12,9 @@ use koje_core::name::ContextName;
 
 use crate::{Podman, Result, Runner, container_name};
 
+/// What koje sets as "no kernel memory limit" (1 PiB); read back as none.
+pub const NO_LIMIT: u64 = 1 << 50;
+
 impl<R: Runner> Podman<R> {
     fn unshare(&self, script: &str, args: &[&str]) -> Result<String> {
         let mut all = vec!["unshare", "sh", "-c", script, "sh"];
@@ -110,7 +113,7 @@ impl<R: Runner> Podman<R> {
             .trim()
             .parse::<u64>()
             .ok()
-            .filter(|b| *b > 0)
+            .filter(|b| *b > 0 && *b < NO_LIMIT)
             .map(koje_core::size::ByteSize))
     }
 
@@ -122,9 +125,18 @@ impl<R: Runner> Podman<R> {
         ctx: &ContextName,
         max: Option<koje_core::size::ByteSize>,
     ) -> Result<()> {
-        let value = max.map_or_else(|| "-1".to_owned(), |b| b.0.to_string());
-        self.podman(&["update", "--memory", &value, &container_name(ctx)])
-            .map(drop)
+        // `podman update --memory` has no "unlimited": far above any RAM is
+        // none in effect. Swap stays unlimited (`-1` is valid there).
+        let value = max.map_or(NO_LIMIT, |b| b.0).to_string();
+        self.podman(&[
+            "update",
+            "--memory",
+            &value,
+            "--memory-swap",
+            "-1",
+            &container_name(ctx),
+        ])
+        .map(drop)
     }
 
     /// The configured mounts the container was created with; `None` for a

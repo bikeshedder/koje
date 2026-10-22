@@ -1053,7 +1053,7 @@ fn up_notices_changed_settings() {
     stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
     // Another fingerprint (the access profile was changed): a hint, no
     // terminal to ask – the old container starts.
-    std::fs::write(tmp.path().join("podman.status.fp"), "0000000000000000").unwrap();
+    std::fs::write(tmp.path().join("podman.status.fp"), "v2-0000000000000000").unwrap();
     let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
     assert!(out.contains("apply after: koje recreate kp"), "{out}");
     assert!(!podman_log(tmp.path()).lines().any(|l| l == "rm koje-kp"));
