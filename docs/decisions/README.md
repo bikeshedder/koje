@@ -40,3 +40,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0033 | [Mounts follow `context.toml` while a context runs](0033-live-mounts.md) | Accepted |
 | 0034 | [Mounts are folders below the home](0034-mounts-below-the-home.md) | Accepted |
 | 0035 | [Memory limits use the working set; no limits by default](0035-memory-accounting.md) | Accepted |
+| 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Accepted |

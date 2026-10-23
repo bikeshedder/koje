@@ -188,10 +188,17 @@ to the stash first. Memory stays allocated (can be swapped out).
 | `koje-forward` | static D-Bus forwarder that runs inside every context (ADR 0025) |
 | `kojed` | service: Hyprland events, colors, layouts, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027) |
 | `koje` | CLI, client of core and kojed |
-| `koje-gui` (later) | panel overlay via layer-shell (toolkit undecided) |
+| `koje-gui` (later) | settings app built with Kiesel Desktop; window overlays (ADR 0036) |
 
-UI stages: 1) launcher menu (fuzzel/rofi), 2) Waybar module (context, layouts,
-stash, memory), 3) own panel overlay.
+UI (ADR 0036):
+
+| Part | What | Built with |
+|---|---|---|
+| Launcher | contexts and actions, window picker | fuzzel/rofi |
+| Bar | active context, layouts, stash, memory, other running contexts | Waybar custom modules (`koje bar`) |
+| Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | Kiesel Desktop, normal window |
+| Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | Kiesel Desktop, layer-shell |
+| Beacon window | keeps an empty context workspace alive (ADR 0028); may be dropped | Kiesel Desktop, normal window |
 
 ## Outlook (not planned now)
 

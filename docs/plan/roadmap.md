@@ -19,7 +19,7 @@ experiments on the host.
 | [M5 States & layouts](M5-states-and-layouts.md) | Save/restore, layouts, stash, recovery | `up`/`down` restore windows and geometry; layout switch + stash; crash recovery |
 | [M6 Memory](M6-memory.md) | Limits and visibility | soft/hard limits with notifications; `koje stats`, `koje limit` |
 | [M7 Desktop extras](M7-desktop-extras.md) | Overlays, pinning, snap zones | `mail`/`chat` overlays, `pin`/`unpin`, `snap` |
-| [M8 UI](M8-ui.md) | Launcher, bar module, panel | Stage 1 and 2 usable daily; panel prototype |
+| [M8 UI](M8-ui.md) | Launcher, bar module, settings app, window overlays | Launcher and bar usable daily; settings app manages contexts, states and layouts |
 | [M9 Integrations](M9-integrations.md) | Per-application tuning once koje works | `devcontainer` integration; program-specific restore details (tabs, …) |
 
 Outlook (not scheduled): CRIU hibernation, Hyprland plugins for animations,
