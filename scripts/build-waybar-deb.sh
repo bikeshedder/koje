@@ -75,10 +75,14 @@ rm -rf "$work"
 mkdir -p "$work"
 cd "$work"
 apt-get source --download-only waybar >/dev/null
-dpkg-source -x --skip-patches ./*.dsc distro >/dev/null
+# apt checked the download against the signed archive index; the uploader's
+# own signature on the .dsc cannot be checked without their key.
+dpkg-source --no-check -x --skip-patches ./*.dsc distro >/dev/null
 upstream=$(dpkg-parsechangelog -l distro/debian/changelog -S Version | sed 's/-[^-]*$//; s/^[0-9]*://')
 echo "packaging: Waybar $upstream from $ID $codename"
-git clone --quiet "$repo" src
+# History without file contents: fast, and enough for the click fix check.
+echo "cloning $repo …"
+git clone --filter=blob:none "$repo" src
 cd src
 git checkout --quiet "$ref"
 commit=$(git rev-parse --short=10 HEAD)
