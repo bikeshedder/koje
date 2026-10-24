@@ -52,8 +52,26 @@ if ask "Install them?"; then
   }
 fi
 
+# hyprpm builds headers for the installed Hyprland but `add` checks them
+# against the running one: after a Hyprland update without a new login
+# the two differ, and `add` only says "Headers outdated".
+running=$(hyprctl version -j | jq -r .abiHash)
+installed=$(Hyprland --version-json | jq -r .abiHash)
+if [[ $running != "$installed" ]]; then
+  echo "the running Hyprland is not the installed one (updated since you logged in?)" >&2
+  echo "log out and in again (or reboot), then run this script again" >&2
+  exit 1
+fi
+
 step "Hyprland headers for $(hyprctl version -j | jq -r .tag) (hyprpm update; asks for sudo)"
 hyprpm update
+# Headers from an earlier hyprpm run can pass `update`'s check but not
+# `add`'s, which compares the ABI hash hyprpm stored ([state] hash in
+# /var/cache/hyprpm/<user>/state.toml): build them again then.
+if ! grep -Eqs "^hash = [\"']$running[\"']" "/var/cache/hyprpm/$USER/state.toml"; then
+  echo "rebuilding the headers (hyprpm update -f)"
+  hyprpm update -f
+fi
 
 step "hyprland-plugins (hyprpm add)"
 if ! hyprpm list | grep -q hyprbars; then
