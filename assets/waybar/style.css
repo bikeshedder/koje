@@ -11,8 +11,8 @@ window#waybar {
 #custom-koje { padding: 0 10px; }
 #workspaces button { padding: 0 8px; color: #b0b0b0; }
 #workspaces button.active { color: #ffffff; border-bottom: 2px solid #2e7d5b; }
-#taskbar button { padding: 0 6px; color: #b0b0b0; }
-#taskbar button.active { color: #ffffff; border-bottom: 2px solid #2e7d5b; }
+/* The current workspace's windows (hyprland/workspaces#tasks): no workspace mark. */
+#workspaces.tasks button.active { border-bottom: none; }
 #clock, #cpu, #memory, #pulseaudio, #network, #battery, #tray, #window {
   padding: 0 10px;
 }

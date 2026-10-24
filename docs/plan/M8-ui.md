@@ -28,7 +28,7 @@ app. Component priorities for Kiesel Desktop: `docs/upstream/kiesel-desktop-comp
   - Dropped (ADR 0036): replaced by the settings app, M8.9–M8.14.
 - [-] **M8.5 Layout overview** (Super+L): thumbnails, drag windows between layouts
   - Dropped (ADR 0036): moved into the settings app's layouts page (M8.12).
-  - Notes: until then (M2.1): Waybar `wlr/taskbar`, Alt+Tab, Super+Tab picker (`assets/bin/koje-window-picker`).
+  - Notes: until then (M2.1): Waybar's task list (the current workspace's windows: `hyprland/workspaces` in taskbar mode, `active-only`), Alt+Tab, Super+Tab picker (`assets/bin/koje-window-picker`).
 - [ ] **M8.9 Settings app skeleton** (`koje-gui`): a normal window with Kiesel Desktop; client of kojed (ADR 0027) with live updates; context list with color and status; start, stop, pause, wake per context; one instance (a second start brings the window up, optionally on a given context)
   - Notes: depends on Kiesel Desktop priority 1 (foundations, list, buttons, tabs).
 - [ ] **M8.10 Contexts page**: create and edit a context – name, color, access profile and overrides, mounts, memory limits; recreate with confirmation
