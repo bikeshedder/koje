@@ -26,8 +26,8 @@ app. Component priorities for Kiesel Desktop: `docs/upstream/kiesel-desktop-comp
   - kojed keeps the last reading per running context (every tick, also without limits), D-Bus `Memory` and signal `MemoryChanged`; `koje_core::memory::meter` does the math. Without limits the module shows only the size; without an active context nothing.
 - [x] **M8.19 Keyboard shortcuts list** (Super+F1): every binding of the running Hyprland (`hyprctl -j binds`) in fuzzel with its description – koje's and the user's own; Super+Shift+F maximizes
   - All of koje's bindings are `bindd`/`bindmd` (a test keeps it so); bindings without a description show their command. `assets/bin/koje-keys`. To check on the host: Hyprland 0.53 accepts `bindmd` and `fullscreen, 1`.
-- [x] **M8.22 Title bars** (ADR 0039): hyprbars via `scripts/setup-hyprbars.sh` (hyprpm), koje's settings in a second snippet `hyprbars.conf`, no bar for apps with their own header bar
-  - Option names and the `hyprbars:no_bar` rule checked against the plugin version hyprpm pins for Hyprland 0.53 (hyprland-plugins 64b7c2d). To check on the host: the script runs through on Ubuntu 26.04; bars on foot and Firefox, none on Nautilus; dragging a bar moves the window.
+- [x] **M8.22 Title bars** (ADR 0039): hyprbars built by `scripts/setup-hyprbars.sh` against `hyprland-dev` (not hyprpm: Ubuntu's never records its headers, `add` fails), loaded with `plugin =`; koje's settings in a second snippet `hyprbars.conf`, no bar for apps with their own header bar
+  - Option names and the `hyprbars:no_bar` rule checked against the plugin version pinned for Hyprland 0.53 (hyprland-plugins 64b7c2d). To check on the host: the script builds on Ubuntu 26.04; bars on foot and Firefox, none on Nautilus; dragging a bar moves the window.
 - [ ] **M8.23 Title bars in the context color**: a `hyprbars:bar_color` rule per context tag from kojed – only when the plugin is loaded (`hyprctl plugin list`), else Hyprland reports an unknown rule
 
 ## Settings app
