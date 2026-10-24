@@ -119,13 +119,27 @@ pub fn link(paths: &Paths, cfg: &ContextConfig) -> Result<()> {
 }
 
 /// `koje dotfiles [-c <context>]`: link again now, e.g. after adding files to
-/// a preset; lists the presets there are.
-pub fn run(paths: &Paths, context: &str) -> Result<()> {
-    let name = ContextName::new(context)?;
-    let cfg = koje_core::context::load(paths, &name)?;
+/// a preset – in one context, or in every running one (stopped ones link when
+/// they start); lists the presets there are.
+pub fn run(paths: &Paths, context: Option<&str>) -> Result<()> {
     let podman = Podman::new();
-    koje_core::lifecycle::require_running(podman.status(&name)?, name.as_str())
-        .map_err(anyhow::Error::msg)?;
+    let configs = match context {
+        Some(c) => {
+            let name = ContextName::new(c)?;
+            koje_core::lifecycle::require_running(podman.status(&name)?, name.as_str())
+                .map_err(anyhow::Error::msg)?;
+            vec![koje_core::context::load(paths, &name)?]
+        }
+        None => koje_core::context::list(paths)?
+            .into_iter()
+            .filter(|c| {
+                matches!(
+                    podman.status(&c.name),
+                    Ok(koje_core::ports::ContainerStatus::Running)
+                )
+            })
+            .collect(),
+    };
     let dir = paths.dotfiles_dir();
     let mut all: Vec<String> = std::fs::read_dir(&dir)
         .map(|r| {
@@ -144,15 +158,29 @@ pub fn run(paths: &Paths, context: &str) -> Result<()> {
             all.join(", ")
         }
     );
-    let used: Vec<&str> = cfg.dotfiles.iter().map(PresetName::as_str).collect();
-    println!(
-        "{name} uses: {}",
-        if used.is_empty() {
-            "none (add them to `dotfiles` with: koje edit {name})".to_owned()
-        } else {
-            used.join(", ")
+    if configs.is_empty() {
+        println!("no context running – presets are linked when one starts");
+    }
+    let mut failed = 0;
+    for cfg in &configs {
+        let name = &cfg.name;
+        let used: Vec<&str> = cfg.dotfiles.iter().map(PresetName::as_str).collect();
+        println!(
+            "{name}: {}",
+            if used.is_empty() {
+                format!("no presets (add them to `dotfiles` with: koje edit {name})")
+            } else {
+                used.join(", ")
+            }
+        );
+        let done = crate::mounts::sync(paths, name, cfg, false).and_then(|()| link(paths, cfg));
+        if let Err(e) = done {
+            println!("note: {name}: {e:#}");
+            failed += 1;
         }
-    );
-    crate::mounts::sync(paths, &name, &cfg, false)?;
-    link(paths, &cfg)
+    }
+    if failed > 0 {
+        anyhow::bail!("{failed} context(s) not linked");
+    }
+    Ok(())
 }

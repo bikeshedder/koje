@@ -76,7 +76,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Apps { ctx, start, menu } => {
             crate::apps::run(&paths, ctx, start.as_deref(), *menu)
         }
-        Command::Dotfiles(ctx) => crate::dotfiles::run(&paths, &crate::layout::ctx(ctx)?),
+        Command::Dotfiles { context } => crate::dotfiles::run(&paths, context.as_deref()),
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 
         Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),

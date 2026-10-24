@@ -38,7 +38,8 @@ escape from the context – or the other contexts'.
   their list in `~/.local/state/koje/<context>/dotfiles-links`.
 - Linking happens when the context starts (`koje up`, before the state's
   programs start), after `koje edit` of a running context, and with
-  `koje dotfiles [-c <context>]` (e.g. after adding a file to a preset).
+  `koje dotfiles` (e.g. after adding a file to a preset): in every running
+  context, or one with `-c <context>`; stopped ones link when they start.
 - The decisions are pure (`koje_core::dotfiles`); koje probes the home and
   runs the steps with `sh` in the context.
 

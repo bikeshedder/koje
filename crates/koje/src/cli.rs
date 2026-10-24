@@ -173,9 +173,13 @@ pub enum Command {
         #[arg(long)]
         menu: bool,
     },
-    /// Link the context's dotfiles presets again now (e.g. after adding files to
-    /// one) and list the presets there are (ADR 0038).
-    Dotfiles(ActiveCtx),
+    /// Link the dotfiles presets again now (e.g. after adding files to one) in
+    /// every running context, or one; lists the presets there are (ADR 0038).
+    Dotfiles {
+        /// Only this context (default: all running ones).
+        #[arg(short, long)]
+        context: Option<String>,
+    },
     /// Open a terminal in the active context (Super+Return); on a workspace
     /// without a context, on the host.
     Terminal(ActiveCtx),
@@ -357,6 +361,18 @@ mod tests {
         assert!(matches!(
             parse(&["apps", "-c", "kp", "--start", "Files"]).unwrap().command,
             Command::Apps { start: Some(s), ctx: ActiveCtx { context: Some(c) }, .. } if s == "Files" && c == "kp"
+        ));
+    }
+
+    #[test]
+    fn dotfiles_all_or_one() {
+        assert!(matches!(
+            parse(&["dotfiles"]).unwrap().command,
+            Command::Dotfiles { context: None }
+        ));
+        assert!(matches!(
+            parse(&["dotfiles", "-c", "kp"]).unwrap().command,
+            Command::Dotfiles { context: Some(c) } if c == "kp"
         ));
     }
 
