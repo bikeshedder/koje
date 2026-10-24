@@ -17,6 +17,8 @@ app. Component priorities for Kiesel Desktop: `docs/upstream/kiesel-desktop-comp
 - [x] **M8.17 Application menu** (Super+D): the programs of the active context – its `.desktop` entries (base image plus what the user installed in it), read from the running container – in fuzzel; Enter starts the picked one there. On a workspace without a context: the running contexts (context picker).
   - `koje apps [-c] [--start <name>]`, parsing in `koje_core::apps`, `assets/bin/koje-app-menu`. Starts with `gio launch` (field codes, D-Bus activation). To check on the host: Nautilus (D-Bus activatable) and a `Terminal=true` entry.
 - [ ] **M8.18 Application menu, later steps**: icons (fuzzel finds them only in host icon themes – copy or point at the context's), programs of all running contexts in one list in their colors, stopped contexts to start, host programs; a full-screen grid like GNOME's in Kiesel Desktop (ADR 0036)
+- [x] **M8.19 Keyboard shortcuts list** (Super+F1): every binding of the running Hyprland (`hyprctl -j binds`) in fuzzel with its description – koje's and the user's own; Super+Shift+F maximizes
+  - All of koje's bindings are `bindd`/`bindmd` (a test keeps it so); bindings without a description show their command. `assets/bin/koje-keys`. To check on the host: Hyprland 0.53 accepts `bindmd` and `fullscreen, 1`.
 
 ## Settings app
 

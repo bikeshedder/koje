@@ -25,8 +25,9 @@ koje is opinionated: it should give a working desktop after `./install.sh`.
   - **look:** border 4 (the context color must be visible), gaps 4/8,
     rounding 6, no Hyprland logo; natural scrolling on touchpads (as GNOME);
   - **basic bindings:** Super+Return terminal, Super+Q close, Super+F
-    fullscreen, Super+Space next keyboard layout (also in the bar), Super+Shift+E exit, Super+Escape hyprlock, Print screenshot of
-    a region to the clipboard (grim, slurp, wl-copy);
+    fullscreen, Super+Shift+F maximize, Super+Space next keyboard layout (also in the bar), Super+Shift+E exit, Super+Escape hyprlock, Print screenshot of
+    a region to the clipboard (grim, slurp, wl-copy); Super+F1 lists all
+    bindings (M8.19), so every binding koje ships has a description (`bindd`);
   - **workspaces 1–9** (Super+n, Super+Shift+n) for host windows; contexts keep
     their named workspaces (ADR 0028).
 - **Super+Return runs `koje terminal`:** foot in the active context (the

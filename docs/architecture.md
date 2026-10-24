@@ -70,6 +70,7 @@ browser profile per project. Put common programs into the base image.
 - koje's Hyprland snippet is a complete session (ADR 0037): Waybar, mako,
   hypridle/hyprlock, basic bindings, workspaces 1–9 for host windows, look.
   Super+Return opens a terminal in the active context (`koje terminal`).
+  Super+F1 lists all keyboard shortcuts (`hyprctl binds` in fuzzel).
 - **Border color** per context: kojed sees each new window on the event socket,
   maps PID → context, sets active/inactive border colors.
 - **Workspaces:** one per context per monitor. Several work areas inside a context
@@ -199,7 +200,7 @@ UI (ADR 0036):
 
 | Part | What | Built with |
 |---|---|---|
-| Launcher | application menu (Super+D), contexts and actions, window picker | fuzzel |
+| Launcher | application menu (Super+D), contexts and actions, window picker, keyboard shortcuts (Super+F1) | fuzzel |
 | Bar | active context, layouts, stash, memory, other running contexts | Waybar custom modules (`koje bar`) |
 | Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | Kiesel Desktop, normal window |
 | Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | Kiesel Desktop, layer-shell |

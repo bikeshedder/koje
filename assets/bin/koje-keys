@@ -1,0 +1,26 @@
+#!/bin/sh
+# koje keyboard shortcuts (Super+F1): every binding of the running Hyprland in
+# fuzzel – koje's and the user's own – with its description (`bindd`), or the
+# command for bindings without one. Type to filter. Installed by koje setup to
+# ~/.local/lib/koje/.
+set -eu
+hyprctl -j binds |
+  jq -r '
+    def bit($b): (.modmask / $b | floor) % 2 == 1;
+    def mods: [
+      (if bit(64) then "Super" else empty end),
+      (if bit(4) then "Ctrl" else empty end),
+      (if bit(8) then "Alt" else empty end),
+      (if bit(1) then "Shift" else empty end)
+    ];
+    def key: {
+      "bracketright": "]", "bracketleft": "[", "space": "Space",
+      "mouse:272": "left mouse button", "mouse:273": "right mouse button",
+      "mouse:274": "middle mouse button"
+    }[.key] // (if (.key | length) == 1 then .key | ascii_upcase else .key end);
+    .[] | select(.catch_all | not)
+    | (mods + [key] | join("+")) + "   " +
+      (if .has_description then .description else "\(.dispatcher) \(.arg)" end)
+  ' |
+  awk '!seen[$0]++' |
+  fuzzel --dmenu --prompt 'keys  ' --width 70 --lines 20 >/dev/null || true

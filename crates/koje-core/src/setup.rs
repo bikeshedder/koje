@@ -597,6 +597,18 @@ mod tests {
         }
     }
 
+    /// Super+F1 lists the bindings by their descriptions: none of koje's may lack one.
+    #[test]
+    fn snippet_bindings_have_descriptions() {
+        let snippet = include_str!("../../../assets/hyprland/koje.conf");
+        let binds: Vec<&str> = snippet.lines().filter(|l| l.starts_with("bind")).collect();
+        assert!(binds.iter().any(|l| l.contains("SUPER, F1,")));
+        for line in binds {
+            let flags = line.split_once(' ').map_or(line, |(b, _)| b);
+            assert!(flags.contains('d'), "{line}");
+        }
+    }
+
     #[test]
     fn refresh_after_setup() {
         let snippet = Path::new("/d/koje/hyprland/koje.conf");

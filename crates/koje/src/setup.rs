@@ -17,6 +17,7 @@ const SNIPPET: &[u8] = include_bytes!("../../../assets/hyprland/koje.conf");
 const PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-window-picker");
 const CONTEXT_PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-context-picker");
 const APP_MENU: &[u8] = include_bytes!("../../../assets/bin/koje-app-menu");
+const KEYS: &[u8] = include_bytes!("../../../assets/bin/koje-keys");
 const UNIT: &[u8] = include_bytes!("../../../assets/systemd/kojed.service");
 const WAYBAR: [(&str, &[u8]); 2] = [
     (
@@ -167,6 +168,12 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
             "application menu (Super+D)",
             &lib.join("koje-app-menu"),
             APP_MENU,
+            0o755,
+        ),
+        file(
+            "keyboard shortcuts (Super+F1)",
+            &lib.join("koje-keys"),
+            KEYS,
             0o755,
         ),
     ];
