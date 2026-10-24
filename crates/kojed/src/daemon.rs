@@ -78,6 +78,9 @@ pub struct Daemon<C, R> {
     lost: BTreeMap<ContextName, State>,
     /// Memory notifications per context (ADR 0035).
     watches: BTreeMap<ContextName, koje_core::memory::Watch>,
+    /// A window whose border flashes since it got focus (M8.19); the event
+    /// loop takes it and calls [`Daemon::unblip`] a moment later.
+    blipped: Option<String>,
 }
 
 /// A context crossed a memory limit (ADR 0035): notify, or at the hard limit
@@ -116,6 +119,7 @@ where
             recovery_written: BTreeMap::new(),
             lost: BTreeMap::new(),
             watches: BTreeMap::new(),
+            blipped: None,
         }
     }
 
@@ -904,7 +908,11 @@ where
                     .collect())
             }
             CompositorEvent::WindowFocused { address } => {
+                let changed = address.is_some() && address != self.focused;
                 self.focused = address;
+                if changed {
+                    self.blip().await;
+                }
                 Ok(Vec::new())
             }
             CompositorEvent::WorkspaceFocused { name } => {
@@ -912,6 +920,46 @@ where
                 Ok(Vec::new())
             }
             CompositorEvent::WindowTitle { .. } => Ok(Vec::new()),
+        }
+    }
+
+    /// Flash the border of the focused context window (M8.19). Host windows
+    /// have no koje color to return to and do not blip.
+    async fn blip(&mut self) {
+        let Some(address) = self.focused.clone() else {
+            return;
+        };
+        let Some(color) = self
+            .windows
+            .context_of(&address)
+            .and_then(|ctx| self.colors.get(ctx))
+        else {
+            return;
+        };
+        let flash = windows::blip(&address, *color);
+        match self.apply(&[flash]).await {
+            Ok(()) => self.blipped = Some(address),
+            Err(e) => tracing::debug!("focus blip: {e:#}"),
+        }
+    }
+
+    /// The window that just started to blip, for the event loop.
+    pub fn take_blip(&mut self) -> Option<String> {
+        self.blipped.take()
+    }
+
+    /// End a blip: the window's context color again – the current one, in
+    /// case it changed meanwhile. A closed window needs nothing.
+    pub async fn unblip(&mut self, address: &str) {
+        let Some(color) = self
+            .windows
+            .context_of(address)
+            .and_then(|ctx| self.colors.get(ctx))
+        else {
+            return;
+        };
+        if let Err(e) = self.apply(&[windows::border(address, *color)]).await {
+            tracing::debug!("ending the focus blip: {e:#}");
         }
     }
 
@@ -1314,6 +1362,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(d.active_context(), None, "a host window");
+        comp.take(); // the focus blip
 
         // A second window of the same process: no new lookup.
         comp.open("0xb", 10);
@@ -1392,6 +1441,47 @@ mod tests {
                 mv("0xn", "new")
             ]
         );
+    }
+
+    /// M8.19: focus on a context window flashes its border, the event loop
+    /// ends it; host windows and repeated focus events do not blip.
+    #[tokio::test(flavor = "current_thread")]
+    async fn focus_blips_context_windows() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        comp.open("0xh", 99);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+        let focus = |a: &str| CompositorEvent::WindowFocused {
+            address: Some(a.into()),
+        };
+
+        d.handle(focus("0xa")).await.unwrap();
+        assert_eq!(comp.take(), [windows::blip("0xa", red())]);
+        assert_eq!(d.take_blip().as_deref(), Some("0xa"));
+        assert_eq!(d.take_blip(), None, "taken once");
+        d.unblip("0xa").await;
+        assert_eq!(comp.take(), [windows::border("0xa", red())]);
+
+        // The same window again (Hyprland repeats the event): no blip.
+        d.handle(focus("0xa")).await.unwrap();
+        assert_eq!(comp.take(), []);
+        // A host window: nothing to return to.
+        d.handle(focus("0xh")).await.unwrap();
+        assert_eq!(comp.take(), []);
+        assert_eq!(d.take_blip(), None);
+        // A closed window's blip ends without a command.
+        d.handle(focus("0xa")).await.unwrap();
+        comp.take();
+        d.handle(CompositorEvent::WindowClosed {
+            address: "0xa".into(),
+        })
+        .await
+        .unwrap();
+        d.unblip("0xa").await;
+        assert_eq!(comp.take(), []);
     }
 
     /// Host test of M4.5: after `koje edit` only new windows had the new color.
@@ -1790,6 +1880,7 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
         })
         .await
         .unwrap();
+        comp.take(); // the focus blip
         assert_eq!(
             d.stash_focused().await.unwrap(),
             (work.clone(), "terminal".to_owned())

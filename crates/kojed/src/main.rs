@@ -79,7 +79,13 @@ async fn main() -> Result<()> {
         }
         // The bar (`koje bar`) follows contexts, the active one, window counts.
         let bar_relevant = !matches!(event, CompositorEvent::WindowTitle { .. });
-        let changes = daemon.lock().await.handle(event).await;
+        let (changes, blipped) = {
+            let mut d = daemon.lock().await;
+            (d.handle(event).await, d.take_blip())
+        };
+        if let Some(address) = blipped {
+            tokio::spawn(unblip(Arc::clone(&daemon), address));
+        }
         if bar_relevant && let Err(e) = api::contexts_changed(&conn).await {
             tracing::debug!("emitting ContextsChanged: {e}");
         }
@@ -94,6 +100,14 @@ async fn main() -> Result<()> {
             Err(e) => tracing::warn!("{e:#}"),
         }
     }
+}
+
+/// How long a focused window's border flashes (M8.19).
+const BLIP: std::time::Duration = std::time::Duration::from_millis(200);
+
+async fn unblip(daemon: api::Shared, address: String) {
+    tokio::time::sleep(BLIP).await;
+    daemon.lock().await.unblip(&address).await;
 }
 
 /// How often kojed takes the live states (autosave, recovery file).

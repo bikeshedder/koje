@@ -72,7 +72,8 @@ browser profile per project. Put common programs into the base image.
   Super+Return opens a terminal in the active context (`koje terminal`).
   Super+F1 lists all keyboard shortcuts (`hyprctl binds` in fuzzel).
 - **Border color** per context: kojed sees each new window on the event socket,
-  maps PID → context, sets active/inactive border colors.
+  maps PID → context, sets active/inactive border colors. A window that gets
+  focus flashes its border white for a moment (focus feedback).
 - **Workspaces:** one per context per monitor. Several work areas inside a context
   are **layouts**, not workspaces.
 - **Snapping:** Hyprland edge snapping (built in); zones per monitor via

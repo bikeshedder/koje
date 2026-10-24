@@ -23,6 +23,28 @@ pub fn rule(ctx: &ContextName, color: Color) -> CompositorCommand {
     }
 }
 
+/// The border colors of one context window, set directly (overriding the rule).
+pub fn border(address: &str, color: Color) -> CompositorCommand {
+    CompositorCommand::BorderColors {
+        address: address.to_owned(),
+        active: color,
+        inactive: color.dimmed(),
+    }
+}
+
+/// The color a window's border flashes in when it gets focus (M8.19): a short
+/// blip shows where focus went; then [`border`] gives the context's back.
+pub const BLIP: Color = Color::rgb(0xff, 0xff, 0xff);
+
+/// The flash of a context window that just got focus.
+pub fn blip(address: &str, color: Color) -> CompositorCommand {
+    CompositorCommand::BorderColors {
+        address: address.to_owned(),
+        active: BLIP,
+        inactive: color.dimmed(),
+    }
+}
+
 /// The workspace of a context: named like the context. Context names start
 /// with a letter, so they never clash with numbered or special workspaces.
 pub fn workspace(ctx: &ContextName) -> String {
@@ -157,11 +179,7 @@ impl WindowMap {
         self.windows
             .iter()
             .filter(|(_, w)| w.context.as_ref() == Some(ctx))
-            .map(|(address, _)| CompositorCommand::BorderColors {
-                address: address.clone(),
-                active: color,
-                inactive: color.dimmed(),
-            })
+            .map(|(address, _)| border(address, color))
             .collect()
     }
 
