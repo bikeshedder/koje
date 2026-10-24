@@ -5,7 +5,7 @@
 # since master 2026-05-21, and no release has that yet.
 #
 #   scripts/build-waybar-deb.sh               build master, install the .deb
-#   scripts/build-waybar-deb.sh --ref <ref>   build a tag, branch or full commit hash
+#   scripts/build-waybar-deb.sh --ref <ref>   build a tag, branch or commit
 #   scripts/build-waybar-deb.sh --no-install  only build; prints the .deb
 #   scripts/build-waybar-deb.sh --yes         do not ask
 #
@@ -31,6 +31,7 @@ while (($#)); do
 done
 
 repo=https://github.com/Alexays/Waybar
+api=https://api.github.com/repos/Alexays/Waybar
 work=${XDG_CACHE_HOME:-$HOME/.cache}/koje/waybar-deb
 
 ask() {
@@ -65,7 +66,7 @@ else
 fi
 
 step "Build dependencies (sudo apt-get build-dep waybar)"
-sudo apt-get install -y --no-install-recommends git dpkg-dev build-essential
+sudo apt-get install -y --no-install-recommends curl jq ca-certificates dpkg-dev build-essential
 sudo apt-get build-dep -y waybar
 
 step "Sources in $work"
@@ -78,14 +79,16 @@ apt-get source --download-only waybar >/dev/null
 dpkg-source --no-check -x --skip-patches ./*.dsc distro >/dev/null
 upstream=$(dpkg-parsechangelog -l distro/debian/changelog -S Version | sed 's/-[^-]*$//; s/^[0-9]*://')
 echo "packaging: Waybar $upstream from $ID $codename"
-# Only the one version, no history (a branch, tag or full commit hash).
-echo "fetching $ref from $repo …"
-git init --quiet src
+# The commit $ref names, then that commit as an archive – plain curl: git's
+# HTTPS helper hung at 100 % CPU on Ubuntu 26.04.
+info=$(curl -fsSL "$api/commits/$ref")
+sha=$(jq -r .sha <<<"$info")
+commit=${sha:0:10}
+echo "source: $ref ($commit, $(jq -r .commit.committer.date <<<"$info" | cut -c1-10))"
+curl -fL --progress-bar "$repo/archive/$sha.tar.gz" -o waybar.tar.gz
+mkdir src
+tar -xzf waybar.tar.gz -C src --strip-components=1
 cd src
-git fetch --depth 1 --progress "$repo" "$ref"
-git checkout --quiet FETCH_HEAD
-commit=$(git rev-parse --short=10 HEAD)
-echo "source: $ref ($commit, $(git log -1 --format=%cs))"
 
 step "Packaging"
 cp -r ../distro/debian .
@@ -94,8 +97,8 @@ cp -r ../distro/debian .
 rm -rf debian/patches
 echo "3.0 (native)" >debian/source/format
 version="${upstream}+git$(date +%Y%m%d).${commit}"
-name=$(git config user.name || true)
-email=$(git config user.email || true)
+name=$(git config user.name 2>/dev/null || true)
+email=$(git config user.email 2>/dev/null || true)
 {
   printf 'waybar (%s) %s; urgency=medium\n\n' "$version" "$codename"
   printf '  * Snapshot of %s %s (%s), built by koje'"'"'s scripts/build-waybar-deb.sh.\n\n' "$repo" "$ref" "$commit"
