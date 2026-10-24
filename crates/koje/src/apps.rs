@@ -28,8 +28,10 @@ pub fn run(paths: &Paths, ctx: &ActiveCtx, start: Option<&str>, menu: bool) -> R
     let Some(app) = apps.iter().find(|a| a.name == wanted) else {
         bail!("{name} has no program named {wanted:?} – see: koje apps -c {name}");
     };
-    // gio follows the desktop file (field codes, D-Bus activation); the
-    // active context's workspace is in view already.
-    let command = ["gio", "launch", app.path.as_str()].map(str::to_owned);
+    let mut command = app.command.clone();
+    if app.terminal {
+        command.insert(0, crate::terminal::TERMINAL.to_owned());
+    }
+    // The active context's workspace is in view already.
     crate::runtime::run(paths, name.as_str(), &command, ctx.context.is_some())
 }

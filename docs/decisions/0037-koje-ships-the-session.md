@@ -56,7 +56,10 @@ koje is opinionated: it should give a working desktop after `./install.sh`.
   Outside Hyprland it only prints the hint.
 - **Super+D is koje's application menu** (M8.17): the programs of the active
   context – the `.desktop` entries in its data directories – in fuzzel,
-  started there with `gio launch`. Outside a context it shows the running
+  started there by running the entry's `Exec` command (field codes resolved;
+  `Terminal=true` in foot) – not `gio launch`, which only asks the bus to
+  start D-Bus activatable programs and opened nothing for Nautilus in a
+  context. Outside a context it shows the running
   contexts to switch to. Programs of all contexts in one list, host programs
   and icons are not part of it.
 

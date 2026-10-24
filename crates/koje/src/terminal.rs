@@ -8,7 +8,7 @@ use crate::cli::ActiveCtx;
 
 /// The terminal in both places: the base image ships it (ADR 0023), `koje
 /// doctor` checks the host's.
-const TERMINAL: &str = "foot";
+pub const TERMINAL: &str = "foot";
 
 #[derive(Debug, PartialEq, Eq)]
 enum Place {
