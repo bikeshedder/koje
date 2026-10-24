@@ -28,6 +28,9 @@ and `sleep infinity` as PID 1 delayed every stop by 10 s.
 - **Session variables:** `XDG_SESSION_TYPE=wayland` (libwebrtc screen sharing
   decides by it) and `GTK_USE_PORTAL=1` (GTK uses the host's file chooser
   through the forwarder, ADR 0019) – set when the context has `wayland`.
+- **Locale:** `LANG=C.UTF-8` (added 2026-10-24): every glibc has it without
+  language packs in the image; without it programs ran in the "C" locale
+  (foot warned). Needs a recreate for containers made before.
 - **`/dev/shm`:** `--shm-size 1g` (a limit, not reserved memory).
 - **PID 1:** `--init`.
 

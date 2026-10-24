@@ -356,6 +356,9 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
     p.set("HOME", host.home.display().to_string());
     p.set("XDG_RUNTIME_DIR", run.display().to_string());
     p.set("DBUS_SESSION_BUS_ADDRESS", bus.clone());
+    // A UTF-8 locale every glibc has, without language packs in the image
+    // (foot: "'C' is not a UTF-8 locale").
+    p.set("LANG", "C.UTF-8");
 
     p.wayland(a.wayland);
     p.sound(a.sound);
@@ -503,6 +506,7 @@ mod tests {
             s.env["DBUS_SESSION_BUS_ADDRESS"],
             "unix:path=/run/user/1000/bus"
         );
+        assert_eq!(s.env["LANG"], "C.UTF-8");
         assert_eq!(
             targets(s),
             [
