@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use koje_core::paths::Paths;
-use koje_core::setup::{self, Action, Mark, Step, WaybarFile};
+use koje_core::setup::{self, Action, Mark, Refresh, Service, Step, WaybarFile};
 
 use crate::prompt::confirm;
 
@@ -31,7 +31,7 @@ const WAYBAR: [(&str, &[u8]); 2] = [
 const WAYBAR_READS: [&str; 3] = ["config", "config.jsonc", "style.css"];
 
 /// Command → Debian/Ubuntu package koje needs on the host.
-pub const DEPENDENCIES: [(&str, &str); 10] = [
+pub const DEPENDENCIES: [(&str, &str); 17] = [
     ("podman", "podman"),
     ("newuidmap", "uidmap"),
     ("pasta", "passt"),
@@ -42,6 +42,14 @@ pub const DEPENDENCIES: [(&str, &str); 10] = [
     ("xdg-dbus-proxy", "xdg-dbus-proxy"),
     ("fuzzel", "fuzzel"),
     ("jq", "jq"),
+    // The session koje's Hyprland snippet sets up (ADR 0037).
+    ("foot", "foot"),
+    ("mako", "mako-notifier"),
+    ("hypridle", "hypridle"),
+    ("hyprlock", "hyprlock"),
+    ("grim", "grim"),
+    ("slurp", "slurp"),
+    ("wl-copy", "wl-clipboard"),
 ];
 /// Portal backends (packages, checked with `dpkg-query` where it exists).
 pub const PORTALS: [&str; 2] = ["xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk"];
@@ -211,8 +219,9 @@ fn execute(action: &Action) -> Result<()> {
                 .open(path)
                 .with_context(|| format!("opening {}", path.display()))?;
             let text = if new {
+                // Below the line, the user's settings win over koje's.
                 format!(
-                    "# Hyprland config – your own settings go here.\n\n# added by koje setup\n{line}\n"
+                    "# added by koje setup\n{line}\n\n# Your own settings go below; they override koje's.\n"
                 )
             } else {
                 format!("\n# added by koje setup\n{line}\n")
@@ -268,6 +277,22 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
             "  To use koje's bar instead: move your Waybar config away and run koje setup again."
         );
     }
+    let refresh = if in_hyprland() {
+        setup::refresh(
+            &steps,
+            &paths.hyprland_snippet(),
+            &paths.waybar_dir(),
+            &running,
+        )
+    } else {
+        Vec::new()
+    };
+    if !refresh.is_empty() {
+        println!("\nThen, in this Hyprland session");
+        for r in &refresh {
+            println!("  {r}");
+        }
+    }
     if dry_run {
         println!("\ndry run – nothing changed");
         return Ok(());
@@ -306,15 +331,57 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
         }
     }
 
+    if !refresh.is_empty() {
+        println!();
+        for r in &refresh {
+            match refresh_session(r) {
+                Ok(()) => println!("  done: {r}"),
+                Err(e) => eprintln!("warning: could not {r}: {e:#}"),
+            }
+        }
+    }
+
     println!("\nNext");
-    println!("  in Hyprland: hyprctl reload; restart Waybar: pkill waybar; waybar &");
-    let active = std::process::Command::new("systemctl")
-        .args(["--user", "is-active", "--quiet", "kojed"])
-        .status()
-        .is_ok_and(|s| s.success());
-    if !active {
-        println!("  start kojed (Hyprland does it at login): systemctl --user start kojed");
+    if !in_hyprland() {
+        println!("  in Hyprland: hyprctl reload, or log in again to start koje's session");
     }
     println!("  check everything: koje doctor");
+    Ok(())
+}
+
+/// Setup runs inside a Hyprland session it can refresh.
+fn in_hyprland() -> bool {
+    std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some_and(|s| !s.is_empty())
+        && on_path("hyprctl")
+}
+
+fn running(service: &Service) -> bool {
+    std::process::Command::new("pgrep")
+        .args(service.pgrep)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+fn refresh_session(r: &Refresh) -> Result<()> {
+    let (program, args): (&str, Vec<&str>) = match r {
+        Refresh::Hyprland => ("hyprctl", vec!["reload"]),
+        Refresh::Waybar => ("pkill", vec!["-USR2", "-x", "waybar"]),
+        // Started by Hyprland, so it gets the session's environment as at login.
+        Refresh::Start(s) => ("hyprctl", vec!["dispatch", "exec", s.command]),
+    };
+    let out = std::process::Command::new(program)
+        .args(&args)
+        .output()
+        .with_context(|| format!("running {program}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // hyprctl exits 0 on refused commands; it answers "ok".
+    if !out.status.success() || (program == "hyprctl" && stdout.trim() != "ok") {
+        anyhow::bail!(
+            "{program}: {}{}",
+            stdout.trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
     Ok(())
 }

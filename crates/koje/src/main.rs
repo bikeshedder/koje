@@ -16,6 +16,7 @@ mod mounts;
 mod prompt;
 mod runtime;
 mod setup;
+mod terminal;
 
 use std::process::ExitCode;
 

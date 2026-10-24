@@ -306,8 +306,9 @@ icon font and koje's Waybar config come from the installer (ADR 0021):
 ./install.sh --dry-run && ./install.sh
 ```
 
-Log out, choose **Hyprland** at the login screen. Super+Return terminal,
-Super+D launcher, Super+Escape lock, Super+Shift+E leave. Missing packages or
+Log out, choose **Hyprland** at the login screen. With the spike config:
+Super+Return terminal, Super+D launcher, Super+Escape lock, Super+Shift+E leave.
+(Since ADR 0037 koje's snippet itself carries the session except Super+D.) Missing packages or
 config errors (shown at the top of the screen): note them in the M2.1 report.
 
 **M2.1 – daily use** (`M2.1-hyprland-daily.md`): use it for a week; note what

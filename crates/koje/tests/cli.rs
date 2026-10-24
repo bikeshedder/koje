@@ -823,6 +823,8 @@ fn setup_cmd(tmp: &Path, path: &str, args: &[&str]) -> Output {
     command(tmp, &all)
         .env("HOME", tmp)
         .env("PATH", path)
+        // Never the real session: no reloads, no services started.
+        .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
         .stdin(Stdio::null())
         .output()
         .unwrap()

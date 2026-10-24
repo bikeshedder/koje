@@ -1,0 +1,63 @@
+# 0037. koje ships a complete Hyprland session
+
+- Status: Accepted
+- Date: 2026-10-24
+- Source: discussion (after a first install, Super+Return opened nothing)
+
+## Context
+
+ADR 0021 kept koje's Hyprland snippet to koje's own part (floating windows,
+Super+mouse, overlays, stash, layouts) and left everything else to the user's
+`hyprland.conf`. The rest of a usable session – a terminal key, closing
+windows, workspaces, bar, notifications, lock – lived only in the spike config
+(`docs/spikes/setup/hyprland-session.conf`). A fresh install therefore gave a
+desktop without a terminal key, and nothing started the Waybar config koje
+installs.
+
+koje is opinionated: it should give a working desktop after `./install.sh`.
+
+## Decision
+
+- koje's snippet (`assets/hyprland/koje.conf`) carries the **whole session**
+  besides koje's own part:
+  - **services:** `dbus-update-activation-environment`, Waybar, mako, hypridle,
+    the polkit agent (libexec or lib path);
+  - **look:** border 4 (the context color must be visible), gaps 4/8,
+    rounding 6, no Hyprland logo; natural scrolling on touchpads (as GNOME);
+  - **basic bindings:** Super+Return terminal, Super+Q close, Super+F
+    fullscreen, Super+Space next keyboard layout (also in the bar), Super+Shift+E exit, Super+Escape hyprlock, Print screenshot of
+    a region to the clipboard (grim, slurp, wl-copy);
+  - **workspaces 1–9** (Super+n, Super+Shift+n) for host windows; contexts keep
+    their named workspaces (ADR 0028).
+- **Super+Return runs `koje terminal`:** foot in the active context (the
+  context of the focused workspace, ADR 0028); on a workspace without a context,
+  or when kojed does not answer, foot on the host. `-c <context>` names one.
+- **The machine's settings stay the user's:** monitor, keyboard layout, GPU
+  environment. They go into `hyprland.conf` *below* the `source` line, where
+  later settings win; a koje binding is removed there with `unbind`. A new
+  `hyprland.conf` written by `koje setup` starts with the `source` line.
+- `koje doctor` checks the session's packages (foot, mako, hypridle, hyprlock,
+  grim, slurp, wl-clipboard). The polkit agent is not checked: its package
+  and path differ between distributions.
+- **`koje setup` refreshes the running session** when it runs inside Hyprland
+  and changed files: `hyprctl reload` (snippet or `source` line changed),
+  Waybar rereads a changed config (SIGUSR2), and services of the snippet that
+  do not run are started through `hyprctl dispatch exec` – `exec-once` runs
+  only at login. The plan shows these under "Then" before the one question.
+  Outside Hyprland it only prints the hint.
+- Super+D stays free for koje's application menu (plan task M8.17).
+
+## Consequences
+
++ A fresh install is a usable desktop; the spike config is no longer needed.
++ The terminal key respects contexts: work happens in the context in view.
+- An existing `hyprland.conf` gets the `source` line appended at its end, so
+  koje's look overrides settings above it, and its bindings fire *in addition*
+  to the user's on the same keys (Hyprland runs all of them). Notable clash:
+  Hyprland's generated default config binds Super+Q (terminal), Super+C and
+  Super+M (exit). Users move their own settings below the line or `unbind`.
+- A user who starts Waybar or mako themselves gets two; they remove their own
+  `exec-once`.
+- The terminal is foot on both sides, not configurable yet.
+- Supersedes the last bullet of ADR 0021 (snippet scope); the rest of 0021
+  stands.

@@ -215,6 +215,102 @@ pub fn image(exists: Option<bool>) -> Step {
     }
 }
 
+/// A program koje's Hyprland snippet starts at login (`exec-once`, ADR 0037).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Service {
+    pub name: &'static str,
+    /// `pgrep` arguments that find it running.
+    pub pgrep: &'static [&'static str],
+    /// Its `exec-once` command in the snippet.
+    pub command: &'static str,
+}
+
+/// The snippet's services, in start order: kojed first (the bar asks it).
+pub const SESSION: [Service; 5] = [
+    Service {
+        name: "kojed",
+        pgrep: &["-x", "kojed"],
+        command: "systemctl --user start kojed",
+    },
+    Service {
+        name: "Waybar",
+        pgrep: &["-x", "waybar"],
+        command: "waybar",
+    },
+    Service {
+        name: "mako",
+        pgrep: &["-x", "mako"],
+        command: "mako",
+    },
+    Service {
+        name: "hypridle",
+        pgrep: &["-x", "hypridle"],
+        command: "hypridle",
+    },
+    Service {
+        name: "polkit agent",
+        pgrep: &["-f", "polkit-gnome-authentication-agent-1"],
+        command: "sh -c 'for a in /usr/libexec/polkit-gnome-authentication-agent-1 /usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1; do [ -x \"$a\" ] && exec \"$a\"; done'",
+    },
+];
+
+/// The running session after setup changed files: what is not current yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refresh {
+    /// `hyprctl reload`: the snippet or the `source` line changed.
+    Hyprland,
+    /// Waybar reads its changed config again (SIGUSR2).
+    Waybar,
+    /// Start a service that is not running (`exec-once` runs only at login).
+    Start(Service),
+}
+
+impl fmt::Display for Refresh {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Hyprland => write!(f, "reload Hyprland's config"),
+            Self::Waybar => write!(f, "reload Waybar's config"),
+            Self::Start(s) => write!(f, "start {}", s.name),
+        }
+    }
+}
+
+/// What to refresh in the current Hyprland session after `steps` ran;
+/// `running` tells which of [`SESSION`] run now. Nothing when setup changed
+/// nothing: it stops there.
+pub fn refresh(
+    steps: &[Step],
+    snippet: &Path,
+    waybar: &Path,
+    running: &dyn Fn(&Service) -> bool,
+) -> Vec<Refresh> {
+    if !steps.iter().any(|s| s.mark.changes()) {
+        return Vec::new();
+    }
+    let changed = |s: &&Step| s.mark.changes();
+    let hyprland = steps.iter().filter(changed).any(|s| match &s.action {
+        Action::Write { path, .. } => path == snippet,
+        Action::SourceLine { .. } => true,
+        _ => false,
+    });
+    let waybar_changed = steps
+        .iter()
+        .filter(changed)
+        .any(|s| matches!(&s.action, Action::Write { path, .. } if path.starts_with(waybar)));
+    let mut out = Vec::new();
+    if hyprland {
+        out.push(Refresh::Hyprland);
+    }
+    for service in SESSION {
+        if !running(&service) {
+            out.push(Refresh::Start(service));
+        } else if service.command == "waybar" && waybar_changed {
+            out.push(Refresh::Waybar);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,5 +412,63 @@ mod tests {
         assert_eq!(image(Some(false)).action, Action::BuildImage);
         assert_eq!(image(Some(true)).mark, Mark::Unchanged);
         assert_eq!(image(None).mark, Mark::Skipped);
+    }
+
+    fn write(path: &str) -> Step {
+        file("f", Path::new(path), SNIPPET, 0o644, None)
+    }
+
+    #[test]
+    fn session_services_are_the_snippets() {
+        let snippet = include_str!("../../../assets/hyprland/koje.conf");
+        for s in SESSION {
+            let line = format!("exec-once = {}", s.command);
+            assert!(snippet.lines().any(|l| l == line), "{line}");
+        }
+    }
+
+    #[test]
+    fn refresh_after_setup() {
+        let snippet = Path::new("/d/koje/hyprland/koje.conf");
+        let waybar = Path::new("/c/waybar");
+        let all = |_: &Service| true;
+        let none = |_: &Service| false;
+
+        // Nothing changed: nothing to do, even with services not running.
+        let same = Step {
+            mark: Mark::Unchanged,
+            what: String::new(),
+            action: Action::Nothing,
+        };
+        assert_eq!(refresh(&[same], snippet, waybar, &none), []);
+
+        // New snippet and bar: reload Hyprland, Waybar rereads its config.
+        let steps = [
+            write("/d/koje/hyprland/koje.conf"),
+            write("/c/waybar/config.jsonc"),
+        ];
+        assert_eq!(
+            refresh(&steps, snippet, waybar, &all),
+            [Refresh::Hyprland, Refresh::Waybar]
+        );
+
+        // First install: nothing runs yet – start all, kojed first; no SIGUSR2
+        // for a Waybar that starts anyway.
+        let r = refresh(&steps, snippet, waybar, &none);
+        assert_eq!(r[0], Refresh::Hyprland);
+        assert_eq!(r[1], Refresh::Start(SESSION[0]));
+        assert_eq!(r.len(), 1 + SESSION.len());
+
+        // Only the source line: a reload.
+        let source = hyprland_source(
+            Path::new("/c/hypr/hyprland.conf"),
+            snippet,
+            Path::new("/h"),
+            Some(""),
+        );
+        assert_eq!(
+            refresh(&[source], snippet, waybar, &all),
+            [Refresh::Hyprland]
+        );
     }
 }

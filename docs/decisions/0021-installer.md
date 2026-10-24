@@ -1,6 +1,6 @@
 # 0021. Installer: what it may change
 
-- Status: Accepted
+- Status: Accepted (snippet scope superseded by ADR 0037)
 - Date: 2026-10-18
 - Source: discussion during M2.1
 
@@ -34,6 +34,9 @@ before koje itself can do it.
 - koje's own Hyprland settings live in the snippet (`assets/hyprland/koje.conf`):
   floating windows, Super+mouse, snapping, overlays, stash. Personal and machine
   settings (monitor, keyboard layout, GPU) stay in the user's `hyprland.conf`.
+  Superseded by ADR 0037: the snippet carries the whole session (bar,
+  notifications, lock, basic bindings, workspaces, look); only the machine's
+  settings stay in `hyprland.conf`.
 
 - Update (M4.9): the steps now live in **`koje setup`** (plan in
   `koje_core::setup`, koje's files embedded in the binary) and **`koje doctor`**
@@ -47,4 +50,5 @@ before koje itself can do it.
 + The user's own configuration is never rewritten.
 - Package names are only known for Debian/Ubuntu.
 - Changes to the snippet take effect on `hyprctl reload`; the installer only
-  reminds the user.
+  reminds the user. (Since ADR 0037 it reloads and starts the session's
+  services itself when it runs inside Hyprland.)

@@ -26,9 +26,13 @@ The installer builds `koje` and `kojed` into `~/.local/bin` and the static
 `koje-forward` into `~/.local/lib/koje/`, then runs `koje setup`: it shows its
 plan and asks once, installs koje's icon font and Hyprland snippet below
 `~/.local/share` and kojed's systemd user unit, adds one `source` line to
-`~/.config/hypr/hyprland.conf`, installs koje's Waybar config only if you have
-none, and builds the base image. Running it again updates koje's files and
-leaves yours alone. `koje doctor` checks the result and lists missing system
+`~/.config/hypr/hyprland.conf` (the snippet is a complete session: bar,
+notifications, lock, Super+Return terminal in the active context, workspaces –
+[ADR 0037](docs/decisions/0037-koje-ships-the-session.md); put your monitor and
+keyboard settings below that line), installs koje's Waybar config only if you have
+none, and builds the base image. Inside Hyprland it then reloads the config and
+starts the session's services (Waybar, mako, …) that do not run yet. Running it
+again updates koje's files and leaves yours alone. `koje doctor` checks the result and lists missing system
 packages with the `apt install` line (koje never runs `sudo`). Details:
 [ADR 0021](docs/decisions/0021-installer.md).
 

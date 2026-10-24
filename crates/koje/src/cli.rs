@@ -161,6 +161,9 @@ pub enum Command {
         )]
         command: Vec<String>,
     },
+    /// Open a terminal in the active context (Super+Return); on a workspace
+    /// without a context, on the host.
+    Terminal(ActiveCtx),
     /// Open a shell in a context (or its dev container).
     Shell {
         #[command(flatten)]
@@ -312,6 +315,18 @@ mod tests {
     #[test]
     fn definition_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn terminal_context_is_optional() {
+        assert!(matches!(
+            parse(&["terminal"]).unwrap().command,
+            Command::Terminal(ActiveCtx { context: None })
+        ));
+        assert!(matches!(
+            parse(&["terminal", "-c", "kp"]).unwrap().command,
+            Command::Terminal(ActiveCtx { context: Some(c) }) if c == "kp"
+        ));
     }
 
     #[test]

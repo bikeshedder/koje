@@ -41,3 +41,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0034 | [Mounts are folders below the home](0034-mounts-below-the-home.md) | Accepted |
 | 0035 | [Memory limits use the working set; no limits by default](0035-memory-accounting.md) | Accepted |
 | 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Accepted |
+| 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Accepted |

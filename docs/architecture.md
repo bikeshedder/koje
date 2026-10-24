@@ -67,6 +67,9 @@ browser profile per project. Put common programs into the base image.
 ## Desktop (Hyprland)
 
 - All windows floating (`windowrule = float, class:.*`); Super+LMB move, Super+MMB resize.
+- koje's Hyprland snippet is a complete session (ADR 0037): Waybar, mako,
+  hypridle/hyprlock, basic bindings, workspaces 1–9 for host windows, look.
+  Super+Return opens a terminal in the active context (`koje terminal`).
 - **Border color** per context: kojed sees each new window on the event socket,
   maps PID → context, sets active/inactive border colors.
 - **Workspaces:** one per context per monitor. Several work areas inside a context
@@ -144,6 +147,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
 | `koje run <context> [--no-focus] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted) |
+| `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |

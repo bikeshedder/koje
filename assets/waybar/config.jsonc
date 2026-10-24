@@ -6,7 +6,7 @@
   "height": 28,
   "modules-left": ["custom/koje", "hyprland/workspaces", "wlr/taskbar"],
   "modules-center": ["clock"],
-  "modules-right": ["cpu", "memory", "pulseaudio", "network", "battery", "tray"],
+  "modules-right": ["hyprland/language", "cpu", "memory", "pulseaudio", "network", "battery", "tray"],
 
   // Running contexts from kojed, also without windows (koje bar, M5.15).
   "custom/koje": {
@@ -28,6 +28,11 @@
     "format": "\ue087  {:%H:%M}",                       // clock
     "format-alt": "\ue063  {:%a %d.%m.%Y}",          // calendar
     "tooltip-format": "<tt>{calendar}</tt>"
+  },
+  // Keyboard layouts from hyprland.conf (kb_layout/kb_variant); click: the next one.
+  "hyprland/language": {
+    "format": "\ue284  {long}",
+    "on-click": "hyprctl switchxkblayout all next"
   },
   "cpu": { "format": "\ue0a9  {usage}%", "interval": 5 },     // cpu
   "memory": { "format": "\ue445  {percentage}%", "interval": 5 },  // memory-stick
