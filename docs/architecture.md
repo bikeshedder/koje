@@ -71,6 +71,10 @@ browser profile per project. Put common programs into the base image.
   hypridle/hyprlock, basic bindings, workspaces 1–9 for host windows, look.
   Super+Return opens a terminal in the active context (`koje terminal`).
   Super+F1 lists all keyboard shortcuts (`hyprctl binds` in fuzzel).
+- **Look and feel follow GNOME** (ADR 0043): libadwaita, Adwaita themes and
+  symbolic icons, a bar laid out like GNOME's top bar, no gaps; Super alone
+  opens the launcher, Super+arrows maximize, restore and tile halves (M8.41).
+  The context color is the deliberate difference.
 - **Border color** per context: kojed sees each new window on the event socket,
   maps PID → context, sets active/inactive border colors. A window that gets
   focus flashes its border white for a moment (focus feedback). The bar's
@@ -206,7 +210,7 @@ UI (ADR 0036, 0042; the bar is Waybar until koje's own bar replaces it, M8.32):
 |---|---|---|
 | Launcher | application menu (Super+D), contexts and actions, window picker, keyboard shortcuts (Super+F1) | fuzzel |
 | Bar | workspaces and the current workspace's windows (context color as accent), the active context's memory; later layouts, stash | Waybar: hyprland/workspaces, custom module `koje bar --memory` (`koje bar` lists running contexts for own configs) |
-| Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | GTK4, normal window |
+| Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | GTK4 with libadwaita, normal window |
 | Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | GTK4, layer-shell |
 | Beacon window | keeps an empty context workspace alive (ADR 0028); may be dropped | GTK4, normal window |
 

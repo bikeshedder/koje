@@ -84,7 +84,8 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 - Hyprland is the only supported compositor; talk to it via its command and event
   sockets. Do not add abstractions for other compositors.
 - koje's own UI is the shell (`koje-shell`), GTK4 via gtk4-rs and
-  gtk4-layer-shell (ADR 0042). What it shows and what actions do are pure
+  gtk4-layer-shell (ADR 0042), with libadwaita; it looks and behaves like GNOME
+  except where koje's features differ (ADR 0043). What it shows and what actions do are pure
   functions; widgets only render them. Nothing blocks the GTK main loop.
 - Programs inside contexts are never modified or configured by koje. Integrations
   only influence how koje launches them and what it remembers. Dotfiles presets

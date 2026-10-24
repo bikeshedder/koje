@@ -1,6 +1,6 @@
 # 0020. Lucide as koje's icon font
 
-- Status: Accepted
+- Status: Accepted; for the shell and the settings app superseded by ADR 0043 (symbolic icons)
 - Date: 2026-10-18
 - Source: M2.1 (Waybar showed missing icons), discussion
 

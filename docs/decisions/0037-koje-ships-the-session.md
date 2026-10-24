@@ -1,6 +1,6 @@
 # 0037. koje ships a complete Hyprland session
 
-- Status: Accepted
+- Status: Accepted; look (gaps, rounding, shadows) superseded by ADR 0043
 - Date: 2026-10-24
 - Source: discussion (after a first install, Super+Return opened nothing)
 

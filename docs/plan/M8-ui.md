@@ -37,28 +37,35 @@ valid as a list).
   - `koje_core::media` (wpctl parsing, backlight choice, perceptual steps, OSD texts), `crates/koje/src/media.rs`. Host-tested 2026-10-24: brightness down/up through logind without the group `video`, volume, mute and microphone; mako 1.10 crashes on `replaces_id` together with the synchronous hint, so only the hint replaces the OSD. `koje doctor` checks `wpctl`.
 - [~] **M8.25 Media keys to the most recently active player** (ADR 0041): `koje media play-pause|next|previous`; kojed watches MPRIS `PlaybackStatus` on the host's bus and every running context's bus (`/proc/<pid>/root/run/user/<uid>/bus`), D-Bus method `MediaPlayer` for `koje media`
   - `kojed/src/players.rs`, `koje_core::media::player_order`, `Podman::running_pid`. Connecting to a context's bus from the host checked 2026-10-24 (`busctl --address`). To check on the host with the new kojed: play/pause in a context's Firefox and on the host; after pausing in the app the key resumes that player; a context started after kojed is reached within 5 s.
-- [ ] **M8.26 OSD with GTK4** (ADR 0041, 0042): a layer-shell OSD for volume and brightness instead of the notification
+- [ ] **M8.26 OSD with GTK4** (ADR 0041, 0042, 0043): a layer-shell OSD for volume and brightness instead of the notification, looking and placed like GNOME's
   - Notes: was planned with Kiesel Desktop; GTK4 since ADR 0042. Builds on M8.27.
 
 ## Own bar (ADR 0042)
 
 Replaces Waybar at once: the session switches in M8.32, when the bar covers
 everything koje's Waybar config shows (M8.27–M8.31). M8.33–M8.35 are what
-Waybar cannot do.
+Waybar cannot do. The bar is laid out like GNOME's top bar and uses libadwaita
+(ADR 0043).
 
-- [ ] **M8.27 Shell and bar skeleton**: crate `koje-shell`, one GTK application (GTK4, gtk4-layer-shell, gtk4-rs) as a systemd user service with restart on failure; one bar per monitor with hotplug, exclusive zone, Lucide font (ADR 0020), light and dark; client of kojed (ADR 0027) with live updates and of Hyprland's event socket, all asynchronous with timeouts
-  - Notes: settle first (open question): libadwaita or plain GTK4 with koje's CSS. Check the GTK4 and gtk4-layer-shell packages on Ubuntu 26.04 and add the dev packages to the dev container. What the bar shows and what clicks do are pure functions with unit tests.
+- [ ] **M8.27 Shell and bar skeleton**: crate `koje-shell`, one GTK application (GTK4, gtk4-layer-shell, gtk4-rs) as a systemd user service with restart on failure; libadwaita (ADR 0043); one bar per monitor with hotplug, exclusive zone, symbolic icons, light and dark; client of kojed (ADR 0027) with live updates and of Hyprland's event socket, all asynchronous with timeouts
+  - Notes: check the GTK4, libadwaita (1.6 or later) and gtk4-layer-shell packages on Ubuntu 26.04 and add the dev packages to the dev container. What the bar shows and what clicks do are pure functions with unit tests.
 - [ ] **M8.28 Workspaces and task list**: workspaces by name; the current workspace's windows with icon and title, click focuses and raises; the context color as accent of the active workspace and the focused window (replaces M8.20's CSS file)
 - [ ] **M8.29 Active context and memory**: the active context's capsule in its color; the memory meter as a real widget (`koje_core::memory::meter`, levels and hover details as M8.21)
-- [ ] **M8.30 System modules**: clock with calendar, keyboard layout (click: next), CPU, memory, volume (PipeWire; click: pavucontrol), network (NetworkManager), battery (UPower)
+- [ ] **M8.30 Clock and Quick Settings** (ADR 0043): the clock in the middle with a calendar popover; a Quick Settings button as GNOME's – volume (PipeWire), network (NetworkManager), battery (UPower), brightness, keyboard layout, dark style; where CPU and memory go (Waybar shows them today)
 - [ ] **M8.31 Tray**: StatusNotifierWatcher and host, icons, menus from DBusMenu as GTK4 menus
 - [ ] **M8.32 Switch the session to koje's bar**: the snippet starts it instead of Waybar; remove koje's Waybar config, the context colors CSS (M8.20), `scripts/build-waybar-deb.sh` and Waybar in `koje setup`, `doctor` and the installer (a user's own Waybar config stays untouched); decide what stays of `koje bar`; update ADR 0021/0037 references, `docs/architecture.md` and `AGENTS.md`
   - Notes: only after M8.28–M8.31; host test of a full session before.
 - [ ] **M8.33 Move windows by dragging in the bar**: drag a window from the task list onto a workspace button, it moves there (`movetoworkspace`); drops only inside the bar
 - [ ] **M8.34 Active overlay in the bar**: which overlay (`mail`, `chat`) is open (Hyprland's `activespecial`); click opens or closes it
 - [ ] **M8.35 Contexts and layouts in the bar**: the active context's layouts to switch, stashed windows as icons (click brings one back), a menu per context (start, pause, wake, stop, open the settings app, M8.15)
-- [ ] **M8.36 Notifications in the shell**: the shell is the notification server (`org.freedesktop.Notifications`) instead of mako; notifications in their context's color, a list in the bar (ADR 0042)
+- [ ] **M8.36 Notifications in the shell**: the shell is the notification server (`org.freedesktop.Notifications`) instead of mako; banners and the list in the clock's popover as GNOME's, in their context's color (ADR 0042, 0043)
   - Notes: find out how the shell tells a notification's context – each context's forwarder has its own connection to the host's bus (ADR 0019).
+- [ ] **M8.38 GNOME look for the session** (ADR 0043): Adwaita icon and cursor themes, GNOME's fonts, light and dark through `org.gnome.desktop.interface color-scheme`; no gaps, rounding and shadows close to GNOME's; maximize below the bar; `koje doctor` checks the packages
+  - Notes: decide how `koje setup` sets GNOME's settings without overwriting the user's own (ADR 0021).
+- [ ] **M8.39 Title bars like Adwaita header bars** (ADR 0039, 0043): hyprbars' height, colors, centered title and GNOME's buttons
+- [ ] **M8.40 Launcher, window picker and shortcuts list in the shell** (ADR 0043): GNOME-style replacements for the fuzzel menus (M8.17, Super+Tab, Super+F1); the application grid is M8.18
+- [ ] **M8.41 GNOME's key bindings** (ADR 0043): Super alone opens and closes the launcher (koje's application menu for now; on release only, not after Super+key or Super+drag); Super+Up maximizes, Super+Down restores the previous size and place, Super+Left/Right put the window on the left or right half of the monitor below the bar
+  - Notes: check on the host that Hyprland's release binding (`bindr` on `Super_L`) does not fire after a combination or a Super+drag. The halves may be the first snap zones (M7.3); restoring needs the window's geometry before maximize or half, remembered by koje.
 
 ## Settings app
 
@@ -69,7 +76,7 @@ Waybar cannot do.
 - [-] **M8.5 Layout overview** (Super+L): thumbnails, drag windows between layouts
   - Dropped (ADR 0036): moved into the settings app's layouts page (M8.12).
   - Notes: until then (M2.1): Waybar's task list (the current workspace's windows: `hyprland/workspaces` in taskbar mode, `active-only`), Alt+Tab, Super+Tab picker (`assets/bin/koje-window-picker`).
-- [ ] **M8.9 Settings app skeleton** (`koje-shell settings`): a normal GTK4 window in its own process (ADR 0042); client of kojed (ADR 0027) with live updates; context list with color and status; start, stop, pause, wake per context; one instance (a second start brings the window up, optionally on a given context)
+- [ ] **M8.9 Settings app skeleton** (`koje-shell settings`): a libadwaita window like GNOME's apps, in its own process (ADR 0042, 0043); client of kojed (ADR 0027) with live updates; context list with color and status; start, stop, pause, wake per context; one instance (a second start brings the window up, optionally on a given context)
   - Notes: shares the shell's code and look (M8.27).
 - [ ] **M8.10 Contexts page**: create and edit a context – name, color, access profile and overrides, mounts, memory limits; recreate with confirmation
   - Notes: writes `context.toml` through the same core functions as `koje new`/`edit`; validation errors from core shown per field.

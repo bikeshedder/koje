@@ -24,7 +24,7 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0017 | [Access profiles: configurable host access per context](0017-access-profiles.md) | Accepted |
 | 0018 | [Window colors by tag rule](0018-window-colors-by-tag-rule.md) | Accepted |
 | 0019 | [Host interfaces through a forwarder and a filtered proxy](0019-host-interfaces-via-forwarder.md) | Accepted |
-| 0020 | [Lucide as koje's icon font](0020-lucide-icon-font.md) | Accepted |
+| 0020 | [Lucide as koje's icon font](0020-lucide-icon-font.md) | Accepted (koje's own UI: 0043) |
 | 0021 | [Installer: what it may change](0021-installer.md) | Accepted |
 | 0022 | [A security-context Wayland socket per context](0022-wayland-security-context.md) | Accepted |
 | 0023 | [The base image `koje/base`](0023-base-image.md) | Accepted |
@@ -41,9 +41,10 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0034 | [Mounts are folders below the home](0034-mounts-below-the-home.md) | Accepted |
 | 0035 | [Memory limits use the working set; no limits by default](0035-memory-accounting.md) | Accepted |
 | 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Accepted (bar and toolkit: 0042) |
-| 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Accepted |
+| 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Accepted (look: 0043) |
 | 0038 | [Dotfiles presets: shared, read-only configuration for contexts](0038-dotfiles-presets.md) | Accepted |
 | 0039 | [Title bars from the hyprbars plugin](0039-title-bars-with-hyprbars.md) | Accepted |
 | 0040 | [Context images: image folders, registry images, a koje layer and kept versions](0040-context-images.md) | Proposed |
 | 0041 | [Volume, brightness and media keys through `koje media`, with an OSD](0041-volume-brightness-and-media-keys.md) | Accepted |
 | 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted |
+| 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted |
