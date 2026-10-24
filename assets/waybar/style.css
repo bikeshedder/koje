@@ -28,6 +28,8 @@ window#waybar {
 #workspaces.tasks button:not(.taskbar-window).hover {
   padding: 0; border: none; background: none;
 }
+/* A gap between the workspace list and the task list. */
+#workspaces.tasks { margin-left: 16px; }
 #clock, #cpu, #memory, #pulseaudio, #network, #battery, #tray, #window, #custom-koje-memory {
   padding: 0 10px;
 }
