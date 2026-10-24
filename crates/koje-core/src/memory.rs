@@ -116,6 +116,48 @@ impl Watch {
     }
 }
 
+/// One cell of the bar's memory meter: how much of it is filled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cell {
+    /// Filled part in eighths (0–8).
+    pub eighths: u8,
+    /// The cell lies between the soft and the hard limit.
+    pub beyond_soft: bool,
+}
+
+/// The bar's memory meter (M8.21): usage against the hard limit (else the
+/// soft one) in `width` cells, the percentage of that limit and the level.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Meter {
+    pub cells: Vec<Cell>,
+    pub percent: u64,
+    pub level: MemoryLevel,
+}
+
+/// `None` without limits: there is nothing to fill up to.
+pub fn meter(used: ByteSize, limits: &Limits, width: usize) -> Option<Meter> {
+    let max = u128::from(limits.memory_hard.or(limits.memory_soft)?.0.max(1));
+    let total = (width * 8) as u128;
+    let used = u128::from(used.0);
+    let filled = (used * total / max).min(total);
+    // With a hard limit, where the soft one lies on the bar.
+    let soft = limits
+        .memory_hard
+        .and(limits.memory_soft)
+        .map(|s| u128::from(s.0) * total / max);
+    let cells = (0..width as u128)
+        .map(|i| Cell {
+            eighths: u8::try_from(filled.saturating_sub(i * 8).min(8)).unwrap_or(8),
+            beyond_soft: soft.is_some_and(|s| i * 8 + 4 >= s),
+        })
+        .collect();
+    Some(Meter {
+        cells,
+        percent: u64::try_from((used * 100 + max / 2) / max).unwrap_or(u64::MAX),
+        level: classify(ByteSize(u64::try_from(used).unwrap_or(u64::MAX)), limits),
+    })
+}
+
 /// One line for menus (M8.17): the working set against the hard limit, else
 /// the soft one. `None` when the usage cannot be read.
 pub fn summary(used: Option<ByteSize>, limits: &Limits) -> String {
@@ -232,5 +274,38 @@ mod tests {
         assert_eq!(summary(gib(1), &limits(gib(6), None)), "1.0 GiB of 6.0 GiB");
         assert_eq!(summary(gib(1), &limits(None, None)), "1.0 GiB, no limit");
         assert_eq!(summary(None, &limits(None, gib(8))), "? of 8.0 GiB");
+    }
+
+    #[test]
+    fn meter_cells() {
+        let gib = |n: u64| ByteSize(n << 30);
+        let limits = |soft: Option<u64>, hard: Option<u64>| Limits {
+            memory_soft: soft.map(gib),
+            memory_hard: hard.map(gib),
+        };
+        assert_eq!(meter(gib(1), &limits(None, None), 10), None);
+
+        // 3 of 8 GiB, soft at 6: 3.75 cells filled, the last 2.5 cells beyond soft.
+        let m = meter(gib(3), &limits(Some(6), Some(8)), 10).unwrap();
+        let eighths: Vec<u8> = m.cells.iter().map(|c| c.eighths).collect();
+        assert_eq!(eighths, [8, 8, 8, 6, 0, 0, 0, 0, 0, 0]);
+        let beyond: Vec<bool> = m.cells.iter().map(|c| c.beyond_soft).collect();
+        assert_eq!(
+            beyond,
+            [
+                false, false, false, false, false, false, false, true, true, true
+            ]
+        );
+        assert_eq!((m.percent, m.level), (38, MemoryLevel::Normal));
+
+        // Only a soft limit: the bar ends there, nothing beyond it.
+        let m = meter(gib(7), &limits(Some(6), None), 10).unwrap();
+        assert!(m.cells.iter().all(|c| c.eighths == 8 && !c.beyond_soft));
+        assert_eq!((m.percent, m.level), (117, MemoryLevel::OverSoft));
+
+        // Over the hard limit: full, the percentage says how far.
+        let m = meter(gib(9), &limits(Some(6), Some(8)), 4).unwrap();
+        assert_eq!(m.cells.len(), 4);
+        assert_eq!((m.percent, m.level), (113, MemoryLevel::OverHard));
     }
 }

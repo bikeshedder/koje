@@ -2,6 +2,8 @@
 //! running contexts in their colors, the active one highlighted. Runs for as
 //! long as Waybar does: one JSON line at start and on every `ContextsChanged`
 //! from kojed; while kojed is not there it shows nothing and keeps waiting.
+//! `koje bar --memory` (M8.21) is a second module: the active context's
+//! memory as a meter, again on every `MemoryChanged`.
 
 use std::io::Write as _;
 use std::time::Duration;
@@ -66,6 +68,135 @@ pub fn module(running: &[Running]) -> String {
     .unwrap_or_default()
 }
 
+/// kojed's `Memory`: `(context, used, charged, soft, hard)`, limits 0 = none.
+pub type Memory = (String, u64, u64, u64, u64);
+
+/// Meter cells (each an eighth-block character).
+const METER_WIDTH: usize = 10;
+/// Used: normal, over the soft limit, at the hard limit.
+const FILL: [&str; 3] = ["#2e7d5b", "#d19a66", "#e06c75"];
+/// Free: up to the soft limit, between soft and hard.
+const TRACK: [&str; 2] = ["#3a3a40", "#5a3030"];
+/// A cell filled to 1–7 eighths.
+const EIGHTHS: [char; 7] = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+
+/// The memory module's JSON line: a meter and the percentage of the limit;
+/// without limits just the size; nothing without an active context.
+pub fn memory_module(m: &Memory) -> String {
+    use koje_core::config::Limits;
+    use koje_core::memory::{MemoryLevel, meter};
+    use koje_core::size::ByteSize;
+    let (ctx, used, charged, soft, hard) = m;
+    if ctx.is_empty() {
+        return serde_json::to_string(&Module {
+            text: String::new(),
+            tooltip: String::new(),
+            class: vec!["memory", "empty"],
+        })
+        .unwrap_or_default();
+    }
+    let limit = |b: u64| (b > 0).then_some(ByteSize(b));
+    let limits = Limits {
+        memory_soft: limit(*soft),
+        memory_hard: limit(*hard),
+    };
+    let used_b = ByteSize(*used);
+    let share = |l: Option<ByteSize>| {
+        l.map_or_else(
+            || "none".to_owned(),
+            |l| {
+                format!(
+                    "{} – {} %",
+                    l.human(),
+                    u128::from(*used) * 100 / u128::from(l.0.max(1))
+                )
+            },
+        )
+    };
+    let tooltip = format!(
+        "{}: memory\nused {} (charged {})\nsoft limit {}\nhard limit {}",
+        escape(ctx),
+        used_b.human(),
+        ByteSize(*charged).human(),
+        share(limits.memory_soft),
+        share(limits.memory_hard)
+    );
+    let Some(m) = meter(used_b, &limits, METER_WIDTH) else {
+        return serde_json::to_string(&Module {
+            text: used_b.human(),
+            tooltip,
+            class: vec!["memory", "unlimited"],
+        })
+        .unwrap_or_default();
+    };
+    let (fill, level) = match m.level {
+        MemoryLevel::Normal | MemoryLevel::NearSoft => (FILL[0], "normal"),
+        MemoryLevel::OverSoft => (FILL[1], "over-soft"),
+        MemoryLevel::OverHard => (FILL[2], "over-hard"),
+    };
+    let cells: String = m
+        .cells
+        .iter()
+        .map(|c| {
+            let track = TRACK[usize::from(c.beyond_soft)];
+            match c.eighths {
+                0 => format!("<span background='{track}'> </span>"),
+                8 => format!("<span color='{fill}'>█</span>"),
+                n => format!(
+                    "<span color='{fill}' background='{track}'>{}</span>",
+                    EIGHTHS[usize::from(n) - 1]
+                ),
+            }
+        })
+        .collect();
+    serde_json::to_string(&Module {
+        text: format!(
+            "<span font_family='monospace'>{cells}</span> {}%",
+            m.percent
+        ),
+        tooltip,
+        class: vec!["memory", level],
+    })
+    .unwrap_or_default()
+}
+
+async fn memory(conn: &zbus::Connection) -> zbus::Result<Memory> {
+    conn.call_method(
+        Some(BUS_NAME),
+        OBJECT_PATH,
+        Some(INTERFACE),
+        "Memory",
+        &("",),
+    )
+    .await?
+    .body()
+    .deserialize()
+}
+
+/// Which module `koje bar` runs.
+#[derive(Debug, Clone, Copy)]
+pub enum Kind {
+    Contexts,
+    Memory,
+}
+
+impl Kind {
+    async fn line(self, conn: &zbus::Connection) -> String {
+        // An error (kojed not there yet) shows an empty module.
+        match self {
+            Self::Contexts => module(&running(conn).await.unwrap_or_default()),
+            Self::Memory => memory_module(&memory(conn).await.unwrap_or_default()),
+        }
+    }
+
+    fn empty(self) -> String {
+        match self {
+            Self::Contexts => module(&[]),
+            Self::Memory => memory_module(&Memory::default()),
+        }
+    }
+}
+
 async fn running(conn: &zbus::Connection) -> zbus::Result<Vec<Running>> {
     conn.call_method(
         Some(BUS_NAME),
@@ -87,12 +218,19 @@ fn print(line: &str) {
     }
 }
 
-/// Follow kojed until the session bus goes away; `Err` to retry.
-async fn follow(conn: &zbus::Connection) -> zbus::Result<()> {
+/// Follow kojed until the session bus goes away; `Err` to retry. Both
+/// modules redraw on `ContextsChanged` (the active context may have changed);
+/// the memory module also on `MemoryChanged`.
+async fn follow(conn: &zbus::Connection, kind: Kind) -> zbus::Result<()> {
     let changed_rule = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .interface(INTERFACE)?
         .member("ContextsChanged")?
+        .build();
+    let memory_rule = MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface(INTERFACE)?
+        .member("MemoryChanged")?
         .build();
     let restarted = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
@@ -102,18 +240,20 @@ async fn follow(conn: &zbus::Connection) -> zbus::Result<()> {
         .build();
     let mut changes = MessageStream::for_match_rule(changed_rule, conn, None).await?;
     let mut owners = MessageStream::for_match_rule(restarted, conn, None).await?;
+    let mut readings = MessageStream::for_match_rule(memory_rule, conn, None).await?;
+    let memory = matches!(kind, Kind::Memory);
     loop {
-        // An error (kojed not there yet) shows an empty module.
-        print(&module(&running(conn).await.unwrap_or_default()));
+        print(&kind.line(conn).await);
         tokio::select! {
             m = changes.next() => if m.is_none() { return Ok(()) },
             m = owners.next() => if m.is_none() { return Ok(()) },
+            m = readings.next(), if memory => if m.is_none() { return Ok(()) },
         }
     }
 }
 
-/// `koje bar`: the module, for Waybar's `exec`.
-pub fn run() -> Result<()> {
+/// `koje bar [--memory]`: the module, for Waybar's `exec`.
+pub fn run(kind: Kind) -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -121,13 +261,13 @@ pub fn run() -> Result<()> {
         loop {
             match zbus::Connection::session().await {
                 Ok(conn) => {
-                    if let Err(e) = follow(&conn).await {
+                    if let Err(e) = follow(&conn, kind).await {
                         tracing::debug!("bar: {e}");
                     }
                 }
                 Err(e) => {
                     tracing::debug!("bar: no session bus: {e}");
-                    print(&module(&[]));
+                    print(&kind.empty());
                 }
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -171,5 +311,40 @@ mod tests {
         let empty: serde_json::Value = serde_json::from_str(&module(&[])).unwrap();
         assert_eq!(empty["text"], "");
         assert_eq!(empty["class"], serde_json::json!(["koje", "empty"]));
+    }
+
+    #[test]
+    fn memory_meter_line() {
+        let gib = |n: u64| n << 30;
+        let v =
+            |m: &Memory| -> serde_json::Value { serde_json::from_str(&memory_module(m)).unwrap() };
+        // No active context: an empty module (Waybar hides it).
+        assert_eq!(v(&Memory::default())["text"], "");
+
+        let m = v(&("kp".into(), gib(3), gib(4), gib(6), gib(8)));
+        let text = m["text"].as_str().unwrap();
+        assert!(text.ends_with("</span> 38%"), "{text}");
+        assert_eq!(text.matches('█').count(), 3, "{text}");
+        assert!(text.contains("<span color='#2e7d5b' background='#3a3a40'>▊</span>"));
+        assert_eq!(
+            text.matches("background='#5a3030'> <").count(),
+            3,
+            "beyond soft"
+        );
+        assert_eq!(
+            m["tooltip"],
+            "kp: memory\nused 3.0 GiB (charged 4.0 GiB)\nsoft limit 6.0 GiB – 50 %\nhard limit 8.0 GiB – 37 %"
+        );
+        assert_eq!(m["class"], serde_json::json!(["memory", "normal"]));
+
+        // Over the soft limit: amber.
+        let m = v(&("kp".into(), gib(7), gib(7), gib(6), gib(8)));
+        assert!(m["text"].as_str().unwrap().contains("#d19a66"));
+        assert_eq!(m["class"][1], "over-soft");
+
+        // Without limits only the size.
+        let m = v(&("kp".into(), gib(1), gib(2), 0, 0));
+        assert_eq!(m["text"], "1.0 GiB");
+        assert!(m["tooltip"].as_str().unwrap().ends_with("hard limit none"));
     }
 }

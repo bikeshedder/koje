@@ -241,8 +241,9 @@ pub enum Command {
         /// Print the running contexts' names once instead (for pickers).
         #[arg(long)]
         names: bool,
-        /// With `--names`: each name followed by its memory use and limit.
-        #[arg(long, requires = "names")]
+        /// The active context's memory as a meter instead (a second module);
+        /// with `--names`: each name followed by its memory use and limit.
+        #[arg(long)]
         memory: bool,
     },
 }
@@ -343,7 +344,13 @@ mod tests {
             }
         ));
         assert!(parse(&["apps", "--menu", "--start", "Files"]).is_err());
-        assert!(parse(&["bar", "--memory"]).is_err(), "only with --names");
+        assert!(matches!(
+            parse(&["bar", "--memory"]).unwrap().command,
+            Command::Bar {
+                names: false,
+                memory: true
+            }
+        ));
         assert!(matches!(
             parse(&["apps", "-c", "kp", "--start", "Files"]).unwrap().command,
             Command::Apps { start: Some(s), ctx: ActiveCtx { context: Some(c) }, .. } if s == "Files" && c == "kp"

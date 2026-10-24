@@ -19,7 +19,14 @@ pub fn run(command: &Command) -> Result<()> {
         Command::List { json } => list(&paths, *json),
         Command::Setup { dry_run, yes } => crate::setup::run(&paths, *dry_run, *yes),
         Command::Doctor => crate::doctor::run(&paths),
-        Command::Bar { names: false, .. } => crate::bar::run(),
+        Command::Bar {
+            names: false,
+            memory,
+        } => crate::bar::run(if *memory {
+            crate::bar::Kind::Memory
+        } else {
+            crate::bar::Kind::Contexts
+        }),
         Command::Bar {
             names: true,
             memory,

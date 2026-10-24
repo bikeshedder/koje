@@ -126,6 +126,10 @@ async fn tick(daemon: api::Shared, sockets: wayland::Sockets, conn: zbus::Connec
             d.tick().await;
             d.check_memory().await
         };
+        // The bar's memory meter (M8.21) follows the readings.
+        if let Err(e) = api::memory_changed(&conn).await {
+            tracing::debug!("emitting MemoryChanged: {e}");
+        }
         for a in alerts {
             let (ctx, used, limit) = (&a.ctx, a.used.human(), a.limit);
             match a.level {

@@ -8,7 +8,7 @@
   "reload_style_on_change": true,
   "modules-left": ["custom/koje", "hyprland/workspaces", "hyprland/workspaces#tasks"],
   "modules-center": ["clock"],
-  "modules-right": ["hyprland/language", "cpu", "memory", "pulseaudio", "network", "battery", "tray"],
+  "modules-right": ["custom/koje-memory", "hyprland/language", "cpu", "memory", "pulseaudio", "network", "battery", "tray"],
 
   // Running contexts from kojed, also without windows (koje bar, M5.15).
   "custom/koje": {
@@ -16,6 +16,13 @@
     "return-type": "json",
     "escape": false,
     "on-click": "~/.local/lib/koje/koje-context-picker"
+  },
+  // The active context's memory (koje bar --memory, M8.21): used against the
+  // hard (else soft) limit, amber over the soft limit, details on hover.
+  "custom/koje-memory": {
+    "exec": "~/.local/bin/koje bar --memory",
+    "return-type": "json",
+    "escape": false
   },
   "hyprland/workspaces": { "format": "{name}" },
   // The windows of the current workspace only (wlr/taskbar cannot filter by

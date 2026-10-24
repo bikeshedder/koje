@@ -78,6 +78,9 @@ pub struct Daemon<C, R> {
     lost: BTreeMap<ContextName, State>,
     /// Memory notifications per context (ADR 0035).
     watches: BTreeMap<ContextName, koje_core::memory::Watch>,
+    /// The last memory reading of each running context with its limits, for
+    /// the bar (M8.21); taken every tick.
+    memory: BTreeMap<ContextName, (koje_core::memory::MemoryUsage, koje_core::config::Limits)>,
     /// A window whose border flashes since it got focus (M8.19); the event
     /// loop takes it and calls [`Daemon::unblip`] a moment later.
     blipped: Option<String>,
@@ -120,6 +123,7 @@ where
             lost: BTreeMap::new(),
             watches: BTreeMap::new(),
             blipped: None,
+            memory: BTreeMap::new(),
         }
     }
 
@@ -502,22 +506,26 @@ where
             return Vec::new();
         };
         let mut alerts = Vec::new();
-        for ctx in self.running().await {
+        let running = self.running().await;
+        self.memory.retain(|ctx, _| running.contains(ctx));
+        for ctx in running {
             let Ok(limits) = koje_core::context::load(&self.paths, &ctx)
                 .and_then(|c| c.effective_limits(&global))
             else {
                 continue;
             };
-            if limits.memory_soft.is_none() && limits.memory_hard.is_none() {
-                self.watches.remove(&ctx);
-                continue;
-            }
+            // Read for the bar also without limits.
             let runtime = self.runtime.clone();
             let c = ctx.clone();
             let Ok(Ok(usage)) = tokio::task::spawn_blocking(move || runtime.memory_usage(&c)).await
             else {
                 continue;
             };
+            self.memory.insert(ctx.clone(), (usage, limits.clone()));
+            if limits.memory_soft.is_none() && limits.memory_hard.is_none() {
+                self.watches.remove(&ctx);
+                continue;
+            }
             let used = usage.working_set();
             let watch = self.watches.entry(ctx.clone()).or_default();
             if let Some(level) = watch.step(used, &limits) {
@@ -941,6 +949,14 @@ where
             Ok(()) => self.blipped = Some(address),
             Err(e) => tracing::debug!("focus blip: {e:#}"),
         }
+    }
+
+    /// The last memory reading of a running context and its limits (M8.21).
+    pub fn memory(
+        &self,
+        ctx: &ContextName,
+    ) -> Option<&(koje_core::memory::MemoryUsage, koje_core::config::Limits)> {
+        self.memory.get(ctx)
     }
 
     /// The window that just started to blip, for the event loop.

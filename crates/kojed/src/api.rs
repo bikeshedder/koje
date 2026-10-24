@@ -242,6 +242,36 @@ impl Api {
     #[zbus(signal)]
     async fn contexts_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 
+    /// The last memory reading of a context (`""` = the active one) for the
+    /// bar (M8.21): `(context, used, charged, soft, hard)` in bytes; a limit
+    /// of 0 is none. `("", 0, 0, 0, 0)` without an active context or before
+    /// the first reading (every 5 s).
+    async fn memory(&self, context: &str) -> fdo::Result<(String, u64, u64, u64, u64)> {
+        let d = self.daemon.lock().await;
+        let ctx = if context.is_empty() {
+            match d.active_context() {
+                Some(c) => c.clone(),
+                None => return Ok((String::new(), 0, 0, 0, 0)),
+            }
+        } else {
+            context_arg(context)?
+        };
+        Ok(match d.memory(&ctx) {
+            Some((usage, limits)) => (
+                ctx.to_string(),
+                usage.working_set().0,
+                usage.current.0,
+                limits.memory_soft.map_or(0, |b| b.0),
+                limits.memory_hard.map_or(0, |b| b.0),
+            ),
+            None => (String::new(), 0, 0, 0, 0),
+        })
+    }
+
+    /// New memory readings were taken (every tick).
+    #[zbus(signal)]
+    async fn memory_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
     /// Switch the layout of a running context (`""` = the active one); `name`
     /// may be `+next` or `+prev` (layout names start with a letter). Returns
     /// the layout now active (M5.5).
@@ -463,6 +493,10 @@ impl Api {
 /// Tell the bar that what it shows may have changed.
 pub async fn contexts_changed(conn: &zbus::Connection) -> zbus::Result<()> {
     Api::contexts_changed(&SignalEmitter::new(conn, OBJECT_PATH)?).await
+}
+
+pub async fn memory_changed(conn: &zbus::Connection) -> zbus::Result<()> {
+    Api::memory_changed(&SignalEmitter::new(conn, OBJECT_PATH)?).await
 }
 
 /// Send a change as a signal.

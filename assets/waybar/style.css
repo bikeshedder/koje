@@ -13,11 +13,13 @@ window#waybar {
 #custom-koje { padding: 0 10px; }
 #workspaces button { padding: 0 8px; color: #b0b0b0; }
 #workspaces button.active { color: #ffffff; border-bottom: 2px solid #2e7d5b; }
-/* The current workspace's windows (hyprland/workspaces#tasks): no workspace
-   mark, each window an item of its own, the focused one marked. */
-#workspaces.tasks button.active { border-bottom: none; padding: 0; }
+/* The current workspace's windows (hyprland/workspaces#tasks): the workspace
+   button itself unmarked (its task buttons are buttons too: :not), each window
+   an item, only the focused one marked – in the context's color from
+   koje-contexts.css, green elsewhere. */
+#workspaces.tasks button:not(.taskbar-window) { border-bottom: none; padding: 0; }
 #workspaces.tasks .taskbar-window { padding: 0 6px; color: #b0b0b0; border-bottom: 2px solid transparent; }
 #workspaces.tasks .taskbar-window.active { color: #ffffff; border-bottom-color: #2e7d5b; }
-#clock, #cpu, #memory, #pulseaudio, #network, #battery, #tray, #window {
+#clock, #cpu, #memory, #pulseaudio, #network, #battery, #tray, #window, #custom-koje-memory {
   padding: 0 10px;
 }

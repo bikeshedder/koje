@@ -299,20 +299,19 @@ pub fn waybar_class(name: &str) -> String {
     class
 }
 
-/// The bar's task list in the context colors: it shows the windows of the
-/// focused workspace, and a context's workspace is named like it.
+/// The context color as the bar's accent: the mark of the active workspace
+/// in the workspace list and of the focused window in the task list (it
+/// shows the focused workspace's windows; a context's workspace is named
+/// like it). Task buttons sit inside the workspace button, hence the `:not`.
 pub fn waybar_colors(colors: &BTreeMap<ContextName, Color>) -> String {
     use std::fmt::Write as _;
     let mut css = WAYBAR_COLORS_HEADER.to_owned();
     for (ctx, color) in colors {
-        let sel = format!(
-            "#workspaces.tasks button.{} .taskbar-window",
-            waybar_class(ctx.as_str())
-        );
+        let class = waybar_class(ctx.as_str());
         let _ = writeln!(
             css,
-            "{sel} {{ border-bottom-color: {}; }}\n{sel}.active {{ border-bottom-color: {color}; }}",
-            color.dimmed()
+            "#workspaces button.{class}.active:not(.taskbar-window) {{ border-bottom-color: {color}; }}\n\
+             #workspaces.tasks button.{class} .taskbar-window.active {{ border-bottom-color: {color}; }}"
         );
     }
     css
@@ -665,11 +664,11 @@ mod tests {
         let css = waybar_colors(&BTreeMap::from([(ctx("kp"), red)]));
         assert!(is_koje_waybar(css.as_bytes()), "{css}");
         assert!(
-            css.contains(
-                "#workspaces.tasks button.kp .taskbar-window { border-bottom-color: #931414; }\n\
+            css.ends_with(
+                "#workspaces button.kp.active:not(.taskbar-window) { border-bottom-color: #FF0000; }\n\
                  #workspaces.tasks button.kp .taskbar-window.active { border-bottom-color: #FF0000; }\n"
             ),
-            "{css}"
+            "only the active workspace and the focused window: {css}"
         );
         assert_eq!(waybar_colors(&BTreeMap::new()), WAYBAR_COLORS_HEADER);
     }
