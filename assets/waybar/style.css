@@ -10,7 +10,6 @@ window#waybar {
   background: rgba(20, 20, 24, 0.92);
   color: #e6e6e6;
 }
-#custom-koje { padding: 0 10px; }
 /* Workspaces and tasks look alike: flat items over the bar's full height, a
    light hover, only the active one underlined – in the context's color from
    koje-contexts.css, green elsewhere. */

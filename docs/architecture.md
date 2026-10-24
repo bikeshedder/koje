@@ -203,7 +203,7 @@ UI (ADR 0036):
 | Part | What | Built with |
 |---|---|---|
 | Launcher | application menu (Super+D), contexts and actions, window picker, keyboard shortcuts (Super+F1) | fuzzel |
-| Bar | active context, layouts, stash, memory, other running contexts | Waybar custom modules (`koje bar`) |
+| Bar | workspaces and the current workspace's windows (context color as accent), the active context's memory; later layouts, stash | Waybar: hyprland/workspaces, custom module `koje bar --memory` (`koje bar` lists running contexts for own configs) |
 | Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | Kiesel Desktop, normal window |
 | Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | Kiesel Desktop, layer-shell |
 | Beacon window | keeps an empty context workspace alive (ADR 0028); may be dropped | Kiesel Desktop, normal window |

@@ -6,17 +6,10 @@
   "height": 28,
   // kojed rewrites koje-contexts.css (imported by style.css) when contexts change.
   "reload_style_on_change": true,
-  "modules-left": ["custom/koje", "hyprland/workspaces", "hyprland/workspaces#tasks"],
+  "modules-left": ["hyprland/workspaces", "hyprland/workspaces#tasks"],
   "modules-center": ["clock"],
   "modules-right": ["custom/koje-memory", "hyprland/language", "cpu", "memory", "pulseaudio", "network", "battery", "tray"],
 
-  // Running contexts from kojed, also without windows (koje bar, M5.15).
-  "custom/koje": {
-    "exec": "~/.local/bin/koje bar",
-    "return-type": "json",
-    "escape": false,
-    "on-click": "~/.local/lib/koje/koje-context-picker"
-  },
   // The active context's memory (koje bar --memory, M8.21): used against the
   // hard (else soft) limit, amber over the soft limit, details on hover.
   "custom/koje-memory": {
