@@ -37,6 +37,10 @@ again updates koje's files and leaves yours alone. `koje doctor` checks the resu
 packages with the `apt install` line (koje never runs `sudo`). Details:
 [ADR 0021](docs/decisions/0021-installer.md).
 
+koje's bar lists the current workspace's windows; clicking one needs a Waybar
+newer than 0.15.0, which no release has yet. `scripts/build-waybar-deb.sh`
+builds one from upstream git as a `.deb` for your Debian/Ubuntu and installs it.
+
 ## Documentation
 
 | Document | Purpose |

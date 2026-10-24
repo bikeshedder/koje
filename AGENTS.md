@@ -38,6 +38,7 @@ crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
 crates/kojed       background service (Hyprland events, colors, memory watch) – stub until M4
 assets            files koje ships besides binaries: icon font, Hyprland snippet, Waybar config
 install.sh        installer for users (ADR 0021); `just install` runs it
+scripts           host helpers outside koje itself (e.g. build-waybar-deb.sh: a newer Waybar)
 docs/plan          roadmap + one file per milestone with task checkboxes
 docs/decisions     ADRs (numbered); docs/open-questions.md for undecided items
 docs/spikes        reports of experiments run on the host (Hyprland, Podman)
