@@ -67,7 +67,7 @@ async fn windows_and_batches() {
     .unwrap();
     assert_eq!(
         seen.recv().await.unwrap(),
-        "[[BATCH]]keyword windowrule match:tag koje-a, border_color rgb(ff0000) rgb(800000);\
+        "[[BATCH]]keyword windowrule match:tag koje-a, border_color rgb(ff0000) rgb(ff7272) 45deg rgb(800000);\
          dispatch tagwindow +koje-a address:0xab"
     );
 

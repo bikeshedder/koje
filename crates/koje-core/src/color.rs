@@ -30,6 +30,14 @@ impl Color {
         Self::rgb(mix(self.r), mix(self.g), mix(self.b))
     }
 
+    /// The light end of a focused window's border gradient: 45 % of the way
+    /// to white.
+    #[must_use]
+    pub fn lightened(self) -> Self {
+        let mix = |c: u8| c + u8::try_from(u16::from(255 - c) * 45 / 100).unwrap_or(0);
+        Self::rgb(mix(self.r), mix(self.g), mix(self.b))
+    }
+
     /// Hyprland's color notation, e.g. `rgb(2e7d5b)`.
     pub fn to_hyprland(self) -> String {
         format!("rgb({:02x}{:02x}{:02x})", self.r, self.g, self.b)
@@ -85,6 +93,18 @@ mod tests {
         assert_eq!(c.to_hyprland(), "rgb(2e7d5b)");
         assert_eq!(format!("{c:<8}|"), "#2E7D5B |");
         assert_eq!("#2e7d5b".parse::<Color>().unwrap(), c);
+    }
+
+    #[test]
+    fn lightened() {
+        assert_eq!(
+            Color::rgb(0x2e, 0x7d, 0x5b).lightened(),
+            Color::rgb(0x8c, 0xb7, 0xa4)
+        );
+        assert_eq!(
+            Color::rgb(0xff, 0xff, 0xff).lightened(),
+            Color::rgb(0xff, 0xff, 0xff)
+        );
     }
 
     #[test]

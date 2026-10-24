@@ -28,6 +28,13 @@ pub fn workspace_selector(name: &str) -> Result<String> {
     )
 }
 
+/// The border of a focused window: a gradient from its color to a lighter
+/// shade. In a rule the angle also ends the active gradient – the color
+/// after it is the inactive one.
+fn gradient(c: koje_core::color::Color) -> String {
+    format!("{} {} 45deg", c.to_hyprland(), c.lightened().to_hyprland())
+}
+
 /// The dispatcher lines for one command.
 pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String>> {
     use CompositorCommand as C;
@@ -40,7 +47,7 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
         } => vec![format!(
             "keyword windowrule match:tag {}, border_color {} {}",
             arg(tag)?,
-            active.to_hyprland(),
+            gradient(*active),
             inactive.to_hyprland()
         )],
         // Proven in M2.2: both properties, or the other state keeps the default.
@@ -53,7 +60,7 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
             vec![
                 format!(
                     "dispatch setprop address:{address} active_border_color {}",
-                    active.to_hyprland()
+                    gradient(*active)
                 ),
                 format!(
                     "dispatch setprop address:{address} inactive_border_color {}",
@@ -186,7 +193,9 @@ mod tests {
                 active: Color::rgb(0x2e, 0x7d, 0x5b),
                 inactive: Color::rgb(0x17, 0x3e, 0x2d),
             }),
-            ["keyword windowrule match:tag koje-work, border_color rgb(2e7d5b) rgb(173e2d)"]
+            [
+                "keyword windowrule match:tag koje-work, border_color rgb(2e7d5b) rgb(8cb7a4) 45deg rgb(173e2d)"
+            ]
         );
         assert_eq!(
             one(CompositorCommand::TagWindow {
@@ -202,7 +211,7 @@ mod tests {
                 inactive: Color::rgb(0x80, 0, 0),
             }),
             [
-                "dispatch setprop address:0x63b2 active_border_color rgb(ff0000)",
+                "dispatch setprop address:0x63b2 active_border_color rgb(ff0000) rgb(ff7272) 45deg",
                 "dispatch setprop address:0x63b2 inactive_border_color rgb(800000)"
             ]
         );

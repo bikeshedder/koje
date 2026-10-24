@@ -37,3 +37,7 @@ kojed colors windows with **one window rule per context**, matching the tag
   border properties on the context's open windows (`setprop`, the fallback
   below).
 - Fallback if tags or rules change again: per-window `setprop` for both colors.
+- Update (2026-10-24): the focused window's border is a gradient from the
+  context color to a lighter shade (`rgb(a) rgb(b) 45deg`, in rules and with
+  `setprop`); in a rule the angle ends the active gradient, the inactive color
+  follows. To check on the host: Hyprland 0.53 accepts both forms.
