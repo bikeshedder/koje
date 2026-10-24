@@ -4,6 +4,8 @@
   "layer": "top",
   "position": "top",
   "height": 28,
+  // kojed rewrites koje-contexts.css (imported by style.css) when contexts change.
+  "reload_style_on_change": true,
   "modules-left": ["custom/koje", "hyprland/workspaces", "hyprland/workspaces#tasks"],
   "modules-center": ["clock"],
   "modules-right": ["hyprland/language", "cpu", "memory", "pulseaudio", "network", "battery", "tray"],

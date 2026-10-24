@@ -2,8 +2,12 @@
 //! what happens to files that exist already. Pure: the CLI reads the current
 //! files, this module decides, the CLI prints, asks once and executes.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+use crate::color::Color;
+use crate::name::ContextName;
 
 /// What a step does to its target, as the plan shows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,13 +271,62 @@ pub fn is_koje_waybar(contents: &[u8]) -> bool {
     (first.starts_with("//") || first.starts_with("/*")) && first.contains("koje's Waybar")
 }
 
+/// The context colors for koje's Waybar style (M8.20), next to it; kojed
+/// writes it, koje's `style.css` imports it.
+pub const WAYBAR_COLORS: &str = "koje-contexts.css";
+
+const WAYBAR_COLORS_HEADER: &str =
+    "/* koje's Waybar context colors – written by kojed, do not edit. */\n";
+
+/// The CSS class Waybar gives a workspace's button (`sanitizeCssClass` in its
+/// hyprland/workspaces, after 0.15.0): lowercase, other characters as one
+/// `-`, none at the ends, `ws-` before a leading digit.
+pub fn waybar_class(name: &str) -> String {
+    let mut class = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            class.push(c.to_ascii_lowercase());
+        } else if !class.is_empty() && !class.ends_with('-') {
+            class.push('-');
+        }
+    }
+    if class.ends_with('-') {
+        class.pop();
+    }
+    if class.starts_with(|c: char| c.is_ascii_digit()) {
+        class.insert_str(0, "ws-");
+    }
+    class
+}
+
+/// The bar's task list in the context colors: it shows the windows of the
+/// focused workspace, and a context's workspace is named like it.
+pub fn waybar_colors(colors: &BTreeMap<ContextName, Color>) -> String {
+    use std::fmt::Write as _;
+    let mut css = WAYBAR_COLORS_HEADER.to_owned();
+    for (ctx, color) in colors {
+        let sel = format!(
+            "#workspaces.tasks button.{} .taskbar-window",
+            waybar_class(ctx.as_str())
+        );
+        let _ = writeln!(
+            css,
+            "{sel} {{ border-bottom-color: {}; }}\n{sel}.active {{ border-bottom-color: {color}; }}",
+            color.dimmed()
+        );
+    }
+    css
+}
+
 /// Waybar: koje's files only if the user has no config of their own.
 /// `present` lists every file Waybar would read (`config`, `config.jsonc`,
-/// `style.css`); `files` are koje's (`config.jsonc`, `style.css`).
+/// `style.css`); `files` are koje's (`config.jsonc`, `style.css`). The
+/// context colors file is created when missing and then left to kojed.
 pub fn waybar(
     dir: &Path,
     files: &[(&str, &'static [u8])],
     present: &[(&str, WaybarFile)],
+    colors_present: bool,
 ) -> Vec<Step> {
     if present.iter().any(|(_, f)| *f == WaybarFile::Foreign) {
         return vec![Step {
@@ -292,6 +345,25 @@ pub fn waybar(
                 _ => file("Waybar", &path, contents, 0o644, None),
             }
         })
+        .chain(std::iter::once({
+            let path = dir.join(WAYBAR_COLORS);
+            if colors_present {
+                Step {
+                    mark: Mark::Unchanged,
+                    what: format!("Waybar: {} (kojed keeps it current)", path.display()),
+                    action: Action::Nothing,
+                }
+            } else {
+                // Waybar refuses a style whose import is missing.
+                file(
+                    "Waybar",
+                    &path,
+                    WAYBAR_COLORS_HEADER.as_bytes(),
+                    0o644,
+                    None,
+                )
+            }
+        }))
         .collect()
 }
 
@@ -550,10 +622,11 @@ mod tests {
         assert!(is_koje_waybar(ours[0].1) && is_koje_waybar(ours[1].1));
         assert!(!is_koje_waybar(b"{ \"layer\": \"top\" }"));
 
-        let fresh = waybar(dir, &ours, &[]);
+        let fresh = waybar(dir, &ours, &[], false);
         assert_eq!(
             fresh.iter().map(|s| s.mark).collect::<Vec<_>>(),
-            [Mark::New, Mark::New]
+            [Mark::New, Mark::New, Mark::New],
+            "with the context colors kojed fills later"
         );
 
         let update = waybar(
@@ -566,15 +639,39 @@ mod tests {
                 ),
                 ("style.css", WaybarFile::Koje(ours[1].1.to_vec())),
             ],
+            true,
         );
         assert_eq!(
             update.iter().map(|s| s.mark).collect::<Vec<_>>(),
-            [Mark::Overwrite, Mark::Unchanged]
+            [Mark::Overwrite, Mark::Unchanged, Mark::Unchanged],
+            "kojed's colors are left alone"
         );
 
-        let own = waybar(dir, &ours, &[("config", WaybarFile::Foreign)]);
+        let own = waybar(dir, &ours, &[("config", WaybarFile::Foreign)], false);
         assert_eq!(own.len(), 1);
         assert_eq!(own[0].mark, Mark::Skipped);
+    }
+
+    #[test]
+    fn waybar_context_colors() {
+        assert_eq!(waybar_class("kp"), "kp");
+        assert_eq!(waybar_class("kunden-portal"), "kunden-portal");
+        assert_eq!(waybar_class("a--b-"), "a-b");
+        assert_eq!(waybar_class("1"), "ws-1");
+        assert_eq!(waybar_class("special:Stash_kp"), "special-stash-kp");
+
+        let ctx = |s: &str| ContextName::new(s).unwrap();
+        let red = Color::rgb(0xff, 0, 0);
+        let css = waybar_colors(&BTreeMap::from([(ctx("kp"), red)]));
+        assert!(is_koje_waybar(css.as_bytes()), "{css}");
+        assert!(
+            css.contains(
+                "#workspaces.tasks button.kp .taskbar-window { border-bottom-color: #931414; }\n\
+                 #workspaces.tasks button.kp .taskbar-window.active { border-bottom-color: #FF0000; }\n"
+            ),
+            "{css}"
+        );
+        assert_eq!(waybar_colors(&BTreeMap::new()), WAYBAR_COLORS_HEADER);
     }
 
     #[test]

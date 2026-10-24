@@ -1119,11 +1119,32 @@ where
     /// directly (host test of M4.5).
     fn set_colors(&mut self, colors: BTreeMap<ContextName, Color>) -> Vec<CompositorCommand> {
         let old = std::mem::replace(&mut self.colors, colors);
+        self.write_bar_colors();
         self.colors
             .iter()
             .filter(|(ctx, color)| old.get(*ctx).is_some_and(|o| o != *color))
             .flat_map(|(ctx, color)| self.windows.recolor(ctx, *color))
             .collect()
+    }
+
+    /// The bar's task list in the context colors (M8.20): only with koje's
+    /// Waybar style (it imports the file), only when something changed.
+    fn write_bar_colors(&self) {
+        use koje_core::setup;
+        let dir = self.paths.waybar_dir();
+        if !std::fs::read(dir.join("style.css")).is_ok_and(|c| setup::is_koje_waybar(&c)) {
+            return;
+        }
+        let path = dir.join(setup::WAYBAR_COLORS);
+        let css = setup::waybar_colors(&self.colors);
+        if std::fs::read_to_string(&path).is_ok_and(|old| old == css) {
+            return;
+        }
+        // In place, not by rename: Waybar watches the file
+        // (reload_style_on_change) and reloads its style when it is written.
+        if let Err(e) = std::fs::write(&path, css) {
+            tracing::warn!("writing {}: {e}", path.display());
+        }
     }
 
     fn rules(&self) -> Vec<CompositorCommand> {
@@ -1441,6 +1462,39 @@ mod tests {
                 mv("0xn", "new")
             ]
         );
+    }
+
+    /// M8.20: with koje's Waybar style kojed writes the context colors for
+    /// the task list, and again when a color changes; never next to a style
+    /// of the user's own.
+    #[tokio::test(flavor = "current_thread")]
+    async fn bar_colors_follow_the_contexts() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        let waybar = s.paths.waybar_dir();
+        let colors = waybar.join(koje_core::setup::WAYBAR_COLORS);
+        std::fs::create_dir_all(&waybar).unwrap();
+        std::fs::write(waybar.join("style.css"), "window { }").unwrap();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        assert!(!colors.exists(), "the user's own style");
+
+        std::fs::write(waybar.join("style.css"), "/* koje's Waybar style */").unwrap();
+        d.reload().await.unwrap();
+        let css = std::fs::read_to_string(&colors).unwrap();
+        assert!(
+            css.contains("button.work .taskbar-window.active { border-bottom-color: #FF0000; }"),
+            "{css}"
+        );
+
+        let path = s.paths.context_config(&ctx("work"));
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("#FF0000", "#0000FF");
+        koje_core::context::replace_config(&s.paths, &ctx("work"), &text).unwrap();
+        d.reload().await.unwrap();
+        let css = std::fs::read_to_string(&colors).unwrap();
+        assert!(css.contains("border-bottom-color: #0000FF"), "{css}");
     }
 
     /// M8.19: focus on a context window flashes its border, the event loop

@@ -195,7 +195,8 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
         .iter()
         .map(|f| (*f, waybar_state(&waybar.join(f))))
         .collect();
-    steps.extend(setup::waybar(&waybar, &WAYBAR, &present));
+    let colors_present = waybar.join(setup::WAYBAR_COLORS).exists();
+    steps.extend(setup::waybar(&waybar, &WAYBAR, &present, colors_present));
     let image = on_path("podman").then(|| {
         koje_podman::Podman::new()
             .image_exists(koje_podman::image::BASE_IMAGE)
