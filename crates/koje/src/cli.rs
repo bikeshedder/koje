@@ -173,6 +173,9 @@ pub enum Command {
         #[arg(long)]
         menu: bool,
     },
+    /// Link the context's dotfiles presets again now (e.g. after adding files to
+    /// one) and list the presets there are (ADR 0038).
+    Dotfiles(ActiveCtx),
     /// Open a terminal in the active context (Super+Return); on a workspace
     /// without a context, on the host.
     Terminal(ActiveCtx),

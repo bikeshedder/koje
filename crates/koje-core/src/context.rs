@@ -62,6 +62,10 @@ image  = "koje/base:latest"
 # Host folders bound into the context at the same path (ADR 0009).
 mounts = []
 
+# Dotfiles presets from ~/.config/koje/dotfiles/<name> (ADR 0038): mounted
+# read-only and linked into the home, later presets win.
+dotfiles = []
+
 # [limits]                # unset values come from config.toml
 # memory_soft = "6G"      # warn at 90 % and 100 %
 # memory_hard = "8G"      # orderly shutdown

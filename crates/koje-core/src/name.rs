@@ -105,6 +105,12 @@ name_type!(
     WindowId,
     "window"
 );
+name_type!(
+    /// Name of a dotfiles preset (ADR 0038), e.g. `base` – a folder in
+    /// `~/.config/koje/dotfiles/`.
+    PresetName,
+    "dotfiles preset"
+);
 
 impl StateName {
     /// The reserved, virtual, read-only state that starts no windows.

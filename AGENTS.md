@@ -28,6 +28,7 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 | overlay | Hyprland special workspace for cross-context apps (mail, chat) in context `global`. |
 | access profile | Which host resources a context gets (`gpu`, `sound`, `wayland`, `nested`, `network`, …): a profile (`full`, `desktop`, `headless`, `isolated`) plus overrides; also host interfaces (`notifications`, `file_chooser`, …). ADR 0017, 0019. |
 | integration | Optional description of how koje launches/remembers a program. Programs work without one. |
+| dotfiles preset | Folder in `~/.config/koje/dotfiles/<name>` mounted read-only into contexts that list it and linked into their home (ADR 0038). |
 | koje / kojed | The CLI / the background service. Never use "koje" for a context. |
 
 ## Repository layout
@@ -82,7 +83,8 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 - Hyprland is the only supported compositor; talk to it via its command and event
   sockets. Do not add abstractions for other compositors.
 - Programs inside contexts are never modified or configured by koje. Integrations
-  only influence how koje launches them and what it remembers.
+  only influence how koje launches them and what it remembers. Dotfiles presets
+  (ADR 0038) are the user's own files that koje only links.
 - File locations follow XDG; always go through `koje_core::paths::Paths`.
 
 ## Rust conventions

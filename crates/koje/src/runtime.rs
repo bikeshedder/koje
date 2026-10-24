@@ -114,13 +114,7 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
         UpPlan::AlreadyRunning => println!("{name} is already running"),
         UpPlan::Paused => unreachable!("handled above"),
     }
-    // The kernel's safety net above the hard limit, on the running scope
-    // (ADR 0035; not stored by Podman, so after every start).
-    if let Err(e) =
-        crate::memory::apply_kernel_limit(&podman, &name, &cfg.effective_limits(&global)?)
-    {
-        println!("note: {e:#}");
-    }
+    after_start(paths, &podman, &cfg, &global)?;
     if host.host_bus_dir.is_some()
         && host.forwarder.is_some()
         && let Err(e) = crate::hostbus::start_forwarder(&podman, &name, &access, host.uid)
@@ -154,6 +148,27 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
             "restoring {label}: {} window(s), {started} program(s) started",
             state.windows.len()
         );
+    }
+    Ok(())
+}
+
+/// What a started (or running) context needs before its programs start.
+fn after_start(
+    paths: &Paths,
+    podman: &Podman,
+    cfg: &ContextConfig,
+    global: &GlobalConfig,
+) -> Result<()> {
+    let name = &cfg.name;
+    // The kernel's safety net above the hard limit, on the running scope
+    // (ADR 0035; not stored by Podman, so after every start).
+    if let Err(e) = crate::memory::apply_kernel_limit(podman, name, &cfg.effective_limits(global)?)
+    {
+        println!("note: {e:#}");
+    }
+    // Dotfiles presets (ADR 0038): programs read their config when they start.
+    if let Err(e) = crate::dotfiles::link(paths, cfg) {
+        println!("note: dotfiles of {name} not linked: {e:#}");
     }
     Ok(())
 }

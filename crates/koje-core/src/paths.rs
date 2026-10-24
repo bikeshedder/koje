@@ -126,6 +126,17 @@ impl Paths {
         self.state.join(ctx.as_str())
     }
 
+    /// `~/.config/koje/dotfiles/`: one folder per dotfiles preset (ADR 0038).
+    pub fn dotfiles_dir(&self) -> PathBuf {
+        self.config.join("dotfiles")
+    }
+
+    /// The links koje made in a context's home from its dotfiles presets, so
+    /// the next run can remove those no longer wanted.
+    pub fn dotfiles_links(&self, ctx: &ContextName) -> PathBuf {
+        self.context_state_dir(ctx).join("dotfiles-links")
+    }
+
     pub fn integrations_dir(&self) -> PathBuf {
         self.config.join("integrations")
     }

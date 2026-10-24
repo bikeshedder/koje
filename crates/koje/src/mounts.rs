@@ -48,11 +48,14 @@ pub fn sync(paths: &Paths, name: &ContextName, cfg: &ContextConfig, edited: bool
     let home = PathBuf::from(&user.home);
     let desired = koje_podman::host::resolve_mounts(cfg, &paths.host_dirs()?)?;
     let home_dir = prepare(&podman, name)?;
-    let live: Vec<PathBuf> = podman
+    // Dotfiles presets (ADR 0038) are mounted below ~/.dotfiles, read-only,
+    // by their own rules.
+    let (dotfiles, others): (Vec<PathBuf>, Vec<PathBuf>) = podman
         .live_mounts(&home_dir)?
         .into_iter()
-        .map(|rel| home.join(rel))
-        .collect();
+        .partition(|rel| rel.starts_with(koje_core::dotfiles::DIR));
+    crate::dotfiles::sync_mounts(&podman, paths, cfg, &home_dir, &dotfiles)?;
+    let live: Vec<PathBuf> = others.into_iter().map(|rel| home.join(rel)).collect();
     let plan = live_mounts::plan(&desired, real.as_deref(), &live, &home);
     for path in &plan.add {
         let below = below_home(path, &home).unwrap_or_default();

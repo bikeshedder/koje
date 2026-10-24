@@ -42,3 +42,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0035 | [Memory limits use the working set; no limits by default](0035-memory-accounting.md) | Accepted |
 | 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Accepted |
 | 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Accepted |
+| 0038 | [Dotfiles presets: shared, read-only configuration for contexts](0038-dotfiles-presets.md) | Accepted |

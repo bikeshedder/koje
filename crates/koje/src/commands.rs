@@ -76,6 +76,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Apps { ctx, start, menu } => {
             crate::apps::run(&paths, ctx, start.as_deref(), *menu)
         }
+        Command::Dotfiles(ctx) => crate::dotfiles::run(&paths, &crate::layout::ctx(ctx)?),
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 
         Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),
@@ -180,6 +181,17 @@ fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::Con
     }
     if let Err(e) = crate::mounts::sync(paths, name, &after, true) {
         println!("note: mounts of {name} not changed: {e:#}");
+    }
+    // A running context links changed presets at once (ADR 0038).
+    let running = matches!(
+        koje_core::ports::ContainerRuntime::status(&koje_podman::Podman::new(), name),
+        Ok(koje_core::ports::ContainerStatus::Running)
+    );
+    if running
+        && (after.dotfiles != before.dotfiles || !after.dotfiles.is_empty())
+        && let Err(e) = crate::dotfiles::link(paths, &after)
+    {
+        println!("note: dotfiles of {name} not linked: {e:#}");
     }
 }
 

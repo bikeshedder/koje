@@ -9,6 +9,7 @@ mod bar;
 mod cli;
 mod commands;
 mod doctor;
+mod dotfiles;
 mod hostbus;
 mod kojed;
 mod layout;

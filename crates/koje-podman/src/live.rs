@@ -12,6 +12,13 @@ use koje_core::name::ContextName;
 
 use crate::{Podman, Result, Runner, container_name};
 
+/// The staging folder for read-only binds, next to the home volume's
+/// `_data` (`$1`): not shared, so its mounts stay private.
+const STAGE: &str = r#"$(dirname "$1")/koje-stage"#;
+
+/// Unmount every staged read-only source (before the volume is removed).
+const UNSTAGE_ALL: &str = r#"findmnt -rn -o TARGET | grep "^$(dirname "$1")/koje-stage/" | sort -r | while read -r m; do umount -l "$m"; done"#;
+
 impl<R: Runner> Podman<R> {
     fn unshare(&self, script: &str, args: &[&str]) -> Result<String> {
         let mut all = vec!["unshare", "sh", "-c", script, "sh"];
@@ -44,7 +51,9 @@ impl<R: Runner> Podman<R> {
         }
         let dir = self.podman(&["volume", "inspect", "--format", "{{.Mountpoint}}", &volume])?;
         self.unshare(
-            r#"while mountpoint -q "$1"; do umount -R -l "$1" || break; done; true"#,
+            &format!(
+                r#"while mountpoint -q "$1"; do umount -R -l "$1" || break; done; {UNSTAGE_ALL}; true"#
+            ),
             &[&dir],
         )
         .map(drop)
@@ -72,12 +81,34 @@ impl<R: Runner> Podman<R> {
         .map(drop)
     }
 
+    /// Bind `source` read-only to `home_dir/rel` (dotfiles presets, ADR 0038).
+    /// A remount does not reach the container's copy, but a bind copies its
+    /// source's flags (spike M2.12 round 2): the read-only bind is made in a
+    /// private staging folder next to the home and bound from there.
+    pub fn live_mount_ro(&self, home_dir: &Path, rel: &Path, source: &Path) -> Result<()> {
+        let (d, r, s) = (
+            home_dir.display().to_string(),
+            rel.display().to_string(),
+            source.display().to_string(),
+        );
+        self.unshare(
+            &format!(
+                r#"st="{STAGE}/$2" && mkdir -p "$st" "$1/$2" && mount --bind "$3" "$st" && mount --make-private "$st" && mount -o remount,bind,ro "$st" && mount --bind "$st" "$1/$2""#
+            ),
+            &[&d, &r, &s],
+        )
+        .map(drop)
+    }
+
     /// Unmount `home_dir/rel` lazily: a process using it keeps running (M2.12).
-    /// The empty mount point stays only if something else is in it.
+    /// The empty mount point stays only if something else is in it; a staged
+    /// read-only source goes too.
     pub fn live_unmount(&self, home_dir: &Path, rel: &Path) -> Result<()> {
         let (d, r) = (home_dir.display().to_string(), rel.display().to_string());
         self.unshare(
-            r#"umount -l "$1/$2" && { rmdir "$1/$2" 2>/dev/null; true; }"#,
+            &format!(
+                r#"umount -l "$1/$2" && {{ rmdir "$1/$2" 2>/dev/null; true; }} && st="{STAGE}/$2" && {{ ! mountpoint -q "$st" || umount -l "$st"; }}"#
+            ),
             &[&d, &r],
         )
         .map(drop)
@@ -145,5 +176,32 @@ mod tests {
             "{mount}"
         );
         assert!(calls.last().unwrap().contains("umount -l"), "lazily");
+    }
+
+    #[test]
+    fn read_only_through_staging() {
+        let fake = Fake::default();
+        let podman = Podman::with_runner(&fake, "/x", "/x");
+        let home = Path::new("/v/koje-kp-home/_data");
+        podman
+            .live_mount_ro(
+                home,
+                Path::new(".dotfiles/base"),
+                Path::new("/home/mj/.config/koje/dotfiles/base"),
+            )
+            .unwrap();
+        let calls = fake.calls.borrow();
+        let c = &calls[0];
+        assert!(c.contains(r#"st="$(dirname "$1")/koje-stage/$2""#), "{c}");
+        assert!(
+            c.contains(r#"mount -o remount,bind,ro "$st" && mount --bind "$st" "$1/$2""#),
+            "{c}"
+        );
+        assert!(
+            c.ends_with(
+                "sh /v/koje-kp-home/_data .dotfiles/base /home/mj/.config/koje/dotfiles/base"
+            ),
+            "{c}"
+        );
     }
 }

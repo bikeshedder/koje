@@ -13,7 +13,7 @@ use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::layout::Rect;
 use crate::mount::{self, HostDirs, Mount};
-use crate::name::{ContextName, StateName};
+use crate::name::{ContextName, PresetName, StateName};
 use crate::size::ByteSize;
 
 /// `context.toml`: everything the user maintains by hand for one context.
@@ -32,6 +32,10 @@ pub struct ContextConfig {
     /// See [`ContextConfig::expand_mounts`].
     #[serde(default)]
     pub mounts: Vec<Mount>,
+    /// Dotfiles presets (ADR 0038), mounted read-only at `~/.dotfiles/<name>`
+    /// and linked into the home in this order: later presets win.
+    #[serde(default)]
+    pub dotfiles: Vec<PresetName>,
     #[serde(default)]
     pub limits: Limits,
     #[serde(default)]

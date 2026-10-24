@@ -16,6 +16,7 @@ pub mod color;
 pub mod config;
 pub mod container;
 pub mod context;
+pub mod dotfiles;
 pub mod error;
 pub mod fsutil;
 pub mod hostbus;
