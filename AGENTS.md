@@ -29,6 +29,7 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 | access profile | Which host resources a context gets (`gpu`, `sound`, `wayland`, `nested`, `network`, …): a profile (`full`, `desktop`, `headless`, `isolated`) plus overrides; also host interfaces (`notifications`, `file_chooser`, …). ADR 0017, 0019. |
 | integration | Optional description of how koje launches/remembers a program. Programs work without one. |
 | dotfiles preset | Folder in `~/.config/koje/dotfiles/<name>` mounted read-only into contexts that list it and linked into their home (ADR 0038). |
+| shell | `koje-shell`: koje's GTK4 UI in one binary – bar, OSD, window overlays, later notifications; the settings app runs from it as its own process (ADR 0042). |
 | koje / kojed | The CLI / the background service. Never use "koje" for a context. |
 
 ## Repository layout
@@ -82,6 +83,9 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 - Containers are driven with Podman directly (no Distrobox). Rootless only.
 - Hyprland is the only supported compositor; talk to it via its command and event
   sockets. Do not add abstractions for other compositors.
+- koje's own UI is the shell (`koje-shell`), GTK4 via gtk4-rs and
+  gtk4-layer-shell (ADR 0042). What it shows and what actions do are pure
+  functions; widgets only render them. Nothing blocks the GTK main loop.
 - Programs inside contexts are never modified or configured by koje. Integrations
   only influence how koje launches them and what it remembers. Dotfiles presets
   (ADR 0038) are the user's own files that koje only links.

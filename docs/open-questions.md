@@ -29,7 +29,7 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 ## Tool and UI
 
 - **Podman binding** – when to switch from CLI calls to the REST API?
-- **Own bar** – Waybar with koje's modules for now (ADR 0036). Which need would justify an own bar?
+- **Look of koje's GTK4 UI** – libadwaita or plain GTK4 with koje's own CSS (ADR 0042)? Light and dark, the context color as accent. *(M8.27)*
 - **Language** – CLI text and messages in English, German or both?
 - **License and publishing** – open source? Which license?
 - **Mounts outside the home** – ADR 0034 limits `mounts` to folders below the home (live mounts, ADR 0033). If folders elsewhere are needed: make the container's root propagate (OCI `rootfsPropagation`, a spike) or recreate the container on `up` while keeping its changes (`podman commit`)?

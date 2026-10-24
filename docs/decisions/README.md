@@ -40,7 +40,8 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0033 | [Mounts follow `context.toml` while a context runs](0033-live-mounts.md) | Accepted |
 | 0034 | [Mounts are folders below the home](0034-mounts-below-the-home.md) | Accepted |
 | 0035 | [Memory limits use the working set; no limits by default](0035-memory-accounting.md) | Accepted |
-| 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Accepted |
+| 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Accepted (bar and toolkit: 0042) |
 | 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Accepted |
 | 0038 | [Dotfiles presets: shared, read-only configuration for contexts](0038-dotfiles-presets.md) | Accepted |
 | 0039 | [Title bars from the hyprbars plugin](0039-title-bars-with-hyprbars.md) | Accepted |
+| 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted |

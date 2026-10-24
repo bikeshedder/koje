@@ -1,6 +1,6 @@
 # 0036. A settings app built with Kiesel; the bar stays on Waybar
 
-- Status: Accepted
+- Status: Accepted; bar and toolkit superseded by ADR 0042 (own bar, GTK4)
 - Date: 2026-10-22
 - Source: plan task M8.3, discussion (the concept's panel overlay revisited)
 

@@ -197,17 +197,17 @@ to the stash first. Memory stays allocated (can be swapped out).
 | `koje-forward` | static D-Bus forwarder that runs inside every context (ADR 0025) |
 | `kojed` | service: Hyprland events, colors, layouts, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027) |
 | `koje` | CLI, client of core and kojed |
-| `koje-gui` (later) | settings app built with Kiesel Desktop; window overlays (ADR 0036) |
+| `koje-shell` (later) | koje's GTK4 UI, one binary: the shell (bar, OSD, window overlays, later notifications) and the settings app in its own process (ADR 0036, 0042) |
 
-UI (ADR 0036):
+UI (ADR 0036, 0042; the bar is Waybar until koje's own bar replaces it, M8.32):
 
 | Part | What | Built with |
 |---|---|---|
 | Launcher | application menu (Super+D), contexts and actions, window picker, keyboard shortcuts (Super+F1) | fuzzel |
 | Bar | workspaces and the current workspace's windows (context color as accent), the active context's memory; later layouts, stash | Waybar: hyprland/workspaces, custom module `koje bar --memory` (`koje bar` lists running contexts for own configs) |
-| Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | Kiesel Desktop, normal window |
-| Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | Kiesel Desktop, layer-shell |
-| Beacon window | keeps an empty context workspace alive (ADR 0028); may be dropped | Kiesel Desktop, normal window |
+| Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | GTK4, normal window |
+| Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | GTK4, layer-shell |
+| Beacon window | keeps an empty context workspace alive (ADR 0028); may be dropped | GTK4, normal window |
 
 ## Outlook (not planned now)
 

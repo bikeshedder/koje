@@ -1,6 +1,7 @@
 # Port priority: components needed by koje
 
-Status: draft, 2026-10-22.
+Status: withdrawn, 2026-10-24 – koje's UI is built with GTK4 (koje ADR 0042).
+Kept as the list of what koje's settings app needs.
 
 koje isolates projects into contexts on Linux with Hyprland. Each context is a
 rootless Podman container with its own name, color, saved states, window layouts
