@@ -10,6 +10,7 @@
 
 pub mod access;
 pub mod api;
+pub mod apps;
 pub mod capture;
 pub mod color;
 pub mod config;

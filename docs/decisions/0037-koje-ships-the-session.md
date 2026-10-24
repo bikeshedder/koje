@@ -53,7 +53,11 @@ koje is opinionated: it should give a working desktop after `./install.sh`.
   do not run are started through `hyprctl dispatch exec` – `exec-once` runs
   only at login. The plan shows these under "Then" before the one question.
   Outside Hyprland it only prints the hint.
-- Super+D stays free for koje's application menu (plan task M8.17).
+- **Super+D is koje's application menu** (M8.17): the programs of the active
+  context – the `.desktop` entries in its data directories – in fuzzel,
+  started there with `gio launch`. Outside a context it shows the running
+  contexts to switch to. Programs of all contexts in one list, host programs
+  and icons are not part of it.
 
 ## Consequences
 

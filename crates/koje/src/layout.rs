@@ -10,7 +10,7 @@ use crate::kojed::call;
 
 /// `-c <context>`, else kojed's active context (the focused workspace's, or
 /// the focused window's).
-fn ctx(c: &ActiveCtx) -> Result<String> {
+pub(crate) fn ctx(c: &ActiveCtx) -> Result<String> {
     if let Some(given) = &c.context {
         return Ok(given.clone());
     }

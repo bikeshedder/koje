@@ -147,6 +147,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
 | `koje run <context> [--no-focus] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted) |
+| `koje apps [-c <context>] [--start <name>]` | list the programs of the active context (its `.desktop` entries), or start one there – koje's application menu (Super+D) |
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
@@ -198,7 +199,7 @@ UI (ADR 0036):
 
 | Part | What | Built with |
 |---|---|---|
-| Launcher | contexts and actions, window picker | fuzzel/rofi |
+| Launcher | application menu (Super+D), contexts and actions, window picker | fuzzel |
 | Bar | active context, layouts, stash, memory, other running contexts | Waybar custom modules (`koje bar`) |
 | Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | Kiesel Desktop, normal window |
 | Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | Kiesel Desktop, layer-shell |

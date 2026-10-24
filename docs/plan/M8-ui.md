@@ -14,9 +14,9 @@ app. Component priorities for Kiesel Desktop: `docs/upstream/kiesel-desktop-comp
   - Notes: icons from the bundled Lucide font (ADR 0020), looked up by name in `codepoints.json`; ship a complete bar configuration, not only the module. Started with `koje bar` (M5.15). What a custom module cannot do opens the settings app (M8.15) or a picker.
 - [x] **M8.16 Session in koje's Hyprland snippet** (ADR 0037): Waybar, mako, hypridle/hyprlock, polkit agent, basic bindings, workspaces 1–9, look; `koje terminal` for Super+Return; `koje doctor` checks the session packages; `koje setup` reloads Hyprland and Waybar and starts missing session services, and writes the whole `hyprland.conf` (system keyboard plus `us`) when the user has none of their own
   - Notes: to check on the host: Super+Return on a context workspace (terminal in the context) and on a numbered one (host terminal); a `hyprland.conf` with the generated default config doubles Super+Q.
-- [ ] **M8.17 Application menu** (Super+D): the programs of the active context – its `.desktop` entries (base image plus what the user installed in it), read from the running container – in fuzzel; Enter starts the picked one with `koje run`. On a workspace without a context: contexts to start, and host programs?
-  - Done when: `koje apps [-c <context>]` lists name and id per entry (pure parsing of `.desktop` files in core, `NoDisplay`/`Hidden` skipped, tests); a picker script in `assets/bin`; Super+D bound in the snippet.
-  - Notes: open: icons (fuzzel shows them only from host icon themes), entries of all running contexts in one list with the context's color, Kiesel full-screen grid like GNOME later (ADR 0036).
+- [x] **M8.17 Application menu** (Super+D): the programs of the active context – its `.desktop` entries (base image plus what the user installed in it), read from the running container – in fuzzel; Enter starts the picked one there. On a workspace without a context: the running contexts (context picker).
+  - `koje apps [-c] [--start <name>]`, parsing in `koje_core::apps`, `assets/bin/koje-app-menu`. Starts with `gio launch` (field codes, D-Bus activation). To check on the host: Nautilus (D-Bus activatable) and a `Terminal=true` entry.
+- [ ] **M8.18 Application menu, later steps**: icons (fuzzel finds them only in host icon themes – copy or point at the context's), programs of all running contexts in one list in their colors, stopped contexts to start, host programs; a full-screen grid like GNOME's in Kiesel Desktop (ADR 0036)
 
 ## Settings app
 

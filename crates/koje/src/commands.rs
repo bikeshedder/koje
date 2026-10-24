@@ -63,6 +63,7 @@ pub fn run(command: &Command) -> Result<()> {
             command,
         } => crate::runtime::run(&paths, &ctx.context, command, !*no_focus),
 
+        Command::Apps { ctx, start } => crate::apps::run(&paths, ctx, start.as_deref()),
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 
         Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),

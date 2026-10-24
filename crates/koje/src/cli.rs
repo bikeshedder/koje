@@ -161,6 +161,15 @@ pub enum Command {
         )]
         command: Vec<String>,
     },
+    /// List the programs of the active context, or start one (koje's
+    /// application menu, Super+D).
+    Apps {
+        #[command(flatten)]
+        ctx: ActiveCtx,
+        /// Start the program with this name (as listed) instead.
+        #[arg(long, value_name = "NAME")]
+        start: Option<String>,
+    },
     /// Open a terminal in the active context (Super+Return); on a workspace
     /// without a context, on the host.
     Terminal(ActiveCtx),
@@ -315,6 +324,18 @@ mod tests {
     #[test]
     fn definition_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn apps_lists_or_starts() {
+        assert!(matches!(
+            parse(&["apps"]).unwrap().command,
+            Command::Apps { start: None, .. }
+        ));
+        assert!(matches!(
+            parse(&["apps", "-c", "kp", "--start", "Files"]).unwrap().command,
+            Command::Apps { start: Some(s), ctx: ActiveCtx { context: Some(c) } } if s == "Files" && c == "kp"
+        ));
     }
 
     #[test]
