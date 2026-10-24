@@ -116,6 +116,16 @@ impl Watch {
     }
 }
 
+/// One line for menus (M8.17): the working set against the hard limit, else
+/// the soft one. `None` when the usage cannot be read.
+pub fn summary(used: Option<ByteSize>, limits: &Limits) -> String {
+    let used = used.map_or_else(|| "?".to_owned(), ByteSize::human);
+    match limits.memory_hard.or(limits.memory_soft) {
+        Some(limit) => format!("{used} of {}", limit.human()),
+        None => format!("{used}, no limit"),
+    }
+}
+
 /// Value for the cgroup `memory.max` safety net, or `None` without a hard limit.
 pub fn kernel_limit(limits: &Limits) -> Option<ByteSize> {
     limits
@@ -206,5 +216,21 @@ mod tests {
         let k = kernel_limit(&limits()).unwrap();
         assert!(k.0 > 8 << 30);
         assert_eq!(kernel_limit(&Limits::default()), None);
+    }
+
+    #[test]
+    fn menu_summary() {
+        let gib = |n: u64| Some(ByteSize(n << 30));
+        let limits = |soft, hard| Limits {
+            memory_soft: soft,
+            memory_hard: hard,
+        };
+        assert_eq!(
+            summary(gib(1), &limits(gib(6), gib(8))),
+            "1.0 GiB of 8.0 GiB"
+        );
+        assert_eq!(summary(gib(1), &limits(gib(6), None)), "1.0 GiB of 6.0 GiB");
+        assert_eq!(summary(gib(1), &limits(None, None)), "1.0 GiB, no limit");
+        assert_eq!(summary(None, &limits(None, gib(8))), "? of 8.0 GiB");
     }
 }

@@ -111,6 +111,18 @@ pub fn stats(paths: &Paths, context: Option<&str>, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// `1.2 GiB of 8.0 GiB` for a running context (menus, M8.17).
+pub fn summary(paths: &Paths, context: &str) -> Result<String> {
+    let name = ContextName::new(context)?;
+    let global = GlobalConfig::load(&paths.global_config())?;
+    let limits = context::load(paths, &name)?.effective_limits(&global)?;
+    let used = Podman::new()
+        .memory_usage(&name)
+        .ok()
+        .map(|u| u.working_set());
+    Ok(memory::summary(used, &limits))
+}
+
 fn change(value: Option<&str>) -> Result<LimitChange> {
     Ok(match value {
         None => LimitChange::Keep,

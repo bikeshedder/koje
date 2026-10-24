@@ -11,12 +11,15 @@ use koje_podman::Podman;
 
 use crate::cli::ActiveCtx;
 
-pub fn run(paths: &Paths, ctx: &ActiveCtx, start: Option<&str>) -> Result<()> {
+pub fn run(paths: &Paths, ctx: &ActiveCtx, start: Option<&str>, menu: bool) -> Result<()> {
     let name = ContextName::new(&crate::layout::ctx(ctx)?)?;
     let podman = Podman::new();
     require_running(podman.status(&name)?, name.as_str()).map_err(anyhow::Error::msg)?;
     let apps = parse_listing(&podman.query(&name, &["sh", "-c", LIST_SCRIPT])?);
     let Some(wanted) = start else {
+        if menu {
+            println!("{name}  {}", crate::memory::summary(paths, name.as_str())?);
+        }
         for app in &apps {
             println!("{}", app.name);
         }

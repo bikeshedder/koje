@@ -136,10 +136,15 @@ pub fn run() -> Result<()> {
 }
 
 /// `koje bar --names`: the running contexts' names, one per line (pickers).
-pub fn names() -> Result<()> {
+/// With `memory`, each followed by its use and limit (M8.17).
+pub fn names(paths: &koje_core::paths::Paths, memory: bool) -> Result<()> {
     let running: Vec<Running> = crate::kojed::call("RunningContexts", &())?;
     for (name, ..) in running {
-        println!("{name}");
+        if memory {
+            println!("{name}  {}", crate::memory::summary(paths, &name)?);
+        } else {
+            println!("{name}");
+        }
     }
     Ok(())
 }

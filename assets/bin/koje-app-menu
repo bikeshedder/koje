@@ -1,11 +1,15 @@
 #!/bin/sh
 # koje application menu (Super+D, M8.17): the programs of the active context in
-# fuzzel, Enter starts one there. On a workspace without a context: the running
-# contexts, Enter switches to one. Installed by koje setup to ~/.local/lib/koje/.
+# fuzzel, its memory in the prompt; Enter starts one there. On a workspace
+# without a context: the running contexts, Enter switches to one. Installed by
+# koje setup to ~/.local/lib/koje/. Until koje's own menu (M8.18).
 set -eu
 koje=${KOJE:-$HOME/.local/bin/koje}
-if ! names=$("$koje" apps 2>/dev/null); then
+if ! menu=$("$koje" apps --menu 2>/dev/null); then
   exec "$(dirname "$0")/koje-context-picker"
 fi
-app=$(printf '%s\n' "$names" | fuzzel --dmenu --prompt 'start  ' --lines 15) || exit 0
+# First line: "<context>  <memory>", then the programs.
+prompt=$(printf '%s\n' "$menu" | head -n 1)
+app=$(printf '%s\n' "$menu" | tail -n +2 |
+  fuzzel --dmenu --prompt "$prompt   " --width 50 --lines 15) || exit 0
 [ -n "$app" ] && exec "$koje" apps --start "$app"

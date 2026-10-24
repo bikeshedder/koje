@@ -19,8 +19,11 @@ pub fn run(command: &Command) -> Result<()> {
         Command::List { json } => list(&paths, *json),
         Command::Setup { dry_run, yes } => crate::setup::run(&paths, *dry_run, *yes),
         Command::Doctor => crate::doctor::run(&paths),
-        Command::Bar { names: false } => crate::bar::run(),
-        Command::Bar { names: true } => crate::bar::names(),
+        Command::Bar { names: false, .. } => crate::bar::run(),
+        Command::Bar {
+            names: true,
+            memory,
+        } => crate::bar::names(&paths, *memory),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
         Command::Edit(ctx) => edit(&paths, ctx),
@@ -63,7 +66,9 @@ pub fn run(command: &Command) -> Result<()> {
             command,
         } => crate::runtime::run(&paths, &ctx.context, command, !*no_focus),
 
-        Command::Apps { ctx, start } => crate::apps::run(&paths, ctx, start.as_deref()),
+        Command::Apps { ctx, start, menu } => {
+            crate::apps::run(&paths, ctx, start.as_deref(), *menu)
+        }
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 
         Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),

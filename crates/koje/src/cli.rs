@@ -167,8 +167,11 @@ pub enum Command {
         #[command(flatten)]
         ctx: ActiveCtx,
         /// Start the program with this name (as listed) instead.
-        #[arg(long, value_name = "NAME")]
+        #[arg(long, value_name = "NAME", conflicts_with = "menu")]
         start: Option<String>,
+        /// For the menu: first a line with the context and its memory.
+        #[arg(long)]
+        menu: bool,
     },
     /// Open a terminal in the active context (Super+Return); on a workspace
     /// without a context, on the host.
@@ -238,6 +241,9 @@ pub enum Command {
         /// Print the running contexts' names once instead (for pickers).
         #[arg(long)]
         names: bool,
+        /// With `--names`: each name followed by its memory use and limit.
+        #[arg(long, requires = "names")]
+        memory: bool,
     },
 }
 
@@ -330,11 +336,17 @@ mod tests {
     fn apps_lists_or_starts() {
         assert!(matches!(
             parse(&["apps"]).unwrap().command,
-            Command::Apps { start: None, .. }
+            Command::Apps {
+                start: None,
+                menu: false,
+                ..
+            }
         ));
+        assert!(parse(&["apps", "--menu", "--start", "Files"]).is_err());
+        assert!(parse(&["bar", "--memory"]).is_err(), "only with --names");
         assert!(matches!(
             parse(&["apps", "-c", "kp", "--start", "Files"]).unwrap().command,
-            Command::Apps { start: Some(s), ctx: ActiveCtx { context: Some(c) } } if s == "Files" && c == "kp"
+            Command::Apps { start: Some(s), ctx: ActiveCtx { context: Some(c) }, .. } if s == "Files" && c == "kp"
         ));
     }
 

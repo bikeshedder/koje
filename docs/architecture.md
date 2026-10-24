@@ -148,14 +148,14 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
 | `koje run <context> [--no-focus] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted) |
-| `koje apps [-c <context>] [--start <name>]` | list the programs of the active context (its `.desktop` entries), or start one there – koje's application menu (Super+D) |
+| `koje apps [-c <context>] [--start <name>] [--menu]` | list the programs of the active context (its `.desktop` entries), or start one there – koje's application menu (Super+D); `--menu` puts the context and its memory first |
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
 | `koje setup [--dry-run] [--yes]` | install koje's files for the user: plan, warnings, one question (ADR 0021) |
-| `koje bar [--names]` | Waybar module: running contexts in their colors, the active one marked (`--names`: list them once) |
+| `koje bar [--names [--memory]]` | Waybar module: running contexts in their colors, the active one marked (`--names`: list them once; `--memory`: with use and limit) |
 | `koje doctor` | check packages, Hyprland, installed files, kojed, security contexts, image, sub-ids, NVIDIA |
 
 **States:** `default` (read by a plain `up`), `fresh`
