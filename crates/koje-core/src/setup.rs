@@ -461,7 +461,8 @@ pub fn refresh(
     }
     let changed = |s: &&Step| s.mark.changes();
     let hyprland = steps.iter().filter(changed).any(|s| match &s.action {
-        Action::Write { path, .. } => path == snippet,
+        // koje's snippets: the main one and the title bar one next to it.
+        Action::Write { path, .. } => path.parent() == snippet.parent(),
         Action::SourceLine { .. } | Action::HyprlandConf { .. } => true,
         _ => false,
     });
@@ -719,6 +720,16 @@ mod tests {
             action: Action::Nothing,
         };
         assert_eq!(refresh(&[same], snippet, waybar, &none), []);
+        // The title bar snippet next to it: a reload too.
+        assert_eq!(
+            refresh(
+                &[write("/d/koje/hyprland/hyprbars.conf")],
+                snippet,
+                waybar,
+                &all
+            ),
+            [Refresh::Hyprland]
+        );
 
         // New snippet and bar: reload Hyprland, Waybar rereads its config.
         let steps = [

@@ -14,6 +14,7 @@ use crate::prompt::confirm;
 const FONT: &[u8] = include_bytes!("../../../assets/fonts/lucide/lucide.ttf");
 const FONT_LICENSE: &[u8] = include_bytes!("../../../assets/fonts/lucide/LICENSE");
 const SNIPPET: &[u8] = include_bytes!("../../../assets/hyprland/koje.conf");
+const HYPRBARS: &[u8] = include_bytes!("../../../assets/hyprland/hyprbars.conf");
 const PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-window-picker");
 const CONTEXT_PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-context-picker");
 const APP_MENU: &[u8] = include_bytes!("../../../assets/bin/koje-app-menu");
@@ -149,6 +150,12 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
             "Hyprland snippet",
             &paths.hyprland_snippet(),
             SNIPPET,
+            0o644,
+        ),
+        file(
+            "title bar snippet (scripts/setup-hyprbars.sh)",
+            &paths.hyprbars_snippet(),
+            HYPRBARS,
             0o644,
         ),
         file("systemd user unit", &paths.kojed_unit(), UNIT, 0o644),

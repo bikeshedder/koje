@@ -80,6 +80,12 @@ impl Paths {
         self.data.join("hyprland/koje.conf")
     }
 
+    /// koje's title bar snippet (hyprbars plugin, ADR 0039), sourced from
+    /// `hyprland.conf` only once the plugin is installed.
+    pub fn hyprbars_snippet(&self) -> PathBuf {
+        self.data.join("hyprland/hyprbars.conf")
+    }
+
     /// The user's Hyprland config.
     pub fn hyprland_conf(&self) -> PathBuf {
         self.config_home().join("hypr/hyprland.conf")
