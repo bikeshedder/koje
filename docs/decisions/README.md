@@ -44,5 +44,6 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Accepted |
 | 0038 | [Dotfiles presets: shared, read-only configuration for contexts](0038-dotfiles-presets.md) | Accepted |
 | 0039 | [Title bars from the hyprbars plugin](0039-title-bars-with-hyprbars.md) | Accepted |
+| 0040 | [Context images: image folders, registry images, a koje layer and kept versions](0040-context-images.md) | Proposed |
 | 0041 | [Volume, brightness and media keys through `koje media`, with an OSD](0041-volume-brightness-and-media-keys.md) | Accepted |
 | 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted |
