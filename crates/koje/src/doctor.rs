@@ -137,7 +137,7 @@ fn installed(paths: &Paths) -> Vec<Check> {
             let label = s.what.split(':').next().unwrap_or_default();
             let what = setup::tilde(&match &s.action {
                 Action::Write { path, .. } => format!("{label}: {}", path.display()),
-                Action::SourceLine { path, .. } => {
+                Action::SourceLine { path, .. } | Action::HyprlandConf { path, .. } => {
                     format!("{} sources koje's snippet", path.display())
                 }
                 _ => s.what.clone(),
@@ -145,6 +145,10 @@ fn installed(paths: &Paths) -> Vec<Check> {
             match (s.mark, &s.action) {
                 (Mark::Unchanged | Mark::Skipped, _) => Check::ok(setup::tilde(&s.what)),
                 (_, Action::SourceLine { .. }) => Check::fail(format!("{what}: no"), "koje setup"),
+                // Present but nothing of the user's in it: setup writes koje's.
+                (Mark::Overwrite, Action::HyprlandConf { .. }) => {
+                    Check::warn(format!("{what}: not your own yet"), "koje setup")
+                }
                 (Mark::New | Mark::Append, _) => {
                     Check::fail(format!("{what}: not installed"), "koje setup")
                 }

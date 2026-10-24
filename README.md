@@ -26,7 +26,8 @@ The installer builds `koje` and `kojed` into `~/.local/bin` and the static
 `koje-forward` into `~/.local/lib/koje/`, then runs `koje setup`: it shows its
 plan and asks once, installs koje's icon font and Hyprland snippet below
 `~/.local/share` and kojed's systemd user unit, adds one `source` line to
-`~/.config/hypr/hyprland.conf` (the snippet is a complete session: bar,
+`~/.config/hypr/hyprland.conf` – or writes that file, with your system's keyboard
+layout, if you have no own config (the snippet is a complete session: bar,
 notifications, lock, Super+Return terminal in the active context, workspaces –
 [ADR 0037](docs/decisions/0037-koje-ships-the-session.md); put your monitor and
 keyboard settings below that line), installs koje's Waybar config only if you have

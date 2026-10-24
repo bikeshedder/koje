@@ -50,10 +50,16 @@ pub enum Action {
         contents: &'static [u8],
         mode: u32,
     },
-    /// Add `line` to the end of the user's Hyprland config (created if missing).
+    /// Add `line` to the end of the user's Hyprland config.
     SourceLine {
         path: PathBuf,
         line: String,
+    },
+    /// Write a complete Hyprland config (ADR 0037); an existing one is kept as
+    /// `<path>.bak` first.
+    HyprlandConf {
+        path: PathBuf,
+        contents: String,
     },
     /// Build the base image (last; a failure does not undo the rest).
     BuildImage,
@@ -105,47 +111,142 @@ pub fn file(
     }
 }
 
-/// The `source = <snippet>` line in the user's `hyprland.conf`. `home` lets a
-/// line written as `~/…` count too.
-pub fn hyprland_source(conf: &Path, snippet: &Path, home: &Path, current: Option<&str>) -> Step {
+/// Keyboard layouts for Hyprland's `input` section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Keyboard {
+    pub layout: String,
+    pub variant: String,
+    pub options: String,
+}
+
+/// The system's keyboard (`/etc/default/keyboard`, Debian/Ubuntu), plus `us`
+/// to switch to when it is a single other layout; `us` without one.
+pub fn system_keyboard(text: Option<&str>) -> Keyboard {
+    let get = |key: &str| {
+        text.unwrap_or_default()
+            .lines()
+            .find_map(|l| l.trim().strip_prefix(key)?.strip_prefix('='))
+            .map(|v| v.trim().trim_matches('"').to_owned())
+            .unwrap_or_default()
+    };
+    let (mut layout, mut variant) = (get("XKBLAYOUT"), get("XKBVARIANT"));
+    if layout.is_empty() {
+        layout = "us".into();
+        variant.clear();
+    }
+    let single_other = !layout.contains(',') && (layout != "us" || !variant.is_empty());
+    if single_other {
+        layout.push_str(",us");
+        variant.push(',');
+    }
+    Keyboard {
+        layout,
+        variant,
+        options: get("XKBOPTIONS"),
+    }
+}
+
+/// The `hyprland.conf` koje writes when the user has none of their own.
+pub fn hyprland_conf(source: &str, kb: &Keyboard) -> String {
+    let options = if kb.options.is_empty() {
+        String::new()
+    } else {
+        format!("    kb_options = {}\n", kb.options)
+    };
+    format!(
+        "# Hyprland config – written by koje setup (ADR 0037). It is yours now: koje
+# setup never rewrites it. koje's session comes from the snippet below; your
+# settings go after it (later settings win; `unbind = MODS, key` drops a binding).
+
+{source}
+
+# This machine's screens (names and modes: hyprctl monitors all).
+monitor = , preferred, auto, 1
+
+# Keyboard layouts, from the system's at setup. Super+Space or a click on the
+# bar switches to the next one. Example: kb_layout = us,de / kb_variant = colemak,
+input {{
+    kb_layout = {}
+    kb_variant = {}
+{options}}}
+",
+        kb.layout, kb.variant
+    )
+}
+
+/// The user's `hyprland.conf` must source koje's snippet. `home` lets a line
+/// written as `~/…` count too. koje writes the whole file (`keyboard` in it)
+/// when there is none, when it is Hyprland's generated default, or when it
+/// holds nothing but the `source` line; any other config is the user's and
+/// only gets the line appended.
+pub fn hyprland_source(
+    conf: &Path,
+    snippet: &Path,
+    home: &Path,
+    current: Option<&str>,
+    keyboard: &Keyboard,
+) -> Step {
     let line = format!("source = {}", snippet.display());
     let tilde = snippet
         .strip_prefix(home)
         .ok()
         .map(|rel| format!("source = ~/{}", rel.display()));
-    let action = Action::SourceLine {
+    let is_source = |l: &str| l == line || tilde.as_deref() == Some(l);
+    let write = Action::HyprlandConf {
         path: conf.to_owned(),
-        line: line.clone(),
+        contents: hyprland_conf(&line, keyboard),
     };
-    match current {
-        None => Step {
+    let Some(text) = current else {
+        return Step {
             mark: Mark::New,
             what: format!(
-                "Hyprland config: {} (new, sources koje's snippet)",
+                "Hyprland config: {} (new, with koje's session)",
                 conf.display()
             ),
-            action,
-        },
-        Some(text)
-            if text
-                .lines()
-                .map(str::trim)
-                .any(|l| l == line || tilde.as_deref() == Some(l)) =>
-        {
-            Step {
-                mark: Mark::Unchanged,
-                what: format!(
-                    "Hyprland config: {} already sources koje's snippet",
-                    conf.display()
-                ),
-                action: Action::Nothing,
-            }
+            action: write,
+        };
+    };
+    let settings: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    let generated = settings
+        .iter()
+        .any(|l| l.split('#').next().unwrap_or_default().replace(' ', "") == "autogenerated=1");
+    if generated || settings.iter().all(|l| is_source(l)) {
+        let why = if generated {
+            "Hyprland's generated default"
+        } else {
+            "nothing of yours"
+        };
+        return Step {
+            mark: Mark::Overwrite,
+            what: format!(
+                "Hyprland config: {} ({why} – replaced with koje's session, old one kept as .bak)",
+                conf.display()
+            ),
+            action: write,
+        };
+    }
+    if settings.iter().any(|l| is_source(l)) {
+        Step {
+            mark: Mark::Unchanged,
+            what: format!(
+                "Hyprland config: {} already sources koje's snippet",
+                conf.display()
+            ),
+            action: Action::Nothing,
         }
-        Some(_) => Step {
+    } else {
+        Step {
             mark: Mark::Append,
             what: format!("Hyprland config: {} (append: {line})", conf.display()),
-            action,
-        },
+            action: Action::SourceLine {
+                path: conf.to_owned(),
+                line,
+            },
+        }
     }
 }
 
@@ -290,7 +391,7 @@ pub fn refresh(
     let changed = |s: &&Step| s.mark.changes();
     let hyprland = steps.iter().filter(changed).any(|s| match &s.action {
         Action::Write { path, .. } => path == snippet,
-        Action::SourceLine { .. } => true,
+        Action::SourceLine { .. } | Action::HyprlandConf { .. } => true,
         _ => false,
     });
     let waybar_changed = steps
@@ -332,13 +433,28 @@ mod tests {
         );
     }
 
+    fn us() -> Keyboard {
+        system_keyboard(None)
+    }
+
     #[test]
     fn source_line() {
         let conf = Path::new("/h/.config/hypr/hyprland.conf");
         let snippet = Path::new("/h/.local/share/koje/hyprland/koje.conf");
         let home = Path::new("/h");
-        assert_eq!(hyprland_source(conf, snippet, home, None).mark, Mark::New);
-        let appended = hyprland_source(conf, snippet, home, Some("monitor = ,preferred,auto,1\n"));
+        let step = |text: Option<&str>| hyprland_source(conf, snippet, home, text, &us());
+
+        let new = step(None);
+        assert_eq!(new.mark, Mark::New);
+        let Action::HyprlandConf { contents, .. } = &new.action else {
+            panic!("{new:?}");
+        };
+        assert!(
+            contents.contains("\nsource = /h/.local/share/koje/hyprland/koje.conf\n"),
+            "{contents}"
+        );
+
+        let appended = step(Some("monitor = ,preferred,auto,1\n"));
         assert_eq!(appended.mark, Mark::Append);
         assert_eq!(
             appended.action,
@@ -347,27 +463,81 @@ mod tests {
                 line: "source = /h/.local/share/koje/hyprland/koje.conf".into()
             }
         );
-        for text in [
-            "a\nsource = /h/.local/share/koje/hyprland/koje.conf\n",
-            "  source = ~/.local/share/koje/hyprland/koje.conf  \n",
-        ] {
-            assert_eq!(
-                hyprland_source(conf, snippet, home, Some(text)).mark,
-                Mark::Unchanged,
-                "{text}"
-            );
-        }
         // Commented out: the user turned it off, setup appends again – visible as ~.
         assert_eq!(
-            hyprland_source(
-                conf,
-                snippet,
-                home,
-                Some("# source = /h/.local/share/koje/hyprland/koje.conf\n")
-            )
+            step(Some(
+                "monitor = ,preferred,auto,1\n# source = /h/.local/share/koje/hyprland/koje.conf\n"
+            ))
             .mark,
             Mark::Append
         );
+        assert_eq!(
+            step(Some(
+                "a = b\n  source = ~/.local/share/koje/hyprland/koje.conf  \n"
+            ))
+            .mark,
+            Mark::Unchanged
+        );
+        // What koje wrote is the user's from then on.
+        assert_eq!(step(Some(contents)).mark, Mark::Unchanged);
+    }
+
+    #[test]
+    fn hyprland_conf_replaced_only_when_nothing_is_the_users() {
+        let conf = Path::new("/h/.config/hypr/hyprland.conf");
+        let snippet = Path::new("/h/.local/share/koje/hyprland/koje.conf");
+        let step = |text: &str| hyprland_source(conf, snippet, Path::new("/h"), Some(text), &us());
+        for text in [
+            "",
+            // Written by an earlier koje setup.
+            "# Hyprland config – your own settings go here.\n\n# added by koje setup\nsource = /h/.local/share/koje/hyprland/koje.conf\n",
+            "source = ~/.local/share/koje/hyprland/koje.conf\n",
+            // Hyprland's generated default, with koje's line appended.
+            "autogenerated = 1 # remove this line\nbind = $mainMod, Q, exec, kitty\nsource = ~/.local/share/koje/hyprland/koje.conf\n",
+        ] {
+            let s = step(text);
+            assert_eq!(s.mark, Mark::Overwrite, "{text}");
+            assert!(matches!(s.action, Action::HyprlandConf { .. }), "{text}");
+        }
+        // Default config with the warning turned off: the user's now.
+        assert_eq!(
+            step("# autogenerated = 1\nbind = SUPER, Q, exec, kitty\n").mark,
+            Mark::Append
+        );
+    }
+
+    #[test]
+    fn keyboard_from_the_system() {
+        let kb = |t: &str| system_keyboard(Some(t));
+        assert_eq!(
+            kb("XKBMODEL=\"pc105\"\nXKBLAYOUT=\"us\"\nXKBVARIANT=\"colemak\"\nXKBOPTIONS=\"\"\n"),
+            Keyboard {
+                layout: "us,us".into(),
+                variant: "colemak,".into(),
+                options: String::new()
+            },
+            "plain us to switch to"
+        );
+        assert_eq!(kb("XKBLAYOUT=\"de\"\n").layout, "de,us");
+        assert_eq!(
+            kb("XKBLAYOUT=us\nXKBOPTIONS=\"caps:escape\"\n"),
+            Keyboard {
+                layout: "us".into(),
+                variant: String::new(),
+                options: "caps:escape".into()
+            }
+        );
+        assert_eq!(
+            kb("XKBLAYOUT=\"us,de\"\nXKBVARIANT=\",nodeadkeys\"").variant,
+            ",nodeadkeys"
+        );
+        assert_eq!(system_keyboard(None).layout, "us");
+
+        let conf = hyprland_conf(
+            "source = x",
+            &kb("XKBLAYOUT=us\nXKBVARIANT=colemak\nXKBOPTIONS=caps:escape\n"),
+        );
+        assert!(conf.contains("    kb_layout = us,us\n    kb_variant = colemak,\n    kb_options = caps:escape\n}\n"), "{conf}");
     }
 
     #[test]
@@ -464,7 +634,8 @@ mod tests {
             Path::new("/c/hypr/hyprland.conf"),
             snippet,
             Path::new("/h"),
-            Some(""),
+            Some("a = b\n"),
+            &system_keyboard(None),
         );
         assert_eq!(
             refresh(&[source], snippet, waybar, &all),

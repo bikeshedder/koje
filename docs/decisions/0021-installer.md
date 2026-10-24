@@ -24,7 +24,9 @@ before koje itself can do it.
     koje's Hyprland snippet to `$XDG_DATA_HOME/koje/hyprland/koje.conf` (koje's
     files, replaced on every install);
   - one `source = …/koje.conf` line appended to `~/.config/hypr/hyprland.conf`
-    if missing (the file is created if it does not exist, never rewritten);
+    if missing (the file is created if it does not exist, never rewritten;
+    since ADR 0037 koje writes the whole file when it holds nothing of the
+    user's, keeping the old one as `.bak`);
   - koje's Waybar config, only if the user has none – earlier koje copies
     (recognized by their header) are updated, a foreign config is left alone.
 - **Nothing happens unannounced:** it first prints the plan (new, overwrite,

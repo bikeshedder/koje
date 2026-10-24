@@ -170,6 +170,11 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
         &paths.hyprland_snippet(),
         &home,
         text.as_deref(),
+        &setup::system_keyboard(
+            std::fs::read_to_string("/etc/default/keyboard")
+                .ok()
+                .as_deref(),
+        ),
     ));
     let waybar = paths.waybar_dir();
     let present: Vec<(&str, WaybarFile)> = WAYBAR_READS
@@ -208,26 +213,24 @@ fn execute(action: &Action) -> Result<()> {
         }
         Action::SourceLine { path, line } => {
             use std::io::Write as _;
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)
-                    .with_context(|| format!("creating {}", dir.display()))?;
-            }
-            let new = !path.exists();
             let mut f = std::fs::OpenOptions::new()
-                .create(true)
                 .append(true)
                 .open(path)
                 .with_context(|| format!("opening {}", path.display()))?;
-            let text = if new {
-                // Below the line, the user's settings win over koje's.
-                format!(
-                    "# added by koje setup\n{line}\n\n# Your own settings go below; they override koje's.\n"
-                )
-            } else {
-                format!("\n# added by koje setup\n{line}\n")
-            };
-            f.write_all(text.as_bytes())
+            f.write_all(format!("\n# added by koje setup\n{line}\n").as_bytes())
                 .with_context(|| format!("writing {}", path.display()))?;
+        }
+        Action::HyprlandConf { path, contents } => {
+            if path.exists() {
+                let mut backup = path.as_os_str().to_owned();
+                backup.push(".bak");
+                std::fs::copy(path, &backup)
+                    .with_context(|| format!("keeping {} as .bak", path.display()))?;
+            } else if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)
+                    .with_context(|| format!("creating {}", dir.display()))?;
+            }
+            koje_core::fsutil::write_atomic(path, contents.as_bytes())?;
         }
         Action::BuildImage => {
             // Last step; a failure does not undo the rest.
