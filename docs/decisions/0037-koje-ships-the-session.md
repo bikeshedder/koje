@@ -23,7 +23,9 @@ koje is opinionated: it should give a working desktop after `./install.sh`.
   - **services:** `dbus-update-activation-environment`, Waybar, mako, hypridle,
     the polkit agent (libexec or lib path);
   - **look:** border 4 (the context color must be visible), gaps 4/8,
-    rounding 6, no Hyprland logo; natural scrolling on touchpads (as GNOME);
+    rounding 6, no Hyprland logo; natural scrolling on touchpads (as GNOME); focus on click
+    (`follow_mouse = 2`), the pointer never warps to a focused window
+    (`cursor:no_warps`);
   - **basic bindings:** Super+Return terminal, Super+Q close, Super+F
     fullscreen, Super+Shift+F maximize, Super+Space next keyboard layout (also in the bar), Super+Shift+E exit, Super+Escape hyprlock, Print screenshot of
     a region to the clipboard (grim, slurp, wl-copy); Super+F1 lists all

@@ -31,7 +31,8 @@
       "format": "{icon} {title}",
       "icon-size": 16,
       "update-active-window": true,
-      "on-click-window": "hyprctl dispatch focuswindow address:{address}"
+      // Focusing does not raise a floating window: alterzorder too.
+      "on-click-window": "hyprctl --batch 'dispatch focuswindow address:{address}; dispatch alterzorder top,address:{address}'"
     }
   },
   "clock": {

@@ -90,8 +90,13 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
             workspace_selector(workspace)?,
             arg(address)?
         )],
+        // Focusing does not raise a floating window; koje's all are.
         C::FocusWindow { address } => {
-            vec![format!("dispatch focuswindow address:{}", arg(address)?)]
+            let address = arg(address)?;
+            vec![
+                format!("dispatch focuswindow address:{address}"),
+                format!("dispatch alterzorder top,address:{address}"),
+            ]
         }
         C::ToggleSpecial { name } => {
             vec![format!("dispatch togglespecialworkspace {}", arg(name)?)]
@@ -205,7 +210,10 @@ mod tests {
             one(CompositorCommand::FocusWindow {
                 address: "0x63b2".into()
             }),
-            ["dispatch focuswindow address:0x63b2"]
+            [
+                "dispatch focuswindow address:0x63b2",
+                "dispatch alterzorder top,address:0x63b2"
+            ]
         );
         assert_eq!(
             one(CompositorCommand::ToggleSpecial {

@@ -13,4 +13,4 @@ line=$(
 address=${line##* }
 case "$address" in 0x*) ;; *) exit 0 ;; esac
 hyprctl dispatch focuswindow "address:$address" >/dev/null
-hyprctl dispatch alterzorder top >/dev/null
+hyprctl dispatch alterzorder "top,address:$address" >/dev/null
