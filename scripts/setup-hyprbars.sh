@@ -87,15 +87,19 @@ mv -f "$so.koje-new" "$so"
 echo "installed $so"
 
 step "Load it"
+# Before touching hyprland.conf: Hyprland reloads it on every change, and a
+# new `plugin =` line loads the new build right away.
+was_loaded=0
+hyprctl plugin list | grep -q hyprbars && was_loaded=1
 # The plugin first, then koje's settings for it.
 if ! grep -qxF "plugin = $so" "$conf" 2>/dev/null; then
   printf '\n# added by koje scripts/setup-hyprbars.sh\nplugin = %s\nsource = %s\n' "$so" "$snippet" >>"$conf"
   echo "added to $conf: plugin = $so, source = $snippet"
 fi
-if hyprctl plugin list | grep -q hyprbars; then
+if ((was_loaded)); then
   echo "hyprbars was loaded already: log out and in again to use the new build"
 else
-  hyprctl plugin load "$so"
+  hyprctl plugin list | grep -q hyprbars || hyprctl plugin load "$so"
   hyprctl reload >/dev/null
   echo "title bars on"
 fi
