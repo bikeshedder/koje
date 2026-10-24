@@ -13,6 +13,7 @@
 
 mod api;
 mod daemon;
+mod players;
 mod procfs;
 mod sound;
 mod wayland;
@@ -52,6 +53,11 @@ async fn main() -> Result<()> {
         tracing::warn!("{e:#}");
     }
     let daemon: api::Shared = Arc::new(tokio::sync::Mutex::new(daemon));
+    // The media keys' player (ADR 0041): kojed runs as the contexts' user.
+    let uid = std::os::unix::fs::MetadataExt::uid(
+        &std::fs::metadata("/proc/self").context("reading /proc/self")?,
+    );
+    let players = players::Players::new(uid);
     let conn = zbus::connection::Builder::session()
         .context("connecting to the session bus")?
         .name(BUS_NAME)?
@@ -60,6 +66,7 @@ async fn main() -> Result<()> {
             api::Api {
                 daemon: Arc::clone(&daemon),
                 sockets: sockets.clone(),
+                players: players.clone(),
                 runtime: runtime.clone(),
             },
         )?
@@ -70,7 +77,12 @@ async fn main() -> Result<()> {
         })?;
     tracing::info!("serving {BUS_NAME}");
     tokio::spawn(relink_sound(runtime));
-    tokio::spawn(tick(Arc::clone(&daemon), sockets.clone(), conn.clone()));
+    tokio::spawn(tick(
+        Arc::clone(&daemon),
+        sockets.clone(),
+        players,
+        conn.clone(),
+    ));
     loop {
         let event = events.next().await;
         if event == CompositorEvent::Connected {
@@ -114,18 +126,25 @@ async fn unblip(daemon: api::Shared, address: String) {
 const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// M5.7, M5.8: autosave of geometry and the recovery files; M6: memory
-/// limits (notify, shut down at the hard limit).
-async fn tick(daemon: api::Shared, sockets: wayland::Sockets, conn: zbus::Connection) {
+/// limits (notify, shut down at the hard limit); the buses of contexts
+/// started since for the media keys (ADR 0041).
+async fn tick(
+    daemon: api::Shared,
+    sockets: wayland::Sockets,
+    players: players::Players,
+    conn: zbus::Connection,
+) {
     use koje_core::memory::MemoryLevel;
     let mut interval = tokio::time::interval(TICK);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         interval.tick().await;
-        let alerts = {
+        let (alerts, running) = {
             let mut d = daemon.lock().await;
             d.tick().await;
-            d.check_memory().await
+            (d.check_memory().await, d.running().await)
         };
+        players.sync(&running).await;
         // The bar's memory meter (M8.21) follows the readings.
         if let Err(e) = api::memory_changed(&conn).await {
             tracing::debug!("emitting MemoryChanged: {e}");

@@ -33,6 +33,12 @@ valid as a list).
 - [x] **M8.22 Title bars** (ADR 0039): hyprbars built by `scripts/setup-hyprbars.sh` against `hyprland-dev` (not hyprpm: Ubuntu's never records its headers, `add` fails), loaded with `plugin =`; koje's settings in a second snippet `hyprbars.conf`, no bar for apps with their own header bar
   - Option names and the `hyprbars:no_bar` rule checked against the plugin version pinned for Hyprland 0.53 (hyprland-plugins 64b7c2d). To check on the host: the script builds on Ubuntu 26.04; bars on foot and Firefox, none on Nautilus; dragging a bar moves the window.
 - [ ] **M8.23 Title bars in the context color**: a `hyprbars:bar_color` rule per context tag from kojed – only when the plugin is loaded (`hyprctl plugin list`), else Hyprland reports an unknown rule
+- [x] **M8.24 Volume and brightness keys with an OSD** (ADR 0041): `koje media volume-up|volume-down|mute|mic-mute|brightness-up|brightness-down`; volume with `wpctl`, brightness through logind's `SetBrightness` (no group `video`); the level as a replacing notification with a progress value (mako)
+  - `koje_core::media` (wpctl parsing, backlight choice, perceptual steps, OSD texts), `crates/koje/src/media.rs`. Host-tested 2026-10-24: brightness down/up through logind without the group `video`, volume, mute and microphone; mako 1.10 crashes on `replaces_id` together with the synchronous hint, so only the hint replaces the OSD. `koje doctor` checks `wpctl`.
+- [~] **M8.25 Media keys to the most recently active player** (ADR 0041): `koje media play-pause|next|previous`; kojed watches MPRIS `PlaybackStatus` on the host's bus and every running context's bus (`/proc/<pid>/root/run/user/<uid>/bus`), D-Bus method `MediaPlayer` for `koje media`
+  - `kojed/src/players.rs`, `koje_core::media::player_order`, `Podman::running_pid`. Connecting to a context's bus from the host checked 2026-10-24 (`busctl --address`). To check on the host with the new kojed: play/pause in a context's Firefox and on the host; after pausing in the app the key resumes that player; a context started after kojed is reached within 5 s.
+- [ ] **M8.26 OSD with GTK4** (ADR 0041, 0042): a layer-shell OSD for volume and brightness instead of the notification
+  - Notes: was planned with Kiesel Desktop; GTK4 since ADR 0042. Builds on M8.27.
 
 ## Own bar (ADR 0042)
 

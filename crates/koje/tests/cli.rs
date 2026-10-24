@@ -845,6 +845,14 @@ fn setup_installs_then_has_nothing_to_do() {
     assert!(out.contains("done: Hyprland snippet"), "{out}");
     let snippet = std::fs::read_to_string(t.join("data/koje/hyprland/koje.conf")).unwrap();
     assert!(snippet.contains("exec-once = systemctl --user start kojed"));
+    // koje replaces Hyprland's default config, which bound these keys.
+    for key in [
+        "XF86AudioRaiseVolume",
+        "XF86AudioMute",
+        "XF86MonBrightnessUp",
+    ] {
+        assert!(snippet.contains(&format!(", {key},")), "{key}");
+    }
     assert!(t.join("data/fonts/koje/lucide.ttf").exists());
     assert!(t.join("config/systemd/user/kojed.service").exists());
     let picker = t.join(".local/lib/koje/koje-window-picker");

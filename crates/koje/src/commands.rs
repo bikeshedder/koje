@@ -19,6 +19,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::List { json } => list(&paths, *json),
         Command::Setup { dry_run, yes } => crate::setup::run(&paths, *dry_run, *yes),
         Command::Doctor => crate::doctor::run(&paths),
+        Command::Media { action } => crate::media::run(*action),
         Command::Bar {
             names: false,
             memory,

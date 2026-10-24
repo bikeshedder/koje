@@ -241,6 +241,12 @@ pub enum Command {
         #[arg(long, short)]
         yes: bool,
     },
+    /// Volume, microphone, brightness and media keys (ADR 0041): change the
+    /// level and show it, or control the most recently active player.
+    Media {
+        #[arg(value_enum)]
+        action: MediaAction,
+    },
     /// Check what koje needs on this host and how to fix what is missing.
     Doctor,
     /// Waybar module: the running contexts, updated as they change (JSON lines).
@@ -253,6 +259,19 @@ pub enum Command {
         #[arg(long)]
         memory: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum MediaAction {
+    VolumeUp,
+    VolumeDown,
+    Mute,
+    MicMute,
+    BrightnessUp,
+    BrightnessDown,
+    PlayPause,
+    Next,
+    Previous,
 }
 
 #[derive(Debug, Subcommand)]
@@ -374,6 +393,23 @@ mod tests {
             parse(&["dotfiles", "-c", "kp"]).unwrap().command,
             Command::Dotfiles { context: Some(c) } if c == "kp"
         ));
+    }
+
+    #[test]
+    fn media_actions() {
+        assert!(matches!(
+            parse(&["media", "volume-up"]).unwrap().command,
+            Command::Media {
+                action: MediaAction::VolumeUp
+            }
+        ));
+        assert!(matches!(
+            parse(&["media", "play-pause"]).unwrap().command,
+            Command::Media {
+                action: MediaAction::PlayPause
+            }
+        ));
+        assert!(parse(&["media", "louder"]).is_err());
     }
 
     #[test]

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use koje_core::api::OBJECT_PATH;
+use koje_core::media::PlayerAction;
 use koje_core::name::{ContextName, LayoutName, StateName, WindowId};
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
@@ -12,6 +13,7 @@ use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
 use crate::daemon::{Change, Daemon};
+use crate::players::Players;
 use crate::wayland::Sockets;
 
 /// How long restored windows may take to appear.
@@ -23,6 +25,7 @@ pub type Shared = Arc<Mutex<Daemon<Hyprland, Podman>>>;
 pub struct Api {
     pub daemon: Shared,
     pub sockets: Sockets,
+    pub players: Players,
     /// The host's `XDG_RUNTIME_DIR`.
     pub runtime: std::path::PathBuf,
 }
@@ -215,6 +218,17 @@ impl Api {
         self.daemon.lock().await.stopped(&ctx).await;
         let _ = Self::contexts_changed(&emitter).await;
         Ok(())
+    }
+
+    /// A media key (`PlayPause`, `Next`, `Previous`) for the most recently
+    /// active player on the host or in a running context (ADR 0041): which
+    /// player got it (`"firefox in kp"`), `""` without players.
+    async fn media_player(&self, action: &str) -> fdo::Result<String> {
+        let action = PlayerAction::from_method(action)
+            .ok_or_else(|| fdo::Error::InvalidArgs(format!("unknown media key {action:?}")))?;
+        let running = self.daemon.lock().await.running().await;
+        self.players.sync(&running).await;
+        Ok(self.players.control(action).await.unwrap_or_default())
     }
 
     /// Running contexts: `(name, color, windows, active)` – the bar (M5.15).

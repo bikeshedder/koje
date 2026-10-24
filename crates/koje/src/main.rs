@@ -13,6 +13,7 @@ mod dotfiles;
 mod hostbus;
 mod kojed;
 mod layout;
+mod media;
 mod memory;
 mod mounts;
 mod prompt;

@@ -17,7 +17,7 @@ hyprctl -j binds |
       "bracketright": "]", "bracketleft": "[", "space": "Space",
       "mouse:272": "left mouse button", "mouse:273": "right mouse button",
       "mouse:274": "middle mouse button"
-    }[.key] // (if (.key | length) == 1 then .key | ascii_upcase else .key end);
+    }[.key] // (if (.key | length) == 1 then .key | ascii_upcase else .key | sub("^XF86"; "") end);
     .[] | select(.catch_all | not)
     | (mods + [key] | join("+")) + "   " +
       (if .has_description then .description else "\(.dispatcher) \(.arg)" end)

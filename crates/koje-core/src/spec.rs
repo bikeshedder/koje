@@ -320,10 +320,16 @@ impl Parts<'_> {
     }
 }
 
+/// The context's session bus inside its container (ADR 0015). kojed reaches
+/// it from the host below `/proc/<pid>/root` (ADR 0041).
+pub fn session_bus(uid: u32) -> PathBuf {
+    PathBuf::from(format!("/run/user/{uid}/bus"))
+}
+
 /// Build the container spec for a context.
 pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
     let run = PathBuf::from(format!("/run/user/{}", host.uid));
-    let bus = format!("unix:path={}/bus", run.display());
+    let bus = format!("unix:path={}", session_bus(host.uid).display());
     let a = ctx.access;
     let mut p = Parts {
         host,

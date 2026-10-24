@@ -28,7 +28,9 @@ koje is opinionated: it should give a working desktop after `./install.sh`.
     (`cursor:no_warps`);
   - **basic bindings:** Super+Return terminal, Super+Q close, Super+F
     fullscreen, Super+Shift+F maximize, Super+Space next keyboard layout (also in the bar), Super+Shift+E exit, Super+Escape hyprlock, Print screenshot of
-    a region to the clipboard (grim, slurp, wl-copy); Super+F1 lists all
+    a region to the clipboard (grim, slurp, wl-copy); volume, brightness and
+    media keys through `koje media` (ADR 0041) – koje replaces Hyprland's
+    default config, which bound them; Super+F1 lists all
     bindings (M8.19), so every binding koje ships has a description (`bindd`);
   - **workspaces 1–9** (Super+n, Super+Shift+n) for host windows; contexts keep
     their named workspaces (ADR 0028).
@@ -48,7 +50,7 @@ koje is opinionated: it should give a working desktop after `./install.sh`.
   rewrites a config with settings of its own, it only appends the `source`
   line if missing.
 - `koje doctor` checks the session's packages (foot, mako, hypridle, hyprlock,
-  grim, slurp, wl-clipboard). The polkit agent is not checked: its package
+  grim, slurp, wl-clipboard, wireplumber). The polkit agent is not checked: its package
   and path differ between distributions.
 - **`koje setup` refreshes the running session** when it runs inside Hyprland
   and changed files: `hyprctl reload` (snippet or `source` line changed),

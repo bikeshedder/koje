@@ -183,6 +183,20 @@ impl<R: Runner> Podman<R> {
         self.podman(&args).map(drop)
     }
 
+    /// The host PID of the running context container's first process; `None`
+    /// when it is missing, stopped or paused. kojed reaches the context's bus
+    /// through `/proc/<pid>/root` (ADR 0041).
+    pub fn running_pid(&self, ctx: &ContextName) -> Result<Option<u32>> {
+        let Some(value) = self.inspect(&container_name(ctx), "{{.State.Status}} {{.State.Pid}}")?
+        else {
+            return Ok(None);
+        };
+        Ok(match value.split_once(' ') {
+            Some(("running", pid)) => pid.parse().ok().filter(|&pid| pid > 0),
+            _ => None,
+        })
+    }
+
     /// Whether a named volume exists.
     pub fn volume_exists(&self, volume: &str) -> Result<bool> {
         let out = self
@@ -512,6 +526,27 @@ pub(crate) mod tests {
     }
 
     const ID: &str = "275e5400c5b8d0009562fa78c0a675959f3e3e8ab12b81d4c9fc4c29240fc160";
+
+    #[test]
+    fn pid_only_while_running() {
+        for (answer, want) in [
+            ("running 598546\n", Some(598_546)),
+            ("paused 598546\n", None),
+            ("exited 0\n", None),
+            ("running 0\n", None),
+        ] {
+            let fake = Fake::default().answer(true, answer, "");
+            let podman = Podman::with_runner(&fake, "/nonexistent", "/nonexistent");
+            assert_eq!(podman.running_pid(&kp()).unwrap(), want, "{answer}");
+            assert_eq!(
+                fake.calls.borrow()[0],
+                "container inspect --format {{.State.Status}} {{.State.Pid}} koje-kp"
+            );
+        }
+        let fake = Fake::default().answer(false, "", "Error: no such container koje-kp");
+        let podman = Podman::with_runner(&fake, "/nonexistent", "/nonexistent");
+        assert_eq!(podman.running_pid(&kp()).unwrap(), None);
+    }
 
     #[test]
     fn status_maps_podman_states() {
