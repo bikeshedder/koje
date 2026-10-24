@@ -18,7 +18,8 @@ and home.
 - **Built locally, per user,** from `assets/image/Containerfile` (compiled into
   koje): `koje image build [--no-cache]`; `install.sh` builds it if missing;
   `koje up` will build it on first use (M3.4). No registry, no published image.
-- **Batteries included:** Firefox, foot, Nautilus, xdg-utils, git and basic
+- **Batteries included:** Firefox, foot, Nautilus, xdg-utils, git, the Starship
+  prompt (a pinned, checksummed release – Fedora does not package it) and basic
   tools besides what every context needs: D-Bus session bus, gnome-keyring (own
   keyring per context, ADR 0019), Mesa (AMD/Intel; NVIDIA comes via CDI at
   runtime, ADR 0016), PipeWire/PulseAudio and CUPS clients, fonts, rootless
