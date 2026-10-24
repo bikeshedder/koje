@@ -30,6 +30,7 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 
 - **Podman binding** – when to switch from CLI calls to the REST API?
 - **More of GNOME's bindings and gestures** – ADR 0043 takes over Super alone and Super+arrows. Which other GNOME bindings (Super+Shift+arrows to another monitor, Super+PageUp/PageDown for workspaces, …) and touchpad gestures (three-finger swipes) follow, and what happens to koje's own bindings on the same keys?
+- **Displays** – GNOME Settings' Displays panel needs Mutter's D-Bus API (ADR 0044). Should kojed implement `org.gnome.Mutter.DisplayConfig` on Hyprland's monitors, or should koje get its own displays page? Until then monitors stay in `hyprland.conf`.
 - **Language** – CLI text and messages in English, German or both?
 - **License and publishing** – open source? Which license?
 - **Mounts outside the home** – ADR 0034 limits `mounts` to folders below the home (live mounts, ADR 0033). If folders elsewhere are needed: make the container's root propagate (OCI `rootfsPropagation`, a spike) or recreate the container on `up` while keeping its changes (`podman commit`)?

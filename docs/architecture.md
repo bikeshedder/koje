@@ -75,6 +75,9 @@ browser profile per project. Put common programs into the base image.
   symbolic icons, a bar laid out like GNOME's top bar, no gaps; Super alone
   opens the launcher, Super+arrows maximize, restore and tile halves (M8.41).
   The context color is the deliberate difference.
+- **System settings are GNOME's** (ADR 0044): GNOME Settings edits them,
+  kojed applies GNOME's gsettings to Hyprland (input, keyboard layouts, idle and
+  power, night light, background); koje's settings app is only about koje.
 - **Border color** per context: kojed sees each new window on the event socket,
   maps PID → context, sets active/inactive border colors. A window that gets
   focus flashes its border white for a moment (focus feedback). The bar's

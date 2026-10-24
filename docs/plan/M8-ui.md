@@ -60,12 +60,31 @@ Waybar cannot do. The bar is laid out like GNOME's top bar and uses libadwaita
 - [ ] **M8.35 Contexts and layouts in the bar**: the active context's layouts to switch, stashed windows as icons (click brings one back), a menu per context (start, pause, wake, stop, open the settings app, M8.15)
 - [ ] **M8.36 Notifications in the shell**: the shell is the notification server (`org.freedesktop.Notifications`) instead of mako; banners and the list in the clock's popover as GNOME's, in their context's color (ADR 0042, 0043)
   - Notes: find out how the shell tells a notification's context – each context's forwarder has its own connection to the host's bus (ADR 0019).
-- [ ] **M8.38 GNOME look for the session** (ADR 0043): Adwaita icon and cursor themes, GNOME's fonts, light and dark through `org.gnome.desktop.interface color-scheme`; no gaps, rounding and shadows close to GNOME's; maximize below the bar; `koje doctor` checks the packages
+- [ ] **M8.38 GNOME look for the session** (ADR 0043): Adwaita icon and cursor themes, GNOME's fonts, light and dark through `org.gnome.desktop.interface color-scheme`; no gaps, rounding and shadows close to GNOME's; maximize below the bar; hyprlock like GNOME's lock screen; `koje doctor` checks the packages
   - Notes: decide how `koje setup` sets GNOME's settings without overwriting the user's own (ADR 0021).
 - [ ] **M8.39 Title bars like Adwaita header bars** (ADR 0039, 0043): hyprbars' height, colors, centered title and GNOME's buttons
 - [ ] **M8.40 Launcher, window picker and shortcuts list in the shell** (ADR 0043): GNOME-style replacements for the fuzzel menus (M8.17, Super+Tab, Super+F1); the application grid is M8.18
 - [ ] **M8.41 GNOME's key bindings** (ADR 0043): Super alone opens and closes the launcher (koje's application menu for now; on release only, not after Super+key or Super+drag); Super+Up maximizes, Super+Down restores the previous size and place, Super+Left/Right put the window on the left or right half of the monitor below the bar
   - Notes: check on the host that Hyprland's release binding (`bindr` on `Super_L`) does not fire after a combination or a Super+drag. The halves may be the first snap zones (M7.3); restoring needs the window's geometry before maximize or half, remembered by koje.
+
+
+## GNOME integration (ADR 0044)
+
+GNOME Settings is the system's settings; kojed applies GNOME's gsettings to
+Hyprland; the shell takes over the rest of GNOME Shell's duties.
+
+- [ ] **M8.42 GNOME Settings under Hyprland** *(host)*: under which `XDG_CURRENT_DESKTOP` GNOME Settings starts (e.g. `Hyprland:GNOME`); what that value changes in apps (tray icons, Qt themes) and portals; which panels work, which have no effect; `xdg-desktop-portal-gnome` or `-gtk`; whether GNOME Settings asks for Wi-Fi passwords while open
+  - Done when: a report in `docs/spikes/` with a table per panel; the `XDG_CURRENT_DESKTOP` value for koje's session.
+- [ ] **M8.43 gsettings bridge: input**: kojed applies mouse and touchpad (`org.gnome.desktop.peripherals.*`) and keyboard layouts and options (`org.gnome.desktop.input-sources`) to Hyprland – at start, on change, after a config reload; the mapping is a pure function in `koje-core`; `koje setup` no longer writes the keyboard into `hyprland.conf`
+  - Notes: decide how kojed reads gsettings and watches changes (GIO or dconf directly; kojed runs on tokio without a GLib loop, ADR 0026). Depends on M8.42.
+- [ ] **M8.44 gsettings bridge: idle, power, night light, background**: idle, blank and suspend times (`org.gnome.desktop.session`, `org.gnome.settings-daemon.plugins.power`) for hypridle; night light (`…plugins.color`) through hyprsunset; the background (`org.gnome.desktop.background`) through a wallpaper program
+- [ ] **M8.45 Network secret agent in the shell**: asks for Wi-Fi and VPN passwords like GNOME Shell (NetworkManager `SecretAgent`)
+  - Notes: urgent – nothing asks today unless M8.42 finds that GNOME Settings does.
+- [ ] **M8.46 Polkit agent in the shell**: the authentication dialog like GNOME Shell's, replacing polkit-gnome in the session
+- [ ] **M8.47 End session dialog**: log out, restart, shut down with a countdown like GNOME's; Super+Shift+E opens it instead of leaving Hyprland at once
+- [ ] **M8.48 Screenshot UI like GNOME's**: area, window or screen, to the clipboard and a file; screen recording; through `xdg-desktop-portal-hyprland` or Hyprland's protocols; Print opens it
+- [ ] **M8.49 Alt+Tab like GNOME's**: windows grouped by app, Alt+` within one app, in the shell
+- [ ] **M8.50 GNOME Shell's data in the shell**: favorites (`org.gnome.shell favorite-apps`), app folders (`org.gnome.desktop.app-folders`) and the apps' search providers (`org.gnome.Shell.SearchProvider2`) in the launcher (M8.40, M8.18); notification settings per app and "Do Not Disturb" (`org.gnome.desktop.notifications`) for M8.36
 
 ## Settings app
 

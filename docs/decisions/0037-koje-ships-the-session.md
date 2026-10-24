@@ -1,6 +1,6 @@
 # 0037. koje ships a complete Hyprland session
 
-- Status: Accepted; look (gaps, rounding, shadows) superseded by ADR 0043
+- Status: Accepted; look (gaps, rounding, shadows) superseded by ADR 0043, keyboard layouts move to gsettings by ADR 0044
 - Date: 2026-10-24
 - Source: discussion (after a first install, Super+Return opened nothing)
 
