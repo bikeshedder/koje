@@ -11,27 +11,24 @@ window#waybar {
   color: #e6e6e6;
 }
 #custom-koje { padding: 0 10px; }
-#workspaces button { padding: 0 8px; color: #b0b0b0; }
-#workspaces button.active { color: #ffffff; border-bottom: 2px solid #2e7d5b; }
-/* The current workspace's windows (hyprland/workspaces#tasks): the workspace
-   button itself unmarked (its task buttons are buttons too: :not), each window
-   an item, only the focused one marked – in the context's color from
+/* Workspaces and tasks look alike: flat items over the bar's full height, a
+   light hover, only the active one underlined – in the context's color from
    koje-contexts.css, green elsewhere. */
-#workspaces.tasks button:not(.taskbar-window),
-#workspaces.tasks button:not(.taskbar-window):hover,
-#workspaces.tasks button:not(.taskbar-window).hover {
-  /* No frame or hover look of its own: the tasks fill it to the top pixel
-     and are hovered themselves (Waybar sets .hover on it while over a task). */
-  border: none; padding: 0; margin: 0; min-height: 0;
-  background: none; box-shadow: none;
-}
-#workspaces.tasks .taskbar-window {
-  padding: 0 6px; margin: 0; min-height: 0; color: #b0b0b0;
+#workspaces button {
+  padding: 0 8px; margin: 0; min-height: 0; color: #b0b0b0;
   border: none; border-radius: 0; border-bottom: 2px solid transparent;
   background: none; box-shadow: none;
 }
-#workspaces.tasks .taskbar-window:hover { background: rgba(255, 255, 255, 0.08); }
-#workspaces.tasks .taskbar-window.active { color: #ffffff; border-bottom-color: #2e7d5b; }
+#workspaces button:hover { background: rgba(255, 255, 255, 0.08); }
+#workspaces button.active { color: #ffffff; border-bottom-color: #2e7d5b; }
+/* The current workspace's windows (hyprland/workspaces#tasks) are buttons
+   inside its workspace button: that one is invisible – no padding, mark or
+   hover of its own (Waybar sets .hover on it while over a task). */
+#workspaces.tasks button:not(.taskbar-window),
+#workspaces.tasks button:not(.taskbar-window):hover,
+#workspaces.tasks button:not(.taskbar-window).hover {
+  padding: 0; border: none; background: none;
+}
 #clock, #cpu, #memory, #pulseaudio, #network, #battery, #tray, #window, #custom-koje-memory {
   padding: 0 10px;
 }
