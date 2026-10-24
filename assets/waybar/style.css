@@ -12,14 +12,14 @@ window#waybar {
 }
 /* Workspaces and tasks look alike: flat items over the bar's full height, a
    light hover, only the active one underlined – in the context's color from
-   koje-contexts.css, green elsewhere. */
+   koje-contexts.css, white elsewhere. */
 #workspaces button {
   padding: 0 8px; margin: 0; min-height: 0; color: #b0b0b0;
   border: none; border-radius: 0; border-bottom: 2px solid transparent;
   background: none; box-shadow: none;
 }
 #workspaces button:hover { background: rgba(255, 255, 255, 0.08); }
-#workspaces button.active { color: #ffffff; border-bottom-color: #2e7d5b; }
+#workspaces button.active { color: #ffffff; border-bottom-color: #ffffff; }
 /* The current workspace's windows (hyprland/workspaces#tasks) are buttons
    inside its workspace button: that one is invisible – no padding, mark or
    hover of its own (Waybar sets .hover on it while over a task). */
