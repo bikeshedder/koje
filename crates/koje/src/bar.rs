@@ -71,14 +71,13 @@ pub fn module(running: &[Running]) -> String {
 /// kojed's `Memory`: `(context, used, charged, soft, hard)`, limits 0 = none.
 pub type Memory = (String, u64, u64, u64, u64);
 
-/// Meter cells (each an eighth-block character).
-const METER_WIDTH: usize = 10;
-/// Used: normal, over the soft limit, at the hard limit.
-const FILL: [&str; 3] = ["#2e7d5b", "#d19a66", "#e06c75"];
-/// Free: up to the soft limit, between soft and hard.
-const TRACK: [&str; 2] = ["#3a3a40", "#5a3030"];
-/// A cell filled to 1–7 eighths.
-const EIGHTHS: [char; 7] = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+/// Meter cells (box-drawing characters, half-cell steps).
+const METER_WIDTH: usize = 16;
+/// Used, by level: normal, near the soft limit (90 %), over it, at the hard one.
+const FILL: [&str; 4] = ["#2e7d5b", "#e5c07b", "#d19a66", "#e06c75"];
+/// Free: a thin line; the soft limit mark when not reached.
+const TRACK: &str = "#4a4a52";
+const SOFT_MARK: &str = "#9a9aa2";
 
 /// The memory module's JSON line: a meter and the percentage of the limit;
 /// without limits just the size; nothing without an active context.
@@ -86,6 +85,7 @@ pub fn memory_module(m: &Memory) -> String {
     use koje_core::config::Limits;
     use koje_core::memory::{MemoryLevel, meter};
     use koje_core::size::ByteSize;
+    use std::fmt::Write as _;
     let (ctx, used, charged, soft, hard) = m;
     if ctx.is_empty() {
         return serde_json::to_string(&Module {
@@ -130,28 +130,28 @@ pub fn memory_module(m: &Memory) -> String {
         .unwrap_or_default();
     };
     let (fill, level) = match m.level {
-        MemoryLevel::Normal | MemoryLevel::NearSoft => (FILL[0], "normal"),
-        MemoryLevel::OverSoft => (FILL[1], "over-soft"),
-        MemoryLevel::OverHard => (FILL[2], "over-hard"),
+        MemoryLevel::Normal => (FILL[0], "normal"),
+        MemoryLevel::NearSoft => (FILL[1], "near-soft"),
+        MemoryLevel::OverSoft => (FILL[2], "over-soft"),
+        MemoryLevel::OverHard => (FILL[3], "over-hard"),
     };
-    let cells: String = m
-        .cells
-        .iter()
-        .map(|c| {
-            let track = TRACK[usize::from(c.beyond_soft)];
-            match c.eighths {
-                0 => format!("<span background='{track}'> </span>"),
-                8 => format!("<span color='{fill}'>█</span>"),
-                n => format!(
-                    "<span color='{fill}' background='{track}'>{}</span>",
-                    EIGHTHS[usize::from(n) - 1]
-                ),
-            }
-        })
-        .collect();
+    // A thick line for the used part on a thin one, the soft limit as a
+    // crossing: `━ ╾ ─`, at the soft limit `┿ ┽ ┼`.
+    let mut cells = String::new();
+    for c in &m.cells {
+        let (glyph, color) = match (c.halves, c.soft) {
+            (2, false) => ('━', fill),
+            (1, false) => ('╾', fill),
+            (_, false) => ('─', TRACK),
+            (2, true) => ('┿', fill),
+            (1, true) => ('┽', fill),
+            (_, true) => ('┼', SOFT_MARK),
+        };
+        let _ = write!(cells, "<span color='{color}'>{glyph}</span>");
+    }
     serde_json::to_string(&Module {
         text: format!(
-            "<span font_family='monospace'>{cells}</span> {}%",
+            "<span font_family='monospace' size='small'>{cells}</span> {}%",
             m.percent
         ),
         tooltip,
@@ -324,12 +324,20 @@ mod tests {
         let m = v(&("kp".into(), gib(3), gib(4), gib(6), gib(8)));
         let text = m["text"].as_str().unwrap();
         assert!(text.ends_with("</span> 38%"), "{text}");
-        assert_eq!(text.matches('█').count(), 3, "{text}");
-        assert!(text.contains("<span color='#2e7d5b' background='#3a3a40'>▊</span>"));
         assert_eq!(
-            text.matches("background='#5a3030'> <").count(),
-            3,
-            "beyond soft"
+            text.matches("<span color='#2e7d5b'>━</span>").count(),
+            6,
+            "{text}"
+        );
+        assert_eq!(
+            text.matches("<span color='#4a4a52'>─</span>").count(),
+            9,
+            "{text}"
+        );
+        assert_eq!(
+            text.matches("<span color='#9a9aa2'>┼</span>").count(),
+            1,
+            "the soft limit"
         );
         assert_eq!(
             m["tooltip"],
@@ -337,9 +345,13 @@ mod tests {
         );
         assert_eq!(m["class"], serde_json::json!(["memory", "normal"]));
 
-        // Over the soft limit: amber.
+        // Near the soft limit: yellow; over it: orange, the mark filled.
+        let m = v(&("kp".into(), gib(11) / 2, gib(6), gib(6), gib(8)));
+        assert!(m["text"].as_str().unwrap().contains("#e5c07b"));
+        assert_eq!(m["class"][1], "near-soft");
         let m = v(&("kp".into(), gib(7), gib(7), gib(6), gib(8)));
-        assert!(m["text"].as_str().unwrap().contains("#d19a66"));
+        let text = m["text"].as_str().unwrap();
+        assert!(text.contains("<span color='#d19a66'>┿</span>"), "{text}");
         assert_eq!(m["class"][1], "over-soft");
 
         // Without limits only the size.
