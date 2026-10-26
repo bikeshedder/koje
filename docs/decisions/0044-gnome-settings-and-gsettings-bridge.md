@@ -1,6 +1,6 @@
 # 0044. GNOME Settings for the system, a gsettings bridge in kojed
 
-- Status: Accepted (displays: ADR 0046)
+- Status: Accepted (displays: ADR 0046; `XDG_CURRENT_DESKTOP=koje:GNOME`: ADR 0048)
 - Date: 2026-10-25
 - Source: discussion (what of GNOME has to be rebuilt for a seamless GNOME
   feel, what can be reused); follows ADR 0043
