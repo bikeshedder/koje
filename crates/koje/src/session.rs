@@ -34,18 +34,30 @@ fn run_all(cmds: &[Cmd]) -> Result<()> {
     Ok(())
 }
 
-/// The session's Hyprland config in the runtime directory: koje's snippet
-/// and the user's file if there is one (ADR 0048). Its path.
+/// The session's Hyprland config in the runtime directory: koje's snippet,
+/// the screens from `monitors.xml` and the user's file if there is one
+/// (ADR 0046, 0048). Its path.
 fn write_session_conf(paths: &Paths) -> Result<PathBuf> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .context("XDG_RUNTIME_DIR is not set – no login session?")?;
     let dir = runtime.join("koje");
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    // The screens from GNOME's monitors.xml (ADR 0046), before Hyprland
+    // starts: the right mode from the first frame.
+    let (lines, source) = crate::screens::lines(paths, &crate::screens::connected());
+    if let crate::screens::Source::None(why) = &source {
+        eprintln!("note: screens: Hyprland's defaults ({why})");
+    }
+    let monitors = dir.join("monitors.conf");
+    koje_core::fsutil::write_atomic(
+        &monitors,
+        koje_core::monitors::hyprland_conf(&lines).as_bytes(),
+    )?;
     let user = paths.session_hyprland_conf();
     let conf = session::session_conf(
         Path::new(session::SNIPPET),
-        None,
+        Some(&monitors),
         user.is_file().then_some(user.as_path()),
     );
     let path = dir.join("session.conf");

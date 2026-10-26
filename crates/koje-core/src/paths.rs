@@ -119,6 +119,11 @@ impl Paths {
         self.config.join("config.toml")
     }
 
+    /// GNOME's screen configurations, shared with Mutter (ADR 0046).
+    pub fn monitors_xml(&self) -> PathBuf {
+        self.config_home().join("monitors.xml")
+    }
+
     /// The user's settings for the koje session, sourced last by koje's
     /// Hyprland config (ADR 0048).
     pub fn session_hyprland_conf(&self) -> PathBuf {

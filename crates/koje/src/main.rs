@@ -18,6 +18,7 @@ mod memory;
 mod mounts;
 mod prompt;
 mod runtime;
+mod screens;
 mod session;
 mod setup;
 mod terminal;

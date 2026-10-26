@@ -236,6 +236,35 @@ fn bindings() -> Option<Check> {
     })
 }
 
+/// The connected screens as GNOME knows them, and whether monitors.xml has
+/// their settings (ADR 0046).
+fn screens(paths: &Paths) -> Vec<Check> {
+    use crate::screens::Source;
+    let connected = crate::screens::connected();
+    let mut checks: Vec<Check> = connected
+        .iter()
+        .map(|s| {
+            Check::ok(format!(
+                "screen {}: {} {} {}",
+                s.connector, s.id.vendor, s.id.product, s.id.serial
+            ))
+        })
+        .collect();
+    if connected.is_empty() {
+        return checks;
+    }
+    let (_, source) = crate::screens::lines(paths, &connected);
+    checks.push(match source {
+        Source::Exact => Check::ok("screens: settings from monitors.xml"),
+        Source::PerScreen => Check::ok("screens: each screen's last settings from monitors.xml"),
+        Source::None(why) => Check::warn(
+            format!("screens: Hyprland's defaults ({why})"),
+            "set them in GNOME Settings' Displays (ADR 0046), or a monitor line in ~/.config/koje/hyprland.conf",
+        ),
+    });
+    checks
+}
+
 /// The files `koje setup` installs.
 fn installed(paths: &Paths) -> Vec<Check> {
     let steps = match setup::plan(paths) {
@@ -382,6 +411,7 @@ fn nvidia() -> Option<Check> {
 pub fn run(paths: &Paths) -> Result<()> {
     let mut checks = vec![package(), packages(), hyprland()];
     checks.extend(bindings());
+    checks.extend(screens(paths));
     checks.extend(installed(paths));
     checks.extend(kojed());
     checks.extend([image(), forwarder(), subids()]);
