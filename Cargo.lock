@@ -899,6 +899,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "bitflags",
  "futures-util",
  "gio-unix",
  "gtk4",
@@ -912,6 +913,9 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
  "zbus",
 ]
 

@@ -34,6 +34,9 @@ zbus = { version = "5.19", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time", "net", "io-util"] }
 tracing = "0.1"
 wayland-client = "0.31"
+wayland-scanner = "0.31"
+wayland-backend = "0.3"
+bitflags = "2"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # koje-shell (ADR 0042, 0043). Versions of Debian trixie (the dev container),

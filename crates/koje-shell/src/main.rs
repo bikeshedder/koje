@@ -6,6 +6,7 @@ mod app_info;
 mod backend;
 mod bar;
 mod bar_layout;
+mod capture;
 mod clock;
 mod contexts_ui;
 mod dash;
@@ -114,6 +115,16 @@ fn main() -> glib::ExitCode {
     match std::env::args().nth(1).as_deref() {
         Some("overview") => return remote_action("overview"),
         Some("apps") => return remote_action("app-grid"),
+        Some("capture-probe") => {
+            let dir = std::env::args().nth(2).map(std::path::PathBuf::from);
+            return match capture::probe(dir.as_deref()) {
+                Ok(()) => glib::ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{e:#}");
+                    glib::ExitCode::FAILURE
+                }
+            };
+        }
         Some("switch") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             let back = args.iter().any(|a| a == "--backwards");
@@ -150,6 +161,7 @@ fn remote_action(action: &str) -> glib::ExitCode {
 
 fn start(app: &adw::Application) {
     let (tx, rx) = async_channel::unbounded();
+    let capture = capture::spawn(tx.clone());
     let (actions, actions_rx) = tokio::sync::mpsc::unbounded_channel();
     let actions_for_confirm = actions.clone();
     if let Err(e) = backend::spawn(tx, actions_rx) {
@@ -191,7 +203,7 @@ fn start(app: &adw::Application) {
 
     follow_config(&shell, &bars);
     follow_favorites(&shell, &bars);
-    overview_actions(app, &bars, &shell, &actions_for_confirm);
+    overview_actions(app, &bars, &shell, &actions_for_confirm, &capture);
     follow_host_apps(&shell, &bars);
     switcher_actions(app, &bars, &shell, &actions_for_confirm);
     // GNOME's questions with a countdown: a display change, ending the session.
@@ -202,6 +214,13 @@ fn start(app: &adw::Application) {
     glib::spawn_future_local(async move {
         let mut accents_css = accents_css;
         while let Ok(update) = rx.recv().await {
+            if let Update::Thumbnail { address, thumb } = update {
+                let texture = texture(&thumb);
+                for bar in bars.borrow().iter() {
+                    bar.overview().set_thumbnail(&address, &texture);
+                }
+                continue;
+            }
             if let Update::DisplayChangePending(seconds) = update {
                 display_dialog.ask(
                     dialog_ui::Question {
@@ -380,11 +399,25 @@ fn overview_actions(
     bars: &Bars,
     shell: &Rc<RefCell<Shell>>,
     actions: &UnboundedSender<Action>,
+    capture: &std::sync::mpsc::Sender<Vec<String>>,
 ) {
     for (name, mode) in [("overview", Mode::Windows), ("app-grid", Mode::Apps)] {
         let action = gio::SimpleAction::new(name, None);
         let (bars, shell, actions) = (bars.clone(), shell.clone(), actions.clone());
-        action.connect_activate(move |_, _| toggle_overview(&bars, &shell, &actions, mode));
+        let capture = capture.clone();
+        action.connect_activate(move |_, _| {
+            toggle_overview(&bars, &shell, &actions, mode);
+            // Fresh pictures of the windows it shows.
+            let windows: Vec<String> = bars
+                .borrow()
+                .iter()
+                .filter(|b| b.overview().is_visible())
+                .flat_map(|b| b.overview().windows())
+                .collect();
+            if !windows.is_empty() {
+                let _ = capture.send(windows);
+            }
+        });
         app.add_action(&action);
     }
     let hide = gio::SimpleAction::new("hide-overview", None);
@@ -393,6 +426,20 @@ fn overview_actions(
         move |_, _| hide_overviews(&bars)
     });
     app.add_action(&hide);
+}
+
+/// A thumbnail as a GDK texture.
+fn texture(thumb: &capture::Thumbnail) -> gdk::Texture {
+    let bytes = glib::Bytes::from(thumb.data.as_slice());
+    let stride = usize::try_from(thumb.width).unwrap_or(0) * 4;
+    gdk::MemoryTexture::new(
+        i32::try_from(thumb.width).unwrap_or(1),
+        i32::try_from(thumb.height).unwrap_or(1),
+        gdk::MemoryFormat::B8g8r8a8Premultiplied,
+        &bytes,
+        stride,
+    )
+    .upcast()
 }
 
 /// The switcher's action for Alt+Tab, Alt+Shift+Tab, Alt+grave and Alt+Shift+grave.

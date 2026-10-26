@@ -52,6 +52,11 @@ pub enum Update {
     /// GNOME Settings changed the screens: ask to keep them within that many
     /// seconds (M8.53). Not part of the bar's state.
     DisplayChangePending(u32),
+    /// A window's picture for the overview (M8.67). Not part of the state.
+    Thumbnail {
+        address: String,
+        thumb: crate::capture::Thumbnail,
+    },
 }
 
 /// kojed's `Memory`: the working set, what the cgroup charges and the limits
@@ -408,7 +413,7 @@ impl Shell {
                 self.apps.insert(context, apps);
             }
             Update::HostApps(apps) => self.host_apps = apps,
-            Update::DisplayChangePending(_) => {}
+            Update::DisplayChangePending(_) | Update::Thumbnail { .. } => {}
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
             Update::History(history) => self.history = history,

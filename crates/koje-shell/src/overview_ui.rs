@@ -42,6 +42,7 @@ window.koje-overview { background: #1d1d20; color: #ffffff; }
   border: 3px solid transparent; box-shadow: 0 2px 8px alpha(black, 0.4);
 }
 .window-preview:hover { border-color: alpha(#ffffff, 0.6); }
+.window-picture { border-radius: 9px; }
 .window-preview.koje-host { background: alpha(#ffffff, 0.08); }
 .window-card .window-close { opacity: 0; min-width: 28px; min-height: 28px; padding: 0; margin: 6px; }
 .window-card:hover .window-close { opacity: 1; }
@@ -176,6 +177,10 @@ pub struct OverviewSurface {
     grid: gtk::Box,
     mode: Cell<Mode>,
     shown: RefCell<Option<OverviewView>>,
+    /// Window pictures (M8.67) by address, and the cards' pictures showing
+    /// them.
+    thumbnails: RefCell<std::collections::HashMap<String, gdk::Texture>>,
+    pictures: RefCell<std::collections::HashMap<String, gtk::Picture>>,
     shown_search: RefCell<Option<SearchView>>,
     shown_grid: RefCell<Option<Vec<AppSection>>>,
 }
@@ -275,6 +280,8 @@ impl OverviewSurface {
             shown: RefCell::new(None),
             shown_search: RefCell::new(None),
             shown_grid: RefCell::new(None),
+            thumbnails: RefCell::default(),
+            pictures: RefCell::default(),
         });
         me.connect_controls();
         me
@@ -391,6 +398,29 @@ impl OverviewSurface {
         self.window.destroy();
     }
 
+    /// A window's picture arrived: shown on its card, kept for the next
+    /// render.
+    pub fn set_thumbnail(&self, address: &str, texture: &gdk::Texture) {
+        self.thumbnails
+            .borrow_mut()
+            .insert(address.to_owned(), texture.clone());
+        if let Some(picture) = self.pictures.borrow().get(address) {
+            picture.set_paintable(Some(texture));
+            if let Some(icon) = picture.next_sibling() {
+                place_icon(&icon, true);
+            }
+        }
+    }
+
+    /// The windows whose pictures it shows (to capture on opening).
+    pub fn windows(&self) -> Vec<String> {
+        self.shown
+            .borrow()
+            .as_ref()
+            .map(|v| v.windows.iter().map(|w| w.address.clone()).collect())
+            .unwrap_or_default()
+    }
+
     pub fn render(&self, view: &OverviewView) {
         if self.shown.borrow().as_ref() == Some(view) {
             return;
@@ -400,6 +430,11 @@ impl OverviewSurface {
             self.strip.append(&self.workspace(w));
         }
         clear(&self.cards);
+        self.pictures.borrow_mut().clear();
+        // Pictures of windows that are gone go too.
+        self.thumbnails
+            .borrow_mut()
+            .retain(|a, _| view.windows.iter().any(|w| &w.address == a));
         self.layout.replace_sizes(
             view.windows
                 .iter()
@@ -476,10 +511,25 @@ impl OverviewSurface {
     /// A window: its preview (the app's icon until thumbnails, M8.67),
     /// a close button on hover, its title below. A click focuses it.
     fn card(&self, card: &WindowCard) -> gtk::Box {
+        // The window's picture once captured, its app's icon on top – at the
+        // bottom edge as in GNOME, in the middle while there is no picture.
         let icon = gtk::Image::from_gicon(&crate::app_info::icon(&card.app));
         icon.set_pixel_size(64);
+        let picture = gtk::Picture::builder()
+            .can_shrink(true)
+            .content_fit(gtk::ContentFit::Contain)
+            .css_classes(["window-picture"])
+            .build();
+        let thumbnail = self.thumbnails.borrow().get(&card.address).cloned();
+        picture.set_paintable(thumbnail.as_ref());
+        let layers = gtk::Overlay::builder().child(&picture).build();
+        layers.add_overlay(&icon);
+        place_icon(&icon, thumbnail.is_some());
+        self.pictures
+            .borrow_mut()
+            .insert(card.address.clone(), picture);
         let preview = gtk::Button::builder()
-            .child(&icon)
+            .child(&layers)
             .css_classes(["window-preview", &card.accent.css_class()])
             .vexpand(true)
             .tooltip_text(&card.title)
@@ -931,6 +981,19 @@ fn close_on_escape_and_click(window: &gtk::Window, content: &gtk::Box) {
         glib::Propagation::Proceed
     });
     window.add_controller(keys);
+}
+
+/// The app icon on a card: in the middle without a picture, else at the
+/// bottom edge.
+fn place_icon(icon: &impl IsA<gtk::Widget>, picture: bool) {
+    let icon = icon.as_ref();
+    icon.set_halign(gtk::Align::Center);
+    icon.set_valign(if picture {
+        gtk::Align::End
+    } else {
+        gtk::Align::Center
+    });
+    icon.set_margin_bottom(if picture { 8 } else { 0 });
 }
 
 /// A flow of app tiles, as GNOME's grid.
