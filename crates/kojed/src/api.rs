@@ -251,6 +251,26 @@ impl Api {
             .collect()
     }
 
+    /// Every context with its color and status – `running`, `paused` or
+    /// `stopped` – for the shell's koje menu (M8.56).
+    async fn contexts(&self) -> Vec<(String, String, String)> {
+        let mut d = self.daemon.lock().await;
+        let running = d.running().await;
+        d.contexts()
+            .into_iter()
+            .map(|c| {
+                let status = if !running.contains(&c.name) {
+                    "stopped"
+                } else if d.is_paused(&c.name) {
+                    "paused"
+                } else {
+                    "running"
+                };
+                (c.name.to_string(), c.color.to_string(), status.to_owned())
+            })
+            .collect()
+    }
+
     /// Something the bar shows changed: running contexts, the active one,
     /// window counts.
     #[zbus(signal)]
@@ -418,25 +438,27 @@ impl Api {
     }
 
     /// Before `koje sleep` (M7.4): every window of the context into its stash.
-    async fn hide(&self, context: &str) -> fdo::Result<()> {
+    async fn hide(
+        &self,
+        context: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
         let ctx = context_arg(context)?;
-        self.daemon
-            .lock()
-            .await
-            .hide(&ctx)
-            .await
-            .map_err(|e| failed(&e))
+        let hidden = self.daemon.lock().await.hide(&ctx).await;
+        let _ = Self::contexts_changed(&emitter).await;
+        hidden.map_err(|e| failed(&e))
     }
 
     /// After `koje wake` (M7.4): the active layout back.
-    async fn show(&self, context: &str) -> fdo::Result<()> {
+    async fn show(
+        &self,
+        context: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
         let ctx = context_arg(context)?;
-        self.daemon
-            .lock()
-            .await
-            .show(&ctx)
-            .await
-            .map_err(|e| failed(&e))
+        let shown = self.daemon.lock().await.show(&ctx).await;
+        let _ = Self::contexts_changed(&emitter).await;
+        shown.map_err(|e| failed(&e))
     }
 
     /// `stash --show`: show or hide the context's stash.
@@ -498,13 +520,11 @@ impl Api {
     }
 
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
-    async fn reload(&self) -> fdo::Result<()> {
-        self.daemon
-            .lock()
-            .await
-            .reload()
-            .await
-            .map_err(|e| failed(&e))
+    async fn reload(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> fdo::Result<()> {
+        let reloaded = self.daemon.lock().await.reload().await;
+        // A new or removed context, a new color.
+        let _ = Self::contexts_changed(&emitter).await;
+        reloaded.map_err(|e| failed(&e))
     }
 
     #[zbus(signal)]

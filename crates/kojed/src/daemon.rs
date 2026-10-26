@@ -65,6 +65,9 @@ pub struct Daemon<C, R> {
     /// Running contexts: their workspaces stay while empty. `None` until the
     /// first sync asked the container runtime.
     running: Option<BTreeSet<ContextName>>,
+    /// The paused ones among them (`koje sleep`): asked from the runtime with
+    /// [`Daemon::running`], then kept by `Hide` and `Show`.
+    paused: BTreeSet<ContextName>,
     /// The focused workspace's name.
     workspace: Option<String>,
     /// File manager windows `(address, title)` and the folders found for them
@@ -124,6 +127,7 @@ where
             home: std::env::var("HOME").unwrap_or_default(),
             quitting: BTreeMap::new(),
             running: None,
+            paused: BTreeSet::new(),
             workspace: None,
             fm_cache: BTreeMap::new(),
             recovery_written: BTreeMap::new(),
@@ -240,6 +244,7 @@ where
 
     /// `koje sleep` (M7.4): all windows of `ctx` into its stash first.
     pub async fn hide(&mut self, ctx: &ContextName) -> Result<()> {
+        self.paused.insert(ctx.clone());
         let shown = self.shown(ctx).await?;
         let commands = self.live_mut(ctx)?.hide_all(ctx, &shown)?;
         self.apply(&commands).await
@@ -247,6 +252,7 @@ where
 
     /// `koje wake` (M7.4): the active layout back.
     pub async fn show(&mut self, ctx: &ContextName) -> Result<()> {
+        self.paused.remove(ctx);
         let shown = self.shown(ctx).await?;
         let commands = self.live_mut(ctx)?.show_active(ctx, &shown);
         self.apply(&commands).await
@@ -463,6 +469,7 @@ where
         // Ask the runtime first: the other running contexts count too.
         self.running().await;
         self.running.get_or_insert_default().insert(ctx.clone());
+        self.paused.remove(ctx);
         Ok(())
     }
 
@@ -620,19 +627,26 @@ where
         }
         self.live.remove(ctx);
         self.quitting.remove(ctx);
+        self.paused.remove(ctx);
     }
 
     /// The running contexts; the first time asked from the container runtime.
     pub async fn running(&mut self) -> BTreeSet<ContextName> {
         if self.running.is_none() {
             let mut found = BTreeSet::new();
+            self.paused.clear();
             for ctx in self.colors.keys() {
                 let runtime = self.runtime.clone();
                 let c = ctx.clone();
-                if let Ok(Ok(ContainerStatus::Running | ContainerStatus::Paused)) =
-                    tokio::task::spawn_blocking(move || runtime.status(&c)).await
-                {
-                    found.insert(ctx.clone());
+                match tokio::task::spawn_blocking(move || runtime.status(&c)).await {
+                    Ok(Ok(ContainerStatus::Running)) => {
+                        found.insert(ctx.clone());
+                    }
+                    Ok(Ok(ContainerStatus::Paused)) => {
+                        found.insert(ctx.clone());
+                        self.paused.insert(ctx.clone());
+                    }
+                    _ => {}
                 }
             }
             self.running = Some(found);
@@ -847,6 +861,11 @@ where
                 windows: counts.get(name).copied().unwrap_or(0),
             })
             .collect()
+    }
+
+    /// Whether a running context is paused (`koje sleep`).
+    pub fn is_paused(&self, ctx: &ContextName) -> bool {
+        self.paused.contains(ctx)
     }
 
     /// The context of the focused window, if it belongs to one.
@@ -1282,13 +1301,21 @@ mod tests {
         terminated: Arc<Mutex<Vec<u32>>>,
         query_reply: Arc<Mutex<String>>,
         memory: Arc<Mutex<HashMap<ContextName, MemoryUsage>>>,
+        /// Containers that are not running (default: running).
+        statuses: Arc<Mutex<HashMap<ContextName, ContainerStatus>>>,
     }
 
     impl ContainerRuntime for FakeRuntime {
         type Error = std::io::Error;
 
-        fn status(&self, _: &ContextName) -> std::io::Result<ContainerStatus> {
-            Ok(ContainerStatus::Running)
+        fn status(&self, ctx: &ContextName) -> std::io::Result<ContainerStatus> {
+            Ok(self
+                .statuses
+                .lock()
+                .unwrap()
+                .get(ctx)
+                .copied()
+                .unwrap_or(ContainerStatus::Running))
         }
         fn create(&self, _: &ContainerSpec) -> std::io::Result<()> {
             Ok(())
@@ -2340,6 +2367,28 @@ cwd = "/home/mj/src/kp"
         assert_eq!(d.memory_history(&work), Vec::<u64>::new());
     }
 
+    /// M8.56: a kojed started while a context sleeps asks the runtime.
+    #[tokio::test]
+    async fn paused_contexts_from_the_runtime() {
+        let s = setup();
+        let work = ctx("work");
+        s.runtime
+            .statuses
+            .lock()
+            .unwrap()
+            .insert(work.clone(), ContainerStatus::Paused);
+        let comp = FakeCompositor::default();
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        assert!(
+            d.running().await.contains(&work),
+            "paused counts as running"
+        );
+        assert!(d.is_paused(&work));
+        d.started(&work).await.unwrap();
+        assert!(!d.is_paused(&work), "koje up woke it");
+    }
+
     /// M7.4: sleep hides every window, autosave leaves the stash's positions
     /// out, wake brings the active layout back.
     #[tokio::test(flavor = "current_thread")]
@@ -2353,6 +2402,7 @@ cwd = "/home/mj/src/kp"
         comp.take();
         let work = ctx("work");
         d.hide(&work).await.unwrap();
+        assert!(d.is_paused(&work), "hidden by koje sleep: paused");
         assert_eq!(
             comp.take(),
             [CompositorCommand::MoveToWorkspace {
@@ -2375,6 +2425,7 @@ cwd = "/home/mj/src/kp"
             "the stash's position is not autosaved"
         );
         d.show(&work).await.unwrap();
+        assert!(!d.is_paused(&work));
         assert!(comp.take().contains(&CompositorCommand::MoveToWorkspace {
             address: "0xa".into(),
             workspace: "work".into()
