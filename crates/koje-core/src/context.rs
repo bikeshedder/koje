@@ -197,6 +197,54 @@ pub fn with_limits(text: &str, soft: LimitChange, hard: LimitChange) -> Result<S
     Ok(doc.to_string())
 }
 
+/// `text` with the dash's favorites set – `None` removes them (GNOME's
+/// apply again) –, comments and layout kept.
+pub fn with_favorites(text: &str, favorites: Option<&[String]>) -> Result<String> {
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| Error::InvalidFavorites(e.to_string()))?;
+    match favorites {
+        Some(ids) => {
+            if let Some(bad) = ids
+                .iter()
+                .find(|id| !id.ends_with(".desktop") || id.contains('/'))
+            {
+                return Err(Error::InvalidFavorites(format!(
+                    "{bad:?} is no desktop file id (like firefox.desktop)"
+                )));
+            }
+            let new = !doc.contains_key("favorites");
+            // At the top, before the tables.
+            doc.insert(
+                "favorites",
+                toml_edit::value(ids.iter().collect::<toml_edit::Array>()),
+            );
+            if new && let Some(mut key) = doc.key_mut("favorites") {
+                key.leaf_decor_mut()
+                    .set_prefix("# The dash's favorites, pinned from it (ADR 0053).\n");
+            }
+        }
+        None => {
+            doc.remove("favorites");
+        }
+    }
+    Ok(doc.to_string())
+}
+
+/// `koje favorites`: change the dash's favorites in `context.toml`.
+pub fn set_favorites(
+    paths: &Paths,
+    name: &ContextName,
+    favorites: Option<&[String]>,
+) -> Result<ContextConfig> {
+    let path = paths.context_config(name);
+    let text = std::fs::read_to_string(&path).map_err(|source| Error::Read {
+        path: path.clone(),
+        source,
+    })?;
+    replace_config(paths, name, &with_favorites(&text, favorites)?)
+}
+
 /// `koje limit`: change the limits in `context.toml` (validated, atomic).
 pub fn set_limits(
     paths: &Paths,
@@ -406,6 +454,37 @@ mod tests {
         std::fs::create_dir_all(paths.contexts_dir().join("no-config")).unwrap();
         create(&paths, &n("kp"), None, None).unwrap();
         assert_eq!(list(&paths).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn favorites_are_set_and_removed_comments_stay() {
+        let name = ContextName::new("kp").unwrap();
+        let text = with_limits(
+            &new_config_toml(&name, "KP", Color::rgb(1, 2, 3)),
+            LimitChange::Set(ByteSize(6 << 30)),
+            LimitChange::Keep,
+        )
+        .unwrap();
+        let ids = [
+            "org.mozilla.firefox.desktop".to_owned(),
+            "foot.desktop".to_owned(),
+        ];
+        let out = with_favorites(&text, Some(&ids)).unwrap();
+        assert!(
+            out.contains("# Host folders bound into the context"),
+            "{out}"
+        );
+        let cfg = ContextConfig::from_toml(&out, std::path::Path::new("x")).unwrap();
+        assert_eq!(cfg.favorites.as_deref(), Some(&ids[..]));
+        assert_eq!(cfg.limits.memory_soft, Some(ByteSize(6 << 30)));
+        // Pinned none: an empty list, not GNOME's.
+        let none = with_favorites(&out, Some(&[])).unwrap();
+        let cfg = ContextConfig::from_toml(&none, std::path::Path::new("x")).unwrap();
+        assert_eq!(cfg.favorites, Some(vec![]));
+        let reset = with_favorites(&none, None).unwrap();
+        let cfg = ContextConfig::from_toml(&reset, std::path::Path::new("x")).unwrap();
+        assert_eq!(cfg.favorites, None);
+        assert!(with_favorites(&text, Some(&["firefox".to_owned()])).is_err());
     }
 
     #[test]

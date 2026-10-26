@@ -133,6 +133,53 @@ async fn desktop(hypr: &Hyprland, tx: Sender<Update>) {
     }
 }
 
+/// The contexts' programs (`koje apps --json`) and their favorites.
+async fn refresh_apps(tx: Sender<Update>, contexts: Vec<String>) {
+    for context in contexts {
+        send_favorites(&tx, &context).await;
+        let args = ["apps", "-c", &context, "--json"].map(str::to_owned);
+        match koje_output(crate::KOJE, &args).await {
+            Ok(out) => match serde_json::from_str(&out) {
+                Ok(apps) => {
+                    let _ = tx.send(Update::Apps { context, apps }).await;
+                }
+                Err(e) => tracing::warn!("koje apps -c {context} --json: {e}"),
+            },
+            Err(e) => tracing::debug!("koje apps -c {context}: {e}"),
+        }
+    }
+}
+
+/// `koje favorites --set`, then the favorites as written.
+async fn set_favorites(tx: Sender<Update>, context: String, ids: Vec<String>) {
+    let mut args = vec!["favorites".to_owned(), "-c".to_owned(), context.clone()];
+    args.push("--set".to_owned());
+    args.extend(ids);
+    if let Err(e) = run_koje(crate::KOJE, &args).await {
+        tracing::warn!("koje favorites -c {context}: {e}");
+    }
+    send_favorites(&tx, &context).await;
+}
+
+/// A context's own favorites for the dash, as its `context.toml` has them
+/// (ADR 0053).
+async fn send_favorites(tx: &Sender<Update>, context: &str) {
+    let read = || -> anyhow::Result<Option<Vec<String>>> {
+        let paths = koje_core::paths::Paths::from_env()?;
+        let name = koje_core::name::ContextName::new(context)?;
+        Ok(koje_core::context::load(&paths, &name)?.favorites)
+    };
+    match read() {
+        Ok(favorites) => {
+            let context = context.to_owned();
+            let _ = tx
+                .send(Update::ContextFavorites { context, favorites })
+                .await;
+        }
+        Err(e) => tracing::warn!("the favorites of {context}: {e:#}"),
+    }
+}
+
 /// Carry out what clicks ask for.
 async fn act(
     hypr: &Hyprland,
@@ -193,22 +240,12 @@ async fn act(
                     Err(_) => tracing::warn!("Hyprland did not answer within {TIMEOUT:?}"),
                 }
             }
+            // Their own tasks: `koje` may take a while.
             Action::RefreshApps(contexts) => {
-                let tx = tx.clone();
-                tokio::spawn(async move {
-                    for context in contexts {
-                        let args = ["apps", "-c", &context, "--json"].map(str::to_owned);
-                        match koje_output(crate::KOJE, &args).await {
-                            Ok(out) => match serde_json::from_str(&out) {
-                                Ok(apps) => {
-                                    let _ = tx.send(Update::Apps { context, apps }).await;
-                                }
-                                Err(e) => tracing::warn!("koje apps -c {context} --json: {e}"),
-                            },
-                            Err(e) => tracing::debug!("koje apps -c {context}: {e}"),
-                        }
-                    }
-                });
+                tokio::spawn(refresh_apps(tx.clone(), contexts));
+            }
+            Action::SetFavorites { context, ids } => {
+                tokio::spawn(set_favorites(tx.clone(), context, ids));
             }
             Action::Launch { context, id } => {
                 // Its own task: starting may take a while.

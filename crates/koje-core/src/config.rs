@@ -43,6 +43,11 @@ pub struct ContextConfig {
     /// Host resources for this context (ADR 0017); unset values come from `config.toml`.
     #[serde(default)]
     pub access: AccessConfig,
+    /// The dash's favorites in this context (ADR 0053): desktop file ids of
+    /// its programs, pinned from the dash. Unset: GNOME's favorites, as far
+    /// as the context has them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorites: Option<Vec<String>>,
 }
 
 fn default_image() -> String {

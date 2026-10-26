@@ -42,6 +42,8 @@ pub struct App {
     pub icon: Option<String>,
     /// `GenericName` and `Keywords`: what search finds it by besides its name.
     pub keywords: Vec<String>,
+    /// `StartupWMClass`: the app id its windows have, when not its id.
+    pub wm_class: Option<String>,
 }
 
 /// What koje uses of a menu entry.
@@ -53,6 +55,7 @@ pub struct Entry {
     pub terminal: bool,
     /// `GenericName`, then `Keywords`.
     pub keywords: Vec<String>,
+    pub wm_class: Option<String>,
 }
 
 /// The `[Desktop Entry]` group of a desktop file, if it belongs in a menu:
@@ -82,6 +85,10 @@ pub fn menu_entry(text: &str) -> Option<Entry> {
             exec: (*exec).to_owned(),
             icon: keys.get("Icon").map(|i| (*i).to_owned()),
             terminal: is("Terminal"),
+            wm_class: keys
+                .get("StartupWMClass")
+                .filter(|c| !c.is_empty())
+                .map(|c| (*c).to_owned()),
             keywords: keys
                 .get("GenericName")
                 .into_iter()
@@ -224,6 +231,7 @@ pub fn parse_listing(out: &str) -> Vec<App> {
                 terminal: entry.terminal,
                 icon: entry.icon,
                 keywords: entry.keywords,
+                wm_class: entry.wm_class,
             });
         }
     }
@@ -262,7 +270,8 @@ mod tests {
                 exec: "nautilus %U".into(),
                 icon: Some("nautilus".into()),
                 terminal: true,
-                keywords: vec![]
+                keywords: vec![],
+                wm_class: None,
             })
         );
         assert_eq!(
@@ -290,6 +299,10 @@ mod tests {
                 "{shown}"
             );
         }
+        assert_eq!(
+            menu_entry(&entry("StartupWMClass=org.gnome.Nautilus")).and_then(|e| e.wm_class),
+            Some("org.gnome.Nautilus".into())
+        );
         assert_eq!(
             menu_name("[Desktop Entry]\nType=Link\nName=x\nURL=y\n"),
             None
@@ -370,6 +383,7 @@ mod tests {
                 icon: Some("my-icon".into()),
                 terminal: false,
                 keywords: vec![],
+                wm_class: None,
             };
             exec_command(&e, "/usr/share/applications/my.desktop")
         };

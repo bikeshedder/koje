@@ -37,7 +37,13 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing_subscriber::EnvFilter;
 
 use crate::bar::Bar;
-use crate::model::{Action, Shell, Update, WorkspaceStep, reconcile};
+use crate::model::{Action, HostApps, Shell, Update, WorkspaceStep, reconcile};
+
+/// The host's desktop files, for the overview.
+const HOST: HostApps<'static> = HostApps {
+    desktop_id: &app_info::desktop_id,
+    name: &app_info::host_name,
+};
 use crate::overview_ui::Mode;
 
 /// Also the shell's name on the session bus: `GApplication` keeps it to one
@@ -415,7 +421,7 @@ fn render(bars: &Bars, shell: &Rc<RefCell<Shell>>) {
         bar.render(&shell.bar(connector.as_deref()));
         if bar.overview().is_visible() {
             bar.overview()
-                .render(&shell.overview(connector.as_deref(), &app_info::desktop_id));
+                .render(&shell.overview(connector.as_deref(), &HOST));
         }
     }
 }
@@ -551,7 +557,7 @@ fn toggle_overview(
     for bar in bars.iter() {
         let connector = bar.connector();
         bar.overview()
-            .render(&s.overview(connector.as_deref(), &app_info::desktop_id));
+            .render(&s.overview(connector.as_deref(), &HOST));
         let is_main = main.is_some_and(|m| std::ptr::eq(m, bar));
         if is_main {
             bar.overview().set_mode(mode);

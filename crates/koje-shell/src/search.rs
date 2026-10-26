@@ -18,6 +18,12 @@ pub struct AppItem {
     pub keywords: Vec<String>,
     #[serde(default)]
     pub terminal: bool,
+    /// `StartupWMClass`: its windows' app id, when not its id.
+    #[serde(default)]
+    pub wm_class: Option<String>,
+    /// Its program's file name (`firefox`).
+    #[serde(default)]
+    pub binary: Option<String>,
 }
 
 /// The apps of one context, or of the host.
@@ -200,6 +206,8 @@ mod tests {
             icon: None,
             keywords: keywords.iter().map(|k| (*k).to_owned()).collect(),
             terminal: false,
+            wm_class: None,
+            binary: None,
         }
     }
 

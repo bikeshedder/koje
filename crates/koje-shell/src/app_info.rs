@@ -52,6 +52,11 @@ pub fn desktop_id(app: &str) -> Option<String> {
     })
 }
 
+/// The name of the host's desktop file `id`, if it has one.
+pub fn host_name(id: &str) -> Option<String> {
+    gio_unix::DesktopAppInfo::new(id).map(|i| i.name().to_string())
+}
+
 /// A desktop file's name, else the app id.
 pub fn name(app: &str) -> String {
     gio_unix::DesktopAppInfo::new(app)
@@ -108,6 +113,8 @@ pub fn host_apps() -> Vec<crate::search::AppItem> {
                     .chain(d.keywords().iter().map(ToString::to_string))
                     .collect(),
                 terminal: false,
+                wm_class: d.startup_wm_class().map(String::from),
+                binary: None,
             })
         })
         .collect()

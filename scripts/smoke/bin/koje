@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # A fake `koje` for koje-shell smoke tests: `koje apps -c <context> --json`
-# answers a fixed list; everything else is logged to $KOJE_LOG and succeeds.
+# answers a fixed list (a Fedora context: Firefox as org.mozilla.firefox);
+# everything else is logged to $KOJE_LOG and succeeds.
 if [[ $1 == apps && " $* " == *" --json "* ]]; then
   cat <<'JSON'
 [
   {"name": "Files", "id": "org.gnome.Nautilus.desktop", "icon": "org.gnome.Nautilus", "keywords": ["File Manager", "folder"], "terminal": false},
-  {"name": "Firefox", "id": "firefox.desktop", "icon": "firefox", "keywords": ["Web Browser"], "terminal": false},
+  {"name": "Firefox", "id": "org.mozilla.firefox.desktop", "icon": "firefox", "keywords": ["Web Browser"], "terminal": false, "binary": "firefox"},
   {"name": "Text Editor", "id": "org.gnome.TextEditor.desktop", "icon": "org.gnome.TextEditor", "keywords": ["text", "editor"], "terminal": false},
-  {"name": "Terminal", "id": "foot.desktop", "icon": "foot", "keywords": ["shell", "prompt"], "terminal": false}
+  {"name": "Terminal", "id": "foot.desktop", "icon": "foot", "keywords": ["shell", "prompt"], "terminal": false, "binary": "foot"}
 ]
 JSON
   exit 0

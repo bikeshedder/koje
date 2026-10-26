@@ -49,6 +49,11 @@ pub enum Update {
     Apps { context: String, apps: Vec<AppItem> },
     /// The host's programs.
     HostApps(Vec<AppItem>),
+    /// A context's own favorites for the dash (ADR 0053); `None`: unset.
+    ContextFavorites {
+        context: String,
+        favorites: Option<Vec<String>>,
+    },
     /// GNOME Settings changed the screens: ask to keep them within that many
     /// seconds (M8.53). Not part of the bar's state.
     DisplayChangePending(u32),
@@ -241,6 +246,8 @@ pub struct Shell {
     favorites: Vec<String>,
     /// The programs of each context that ran when they were read.
     apps: BTreeMap<String, Vec<AppItem>>,
+    /// Each context's own favorites (`context.toml`), `None` when unset.
+    context_favorites: BTreeMap<String, Option<Vec<String>>>,
     host_apps: Vec<AppItem>,
 }
 
@@ -272,6 +279,14 @@ pub struct WorkspaceButton {
     /// A running context whose workspace Hyprland dropped: it has no
     /// windows (or they are stashed while it sleeps). A click opens it.
     pub empty: bool,
+}
+
+/// Lookups in the host's desktop files (GIO, outside the pure model).
+pub struct HostApps<'a> {
+    /// The desktop file id of an app id.
+    pub desktop_id: &'a dyn Fn(&str) -> Option<String>,
+    /// A desktop file's name.
+    pub name: &'a dyn Fn(&str) -> Option<String>,
 }
 
 /// A workspace shortcut, as GNOME's (Super+1…9, Super+Page Up/Down,
@@ -342,8 +357,14 @@ pub enum Action {
         address: String,
         workspace: String,
     },
-    /// Read these contexts' programs again (`koje apps --json`).
+    /// Read these contexts' programs and favorites again (`koje apps
+    /// --json`, `context.toml`).
     RefreshApps(Vec<String>),
+    /// Set a context's favorites for the dash (`koje favorites --set`).
+    SetFavorites {
+        context: String,
+        ids: Vec<String>,
+    },
     /// Change a context's limits with `koje limit`: sizes as it takes them,
     /// `none` to remove one ([`crate::menu::limit_arg`]).
     SetLimits {
@@ -434,6 +455,7 @@ impl Action {
             | Self::Unstash { .. }
             | Self::Launch { .. }
             | Self::RefreshApps(_)
+            | Self::SetFavorites { .. }
             | Self::Overview(_)
             | Self::FocusContext(_)
             | Self::Quick(_)
@@ -455,6 +477,9 @@ impl Shell {
                 self.apps.insert(context, apps);
             }
             Update::HostApps(apps) => self.host_apps = apps,
+            Update::ContextFavorites { context, favorites } => {
+                self.context_favorites.insert(context, favorites);
+            }
             Update::DisplayChangePending(_)
             | Update::OverviewLanded(_)
             | Update::Thumbnail { .. } => {}
@@ -675,13 +700,9 @@ impl Shell {
     }
 
     /// The overview of the monitor with connector `monitor` (ADR 0049);
-    /// the dash only on the focused one. `desktop_id` finds an app id's
-    /// desktop file.
-    pub fn overview(
-        &self,
-        monitor: Option<&str>,
-        desktop_id: &dyn Fn(&str) -> Option<String>,
-    ) -> OverviewView {
+    /// the dash only on the focused one. `host` finds the host's desktop
+    /// files.
+    pub fn overview(&self, monitor: Option<&str>, host: &HostApps<'_>) -> OverviewView {
         let mon = self.monitor(monitor);
         let windows = &self.desktop.windows;
         let current = mon.map_or("", |m| m.active_workspace.as_str());
@@ -717,7 +738,14 @@ impl Shell {
                 windows,
                 contexts: &contexts,
                 active,
-                desktop_id,
+                apps: active
+                    .and_then(|c| self.apps.get(c))
+                    .map_or(&[], Vec::as_slice),
+                context_favorites: active
+                    .and_then(|c| self.context_favorites.get(c))
+                    .and_then(Option::as_deref),
+                desktop_id: host.desktop_id,
+                host_name: host.name,
             })
         } else {
             Vec::new()
@@ -878,6 +906,11 @@ mod tests {
         }
     }
 
+    const NO_HOST: HostApps<'static> = HostApps {
+        desktop_id: &|_| None,
+        name: &|_| None,
+    };
+
     fn shell() -> Shell {
         let mut s = Shell::default();
         s.apply(Update::Desktop(desktop()));
@@ -887,7 +920,7 @@ mod tests {
 
     #[test]
     fn the_overview_shows_the_workspace_and_the_contexts_stash() {
-        let o = shell().overview(Some("eDP-1"), &|_| None);
+        let o = shell().overview(Some("eDP-1"), &NO_HOST);
         let addresses = |cards: &[WindowCard]| -> Vec<String> {
             cards.iter().map(|c| c.address.clone()).collect()
         };
@@ -909,14 +942,14 @@ mod tests {
 
     #[test]
     fn a_host_workspace_has_no_stash() {
-        let o = shell().overview(Some("DP-1"), &|_| None);
+        let o = shell().overview(Some("DP-1"), &NO_HOST);
         assert_eq!(o.windows, []);
         assert_eq!(o.stash, None);
         let mut s = shell();
         let mut d = desktop();
         d.monitors[0].active_workspace = "1".into();
         s.apply(Update::Desktop(d));
-        let o = s.overview(Some("eDP-1"), &|_| None);
+        let o = s.overview(Some("eDP-1"), &NO_HOST);
         assert_eq!(o.windows.len(), 1);
         assert_eq!(o.windows[0].accent, Accent::Host);
         assert_eq!(o.stash, None);

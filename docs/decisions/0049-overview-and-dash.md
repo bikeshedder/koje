@@ -1,6 +1,7 @@
 # 0049. An overview and a dash like GNOME's
 
-- Status: Accepted (the windows: ADR 0051 – a koje Hyprland plugin)
+- Status: Accepted (the windows: ADR 0051 – a koje Hyprland plugin; the dash
+  per context and the workspace shortcuts: ADR 0053)
 - Date: 2026-10-26
 - Source: discussion after the task list was dropped (ADR 0047); amends the
   Super key of ADR 0043

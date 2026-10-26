@@ -555,7 +555,7 @@ impl OverviewSurface {
                     .append(&gtk::Separator::new(gtk::Orientation::Vertical));
             }
             favorites = entry.favorite;
-            self.dash.append(&self.dash_app(entry));
+            self.dash.append(&self.dash_app(entry, &view.dash));
         }
         if !view.dash.is_empty() {
             self.dash
@@ -690,8 +690,8 @@ impl OverviewSurface {
     /// An app in the dash: its icon, a mark in its context's color, a dot
     /// while it runs. A click shows its most recent window or starts it; a
     /// right click opens its menu.
-    fn dash_app(&self, entry: &DashEntry) -> gtk::Widget {
-        let icon = gtk::Image::from_gicon(&crate::app_info::icon(&entry.app));
+    fn dash_app(&self, entry: &DashEntry, dash: &[DashEntry]) -> gtk::Widget {
+        let icon = gtk::Image::from_gicon(&dash_icon(entry));
         icon.set_pixel_size(48);
         let column = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -718,7 +718,7 @@ impl OverviewSurface {
             open();
             hide_all(b);
         });
-        let menu = self.dash_menu(entry, &button);
+        let menu = self.dash_menu(entry, dash, &button);
         let right = gtk::GestureClick::builder().button(3).build();
         right.connect_pressed(move |_, _, _, _| menu.popup());
         button.add_controller(right);
@@ -764,16 +764,18 @@ impl OverviewSurface {
     }
 
     /// Right click: the context, New Window, Quit, the favorites.
-    fn dash_menu(&self, entry: &DashEntry, parent: &gtk::Button) -> gtk::Popover {
+    fn dash_menu(
+        &self,
+        entry: &DashEntry,
+        dash: &[DashEntry],
+        parent: &gtk::Button,
+    ) -> gtk::Popover {
         let list = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .build();
         let popover = gtk::Popover::builder().child(&list).has_arrow(true).build();
         popover.set_parent(parent);
-        let title = match &entry.context {
-            Some(c) => format!("{} – {c}", crate::app_info::name(&entry.app)),
-            None => crate::app_info::name(&entry.app),
-        };
+        let title = dash_tooltip(entry);
         list.append(
             &gtk::Label::builder()
                 .label(&title)
@@ -795,12 +797,30 @@ impl OverviewSurface {
         if entry.id.is_some() {
             item("New Window", Box::new(self.launch(entry)));
         }
+        // GNOME's favorites on the host, the context's own in a context
+        // (ADR 0053) – from then on its list, not GNOME's.
         if let Some(id) = entry.id.clone() {
-            let favorite = entry.favorite;
-            item(
-                if favorite { "Unpin" } else { "Pin to Dash" },
-                Box::new(move || crate::app_info::set_favorite(&id, !favorite)),
-            );
+            let pin = !entry.favorite;
+            let label = if pin { "Pin to Dash" } else { "Unpin" };
+            match &entry.context {
+                None => item(
+                    label,
+                    Box::new(move || crate::app_info::set_favorite(&id, pin)),
+                ),
+                Some(context) => {
+                    let action = Action::SetFavorites {
+                        context: context.clone(),
+                        ids: crate::dash::pinned(dash, &id, pin),
+                    };
+                    let actions = self.actions.clone();
+                    item(
+                        label,
+                        Box::new(move || {
+                            let _ = actions.send(action.clone());
+                        }),
+                    );
+                }
+            }
         }
         if !entry.windows.is_empty() {
             let actions = self.actions.clone();
@@ -1099,9 +1119,20 @@ fn item_icon(app: &AppItem) -> gtk4::gio::Icon {
         .unwrap_or_else(|| crate::app_info::icon(&app.id))
 }
 
+/// A dash entry's icon: the context's program's, else the host's.
+fn dash_icon(entry: &DashEntry) -> gtk4::gio::Icon {
+    entry
+        .item
+        .as_ref()
+        .map_or_else(|| crate::app_info::icon(&entry.app), item_icon)
+}
+
 /// The app's name and, for a context's, the context.
 fn dash_tooltip(entry: &DashEntry) -> String {
-    let name = crate::app_info::name(&entry.app);
+    let name = entry
+        .item
+        .as_ref()
+        .map_or_else(|| crate::app_info::name(&entry.app), |i| i.name.clone());
     match &entry.context {
         Some(c) => format!("{name} – {c}"),
         None => name,

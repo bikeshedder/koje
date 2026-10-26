@@ -179,9 +179,23 @@ pub enum Command {
         /// For the menu: first a line with the context and its memory.
         #[arg(long)]
         menu: bool,
-        /// As JSON (name, id, icon, keywords, terminal) for koje-shell.
+        /// As JSON (name, id, icon, keywords, terminal, window class, program) for
+        /// koje-shell.
         #[arg(long, conflicts_with_all = ["menu", "start"])]
         json: bool,
+    },
+    /// The dash's favorites in a context (ADR 0053): list them, or set them.
+    /// Unset, GNOME's favorites apply as far as the context has them.
+    Favorites {
+        #[command(flatten)]
+        ctx: ActiveCtx,
+        /// Set them to these desktop file ids of the context, in this order;
+        /// none: no favorites.
+        #[arg(long, num_args = 0.., value_name = "ID", conflicts_with = "reset")]
+        set: Option<Vec<String>>,
+        /// Remove them: GNOME's favorites apply again.
+        #[arg(long)]
+        reset: bool,
     },
     /// Link the dotfiles presets again now (e.g. after adding files to one) in
     /// every running context, or one; lists the presets there are (ADR 0038).
@@ -444,6 +458,27 @@ mod tests {
     #[test]
     fn definition_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn favorites_list_set_or_reset() {
+        assert!(matches!(
+            parse(&["favorites"]).unwrap().command,
+            Command::Favorites {
+                set: None,
+                reset: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&["favorites", "-c", "kp", "--set", "a.desktop", "b.desktop"]).unwrap().command,
+            Command::Favorites { set: Some(ids), .. } if ids.len() == 2
+        ));
+        assert!(matches!(
+            parse(&["favorites", "--set"]).unwrap().command,
+            Command::Favorites { set: Some(ids), .. } if ids.is_empty()
+        ));
+        assert!(parse(&["favorites", "--set", "a.desktop", "--reset"]).is_err());
     }
 
     #[test]

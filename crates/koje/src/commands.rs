@@ -82,6 +82,9 @@ pub fn run(command: &Command) -> Result<()> {
             menu,
             json,
         } => crate::apps::run(&paths, ctx, start.as_deref(), *menu, *json),
+        Command::Favorites { ctx, set, reset } => {
+            crate::apps::favorites(&paths, ctx, set.as_deref(), *reset)
+        }
         Command::Dotfiles { context } => crate::dotfiles::run(&paths, context.as_deref()),
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 

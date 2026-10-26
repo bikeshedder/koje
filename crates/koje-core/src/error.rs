@@ -16,6 +16,9 @@ pub enum Error {
     #[error("cannot change the limits: {0}")]
     InvalidLimits(String),
 
+    #[error("cannot change the favorites: {0}")]
+    InvalidFavorites(String),
+
     #[error("invalid size {0:?}: expected a number with optional K, M, G or T suffix")]
     InvalidSize(String),
 
