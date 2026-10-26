@@ -1,10 +1,12 @@
 # M8 – UI
 
 koje's UI has two parts (ADR 0036): a **settings app** for everything that is
-viewed and changed, and the **bar** (plus fuzzel pickers) for glancing and
-switching. Window overlays and the beacon window are small extra surfaces. All
-of them are built with GTK4 in the koje shell (`koje-shell`); the bar is koje's
-own and replaces Waybar (ADR 0042). See the mockups in the concept (sections
+viewed and changed, and the **shell** for glancing and switching – the bar with
+the koje menu and Quick Settings, the overview with its search, app grid and
+dash (ADR 0049), Alt+Tab and the OSD, laid out like GNOME (ADR 0043). Window
+overlays and the beacon window are small extra surfaces. All of them are built
+with GTK4 in `koje-shell` (ADR 0042); the koje session runs it instead of
+Waybar (ADR 0048). See the mockups in the concept (sections
 "Layouts" and "Oberfläche"); the panel mockups now describe pages of the
 settings app. What the settings app needs:
 `docs/upstream/kiesel-desktop-components.md` (written for Kiesel Desktop, still
@@ -12,7 +14,8 @@ valid as a list).
 
 ## Launcher and bar
 
-- [ ] **M8.1 Launcher menu** (fuzzel/rofi dmenu mode): contexts with status, actions per context
+- [-] **M8.1 Launcher menu** (fuzzel/rofi dmenu mode): contexts with status, actions per context
+  - Dropped: the koje menu on a host workspace lists every context with its status and actions (M8.56); the overview's search starts programs (M8.70, ADR 0049).
 - [-] **M8.2 Waybar module**: active context capsule, layouts, stash icons, memory; click actions
   - Dropped (ADR 0042): koje's own bar does this, M8.29 and M8.35.
   - Notes: icons from the bundled Lucide font (ADR 0020), looked up by name in `codepoints.json`; ship a complete bar configuration, not only the module. Started with `koje bar` (M5.15). What a custom module cannot do opens the settings app (M8.15) or a picker.
@@ -45,8 +48,9 @@ valid as a list).
 
 ## Own bar (ADR 0042)
 
-Replaces Waybar at once: the session switches in M8.32, when the bar covers
-everything koje's Waybar config shows (M8.27–M8.31). M8.33–M8.35 are what
+Replaces Waybar: the koje session runs the shell and skips Waybar (ADR 0048,
+M8.59); M8.32 removes koje's Waybar parts once the bar covers everything they
+show (left: the tray, M8.31). M8.33–M8.35 are what
 Waybar cannot do. The bar is laid out like GNOME's top bar and uses libadwaita
 (ADR 0043).
 
@@ -70,6 +74,7 @@ Waybar cannot do. The bar is laid out like GNOME's top bar and uses libadwaita
 - [ ] **M8.31 Tray**: StatusNotifierWatcher and host, icons, menus from DBusMenu as GTK4 menus
 - [ ] **M8.32 Switch the session to koje's bar**: the snippet starts it instead of Waybar; remove koje's Waybar config, the context colors CSS (M8.20), `scripts/build-waybar-deb.sh` and Waybar in `koje setup`, `doctor` and the installer (a user's own Waybar config stays untouched); decide what stays of `koje bar`; update ADR 0021/0037 references, `docs/architecture.md` and `AGENTS.md`
   - Notes: only after M8.28–M8.31; host test of a full session before. The package ships `koje-shell` and its unit (ADR 0045, M0.9); `koje-session.target` starts it (ADR 0048, M8.59).
+  - Partly done by the koje session (M8.58, M8.59): it starts koje-shell, and `assets/systemd/waybar.service.d/koje.conf` skips Waybar there. Left: the tray (M8.31), then removing koje's Waybar config (`assets/waybar/`), the context colors CSS, `scripts/build-waybar-deb.sh` and Waybar in `koje setup`, `doctor` and the installer.
 - [x] **M8.55 koje menu** (decided 2026-10-26, replaces M8.29's capsule): a menu button on the right of the bar with a symbolic koje icon in the context's accent, the memory meter and its percentage. In a context its dropdown shows the context: memory with a graph of the last ten minutes and the limits, soft and hard limit editable (applied with `koje limit`, errors shown), "Context settings…" once the settings app exists (M8.9, M8.15). On a host workspace the icon is grey and the dropdown lists the running contexts with their meters; a click focuses one. More context information goes into the button and the dropdown later (M8.35).
   - kojed keeps ten minutes of readings per running context (`koje_core::memory::History`, D-Bus `MemoryHistory`).
   - Shell: `menu.rs` (pure: button, context panel, overview, graph scale, `limit_arg` checks what is typed before `koje limit` runs), `menu_ui.rs` (widgets). The backend reads `Memory` for every running context and the active one's `MemoryHistory` on every `MemoryChanged`; `Action::SetLimits` runs `koje limit <context> --soft … --hard …` (its error shown under the fields), `Action::FocusContext` calls kojed's `Focus`. The entries change only when the context or its limits change, not under typing. The icon (`assets/icons/io.koje.Koje-symbolic.svg`, installed by the package) is drawn by the bar itself in the accent: GTK 4.18 with librsvg 2.60 (Debian trixie) does not recolor symbolic SVGs from files – only its built-in icons; check on the host's GTK 4.22 before using the SVG elsewhere.
@@ -85,6 +90,7 @@ Waybar cannot do. The bar is laid out like GNOME's top bar and uses libadwaita
   - Dropped (ADR 0047): the bar has no task list; the overview or launcher may bring it back.
 - [ ] **M8.34 Active overlay in the bar**: which overlay (`mail`, `chat`) is open (Hyprland's `activespecial`); click opens or closes it
 - [ ] **M8.35 Contexts and layouts in the bar**: the active context's layouts to switch, stashed windows as icons (click brings one back), a menu per context (start, pause, wake, stop, open the settings app, M8.15)
+  - Partly done: the koje menu manages the contexts (M8.55, M8.56); the overview shows the stash and brings windows back (M8.68). Left: switching layouts, and opening the settings app once it exists.
 - [ ] **M8.36 Notifications in the shell**: the shell is the notification server (`org.freedesktop.Notifications`) instead of mako; banners and the list in the clock's popover as GNOME's, in their context's color (ADR 0042, 0043)
   - Notes: find out how the shell tells a notification's context – each context's forwarder has its own connection to the host's bus (ADR 0019).
 - [ ] **M8.38 GNOME look for the session** (ADR 0043): Adwaita icon and cursor themes, GNOME's fonts, light and dark through `org.gnome.desktop.interface color-scheme`; no gaps, rounding and shadows close to GNOME's; maximize below the bar; hyprlock like GNOME's lock screen; `koje doctor` checks the packages
@@ -156,6 +162,7 @@ Hyprland; the shell takes over the rest of GNOME Shell's duties.
   - Shell: `switcher.rs` (pure: apps of all workspaces, stashed windows too as GNOME lists minimized ones, ordered by their most recent window, one per (app, context); stepping wraps; it opens on the previous entry), `switcher_ui.rs` (a layer-shell popup on the focused monitor, layer `overlay`, keyboard exclusive). Hyprland binds Alt+Tab, Super+Tab (as GNOME; replaces the fuzzel window picker), with Shift backwards, and Alt+grave (Alt+Shift+grave) for one app's windows, each to `koje-shell switch [--backwards] [--windows]`, which forwards to the running shell's actions. Letting go of Alt or Super shows the selection – a stashed window comes back first; Tab, arrows, grave and Enter work in the popup, Escape cancels. A release before the popup has the keyboard is caught by checking the held modifiers every 50 ms: a quick Alt+Tab switches to the previous app at once.
   - Smoke-tested (the input helper now holds Alt): open, step, release; quick Alt+Tab; Alt+grave; Escape. To check on the host: the delay of `koje-shell switch` per press when Tab is held down; GNOME shows the popup only after 150 ms – koje at once.
 - [ ] **M8.50 GNOME Shell's data in the shell**: favorites (`org.gnome.shell favorite-apps`), app folders (`org.gnome.desktop.app-folders`) and the apps' search providers (`org.gnome.Shell.SearchProvider2`) in the launcher (M8.40, M8.18); notification settings per app and "Do Not Disturb" (`org.gnome.desktop.notifications`) for M8.36
+  - Favorites done with the dash (M8.69, per context M8.76). Left: app folders, search providers, notification settings.
 
 - [x] **M8.51 Mutter's display API in kojed** (ADR 0046): `org.gnome.Mutter.DisplayConfig` from `hyprctl monitors all` – `GetCurrentState`, `MonitorsChanged`, `ApplyMonitorsConfig` (verify, temporary, persistent) applied to Hyprland; the mapping between Mutter's and Hyprland's monitors, modes, scales and transforms pure in `koje-core`
   - Notes: after the bar and M8.42; check which version of the API the host's GNOME Settings speaks.
