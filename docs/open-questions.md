@@ -25,6 +25,7 @@ remove it here. Plan tasks that resolve a question are noted in brackets.
 - **Pinned windows** – part of the active layout or floating above all?
 - **Layout switch animation** – batched moves are fast (M2.2: 0.1 ms for 10 commands); which animation looks right? *(M5.5)*
 - **Hyprland versions** – how does koje cope with config/IPC changes between releases?
+- **Sharing one context's screen** – the portal shares a monitor, a window or a region, never a workspace, so sharing a monitor exposes whatever context you switch to. Idea: `koje share <context>` creates a headless output only while sharing (`hyprctl output create headless`), moves the context's workspaces onto it for the user to pick in the portal, keeps the shell's surfaces (bar, OSD, notifications) off it, and `koje share --stop` removes it. Not one headless output per workspace all the time: their windows would never be hidden, so they would keep rendering. Open: how the user sees and works in the shared context (a mirror window in the context color, `wl-mirror`?), keeping kojed's display API and monitors.xml away from the headless output, and whether headless outputs and the portal picker behave on current Hyprland (a host spike first).
 
 ## Tool and UI
 
