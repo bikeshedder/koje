@@ -1245,28 +1245,40 @@ fn session_start_runs_hyprland_with_kojes_config_and_cleans_up() {
     );
     let log = std::fs::read_to_string(t.join("session.log")).unwrap();
     let lines: Vec<&str> = log.lines().collect();
+    let conf = t.join("run/koje/session.conf");
     assert_eq!(
         lines[0],
-        "Hyprland --config /usr/share/koje/hyprland/session.conf desktop=koje:GNOME session=koje"
+        format!(
+            "Hyprland --config {} desktop=koje:GNOME session=koje",
+            conf.display()
+        )
     );
     assert_eq!(lines[1], "systemctl --user stop koje-session.target");
     assert!(lines[2].starts_with("systemctl --user unset-environment WAYLAND_DISPLAY"));
-    // The user's own file exists for Hyprland to source; a second start keeps it.
-    let conf = t.join("config/koje/hyprland.conf");
+    // No file of the user's is needed – or created.
+    let user = t.join("config/koje/hyprland.conf");
+    assert!(!user.exists());
+    let text = std::fs::read_to_string(&conf).unwrap();
     assert!(
-        std::fs::read_to_string(&conf)
-            .unwrap()
-            .contains("koje session")
+        text.contains("source = /usr/share/koje/hyprland/koje.conf"),
+        "{text}"
     );
-    std::fs::write(&conf, "monitor = DP-1, 5120x2160@120, 0x0, 1\n").unwrap();
+    assert!(
+        !text.contains(&format!("source = {}", user.display())),
+        "{text}"
+    );
+    // Once there, it is sourced last.
+    std::fs::create_dir_all(user.parent().unwrap()).unwrap();
+    std::fs::write(&user, "monitor = DP-1, 5120x2160@120, 0x0, 1\n").unwrap();
     command(t, &["session", "start"])
         .env("PATH", &path)
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert_eq!(
-        std::fs::read_to_string(&conf).unwrap(),
-        "monitor = DP-1, 5120x2160@120, 0x0, 1\n"
+    let text = std::fs::read_to_string(&conf).unwrap();
+    assert!(
+        text.contains(&format!("source = {}", user.display())),
+        "{text}"
     );
 }
 

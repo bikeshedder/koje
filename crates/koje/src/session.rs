@@ -4,7 +4,7 @@
 //! starts koje's services; `restart` restarts them. Decisions:
 //! `koje_core::session`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 use koje_core::paths::Paths;
@@ -34,24 +34,31 @@ fn run_all(cmds: &[Cmd]) -> Result<()> {
     Ok(())
 }
 
-/// The user's own settings, so Hyprland finds the file it sources.
-fn ensure_user_conf(path: &Path) -> Result<()> {
-    if path.exists() {
-        return Ok(());
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    }
-    koje_core::fsutil::write_atomic(path, session::USER_CONF_TEMPLATE.as_bytes())?;
-    Ok(())
+/// The session's Hyprland config in the runtime directory: koje's snippet
+/// and the user's file if there is one (ADR 0048). Its path.
+fn write_session_conf(paths: &Paths) -> Result<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .context("XDG_RUNTIME_DIR is not set – no login session?")?;
+    let dir = runtime.join("koje");
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    let user = paths.session_hyprland_conf();
+    let conf = session::session_conf(
+        Path::new(session::SNIPPET),
+        None,
+        user.is_file().then_some(user.as_path()),
+    );
+    let path = dir.join("session.conf");
+    koje_core::fsutil::write_atomic(&path, conf.as_bytes())?;
+    Ok(path)
 }
 
 fn start(paths: &Paths) -> Result<()> {
-    ensure_user_conf(&paths.session_hyprland_conf())?;
+    let conf = write_session_conf(paths)?;
     let given = std::env::var("XDG_CURRENT_DESKTOP").ok();
     let mut hyprland = tokio::process::Command::new(session::HYPRLAND);
     hyprland
-        .args(session::hyprland_args(Path::new(session::SESSION_CONF)))
+        .args(session::hyprland_args(&conf))
         .envs(session::session_environment(given.as_deref()));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

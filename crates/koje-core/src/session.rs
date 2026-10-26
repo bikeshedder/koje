@@ -7,8 +7,9 @@ use std::path::Path;
 /// The session's own systemd target (bound to `graphical-session.target`).
 pub const TARGET: &str = "koje-session.target";
 
-/// koje's Hyprland config for the session (package, ADR 0045).
-pub const SESSION_CONF: &str = "/usr/share/koje/hyprland/session.conf";
+/// koje's snippet: the session's look, bindings and workspaces (package,
+/// ADR 0037, 0045).
+pub const SNIPPET: &str = "/usr/share/koje/hyprland/koje.conf";
 
 /// The compositor.
 pub const HYPRLAND: &str = "Hyprland";
@@ -52,15 +53,30 @@ pub fn hyprland_args(conf: &Path) -> Vec<String> {
     vec!["--config".to_owned(), conf.display().to_string()]
 }
 
-/// The user's own settings, sourced last by `session.conf`: created empty
-/// with this text when missing, so Hyprland finds the file.
-pub const USER_CONF_TEMPLATE: &str = "\
-# Your settings for the koje session (ADR 0048): this machine's screens,
-# keyboard, your own bindings. Read after koje's – later settings win;
-# `unbind = MODS, key` removes one of koje's bindings.
-# Screens and modes: hyprctl monitors all. Example:
-# monitor = DP-1, 5120x2160@120, 0x0, 1
-";
+/// The session's Hyprland config, generated at login into the runtime
+/// directory (ADR 0048): koje's snippet, then the monitors from
+/// `monitors.xml` (ADR 0046), then the user's own file – each only when
+/// given; later settings win.
+pub fn session_conf(snippet: &Path, monitors: Option<&Path>, user: Option<&Path>) -> String {
+    use std::fmt::Write as _;
+    let mut conf = String::from(
+        "# The koje session's Hyprland config (ADR 0048), written by `koje session\n\
+         # start` at every login – edits are lost. Your own settings go into\n\
+         # ~/.config/koje/hyprland.conf; GNOME Settings is the place for most.\n",
+    );
+    let mut source = |p: &Path| {
+        let _ = writeln!(conf, "source = {}", p.display());
+    };
+    source(snippet);
+    if let Some(m) = monitors {
+        source(m);
+    }
+    if let Some(u) = user {
+        source(u);
+    }
+    conf.push_str("\n# Hand the environment to systemd and start koje's services.\nexec-once = koje session ready\n");
+    conf
+}
 
 /// One command: program and arguments.
 pub type Cmd = (&'static str, Vec<String>);
@@ -117,10 +133,31 @@ mod tests {
     }
 
     #[test]
+    fn the_session_config_sources_what_there_is() {
+        let full = session_conf(
+            Path::new(SNIPPET),
+            Some(Path::new("/run/user/1000/koje/monitors.conf")),
+            Some(Path::new("/h/.config/koje/hyprland.conf")),
+        );
+        let sources: Vec<&str> = full.lines().filter(|l| l.starts_with("source")).collect();
+        assert_eq!(
+            sources,
+            [
+                "source = /usr/share/koje/hyprland/koje.conf",
+                "source = /run/user/1000/koje/monitors.conf",
+                "source = /h/.config/koje/hyprland.conf"
+            ]
+        );
+        assert!(full.contains("\nexec-once = koje session ready\n"));
+        let bare = session_conf(Path::new(SNIPPET), None, None);
+        assert_eq!(bare.lines().filter(|l| l.starts_with("source")).count(), 1);
+    }
+
+    #[test]
     fn hyprland_gets_kojes_config() {
         assert_eq!(
-            hyprland_args(Path::new(SESSION_CONF)),
-            ["--config", "/usr/share/koje/hyprland/session.conf"]
+            hyprland_args(Path::new("/run/user/1000/koje/session.conf")),
+            ["--config", "/run/user/1000/koje/session.conf"]
         );
         let env = session_environment(Some("koje:GNOME"));
         assert!(env.contains(&("XDG_SESSION_DESKTOP", "koje".to_owned())));

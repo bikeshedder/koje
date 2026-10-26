@@ -63,7 +63,6 @@ assets = [
     ["../../assets/systemd/koje-shell.service", "usr/lib/systemd/user/", "644"],
     ["../../assets/systemd/koje-session.target", "usr/lib/systemd/user/", "644"],
     ["../../assets/session/koje.desktop", "usr/share/wayland-sessions/", "644"],
-    ["../../assets/hyprland/session.conf", "usr/share/koje/hyprland/", "644"],
     ["../../assets/hyprland/koje.conf", "usr/share/koje/hyprland/", "644"],
     ["../../assets/hyprland/hyprbars.conf", "usr/share/koje/hyprland/", "644"],
     ["../../assets/fonts/lucide/lucide.ttf", "usr/share/fonts/truetype/koje/", "644"],
