@@ -1,6 +1,6 @@
 # 0043. GNOME's look and feel, with libadwaita
 
-- Status: Accepted (the bar's design: ADR 0047 – a clone of GNOME's top bar)
+- Status: Accepted (the bar's design: ADR 0047 – a clone of GNOME's top bar; Super alone: ADR 0049 – the overview)
 - Date: 2026-10-25
 - Source: discussion (the look of koje's GTK4 UI, ADR 0042); answers the open
   question "Look of koje's GTK4 UI"
@@ -49,7 +49,7 @@ ADR 0042 left open whether koje's GTK4 UI uses libadwaita or its own CSS.
 - **Later, the launcher, the window picker and the keyboard shortcuts list**
   move from fuzzel into the shell, in GNOME's style.
 - **GNOME's key bindings:**
-  - **Super alone** opens the launcher – today koje's application menu
+  - **Super alone** (amended by ADR 0049: opens the overview) opens the launcher – today koje's application menu
     (Super+D), later the shell's – and closes it again. It fires when Super is
     released without another key or a mouse button in between, so Super+key and
     Super+drag do not open it.

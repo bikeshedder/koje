@@ -47,9 +47,10 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0040 | [Context images: image folders, registry images, a koje layer and kept versions](0040-context-images.md) | Proposed |
 | 0041 | [Volume, brightness and media keys through `koje media`, with an OSD](0041-volume-brightness-and-media-keys.md) | Accepted |
 | 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted (bar design: 0047) |
-| 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted (bar: 0047) |
+| 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted (bar: 0047, Super: 0049) |
 | 0044 | [GNOME Settings for the system, a gsettings bridge in kojed](0044-gnome-settings-and-gsettings-bridge.md) | Accepted |
 | 0045 | [koje ships as one Debian package, built in the dev container](0045-debian-package.md) | Accepted |
 | 0046 | [Displays: GNOME Settings through Mutter's API, `monitors.xml` as the source](0046-displays-through-monitors-xml.md) | Accepted |
 | 0047 | [koje's bar is a clone of GNOME's top bar](0047-gnome-top-bar.md) | Accepted |
 | 0048 | [koje is its own session; Hyprland is the compositor it starts](0048-koje-session.md) | Accepted |
+| 0049 | [An overview and a dash like GNOME's](0049-overview-and-dash.md) | Accepted |
