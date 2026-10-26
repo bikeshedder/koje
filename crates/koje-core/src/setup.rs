@@ -526,7 +526,10 @@ impl fmt::Display for Refresh {
             Self::Waybar => write!(f, "reload Waybar's config"),
             Self::Start(s) => write!(f, "start {}", s.name),
             Self::Restart(unit) => write!(f, "restart {unit} (it runs an old binary)"),
-            Self::Session => write!(f, "restart the koje session's services"),
+            Self::Session => write!(
+                f,
+                "restart the koje session's services and reload koje's Hyprland plugin"
+            ),
         }
     }
 }

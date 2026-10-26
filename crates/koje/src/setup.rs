@@ -401,13 +401,8 @@ fn refresh_session(r: &Refresh) -> Result<()> {
         // Started by Hyprland, so it gets the session's environment as at login.
         Refresh::Start(s) => ("hyprctl", vec!["dispatch", "exec", s.command]),
         Refresh::Restart(unit) => ("systemctl", vec!["--user", "restart", unit]),
-        Refresh::Session => {
-            for (program, args) in koje_core::session::restart_commands() {
-                let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                run_checked(program, &args)?;
-            }
-            return Ok(());
-        }
+        // The services and koje's plugin, as `koje session restart`.
+        Refresh::Session => return crate::session::restart(),
     };
     run_checked(program, &args)
 }

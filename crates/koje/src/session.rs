@@ -1,7 +1,8 @@
 //! `koje session` (ADR 0048): the koje session from the login screen.
 //! `start` runs Hyprland with koje's config and cleans up after it;
 //! `ready` (from Hyprland's `exec-once`) hands the environment to systemd and
-//! starts koje's services; `restart` restarts them. Decisions:
+//! starts koje's services; `restart` restarts them and loads koje's
+//! Hyprland plugin again. Decisions:
 //! `koje_core::session`.
 
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ pub fn run(paths: &Paths, cmd: &SessionCmd) -> Result<()> {
     match cmd {
         SessionCmd::Start => start(paths),
         SessionCmd::Ready => run_all(&session::ready_commands()),
-        SessionCmd::Restart => run_all(&session::restart_commands()),
+        SessionCmd::Restart => restart(),
         SessionCmd::End { what } => end(*what),
     }
 }
@@ -66,6 +67,52 @@ fn end(what: EndKind) -> Result<()> {
 }
 
 /// Run each command; the first failure stops.
+/// koje's services and its Hyprland plugin as installed now (after a
+/// package update). The plugin first: the shell asks for it when it starts.
+pub fn restart() -> Result<()> {
+    reload_plugin();
+    run_all(&session::restart_commands())
+}
+
+/// A plugin Hyprland refuses (built for another version) is reported; the
+/// services restart anyway.
+fn reload_plugin() {
+    if !Path::new(session::PLUGIN).is_file()
+        || std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none_or(|s| s.is_empty())
+    {
+        return;
+    }
+    let loaded = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()
+        .and_then(|rt| {
+            rt.block_on(koje_hyprland::Hyprland::from_env().request("j/plugin list"))
+                .ok()
+        })
+        .is_some_and(|reply| crate::doctor::plugin_listed(&reply));
+    for (program, args) in session::plugin_reload_commands(loaded) {
+        let out = std::process::Command::new(program).args(&args).output();
+        // hyprctl exits 0 on refused commands; it answers "ok".
+        match out {
+            Ok(o) if String::from_utf8_lossy(&o.stdout).trim() == "ok" => {}
+            Ok(o) => {
+                eprintln!(
+                    "warning: {program} {}: {}{}",
+                    args.join(" "),
+                    String::from_utf8_lossy(&o.stdout).trim(),
+                    String::from_utf8_lossy(&o.stderr).trim()
+                );
+                return;
+            }
+            Err(e) => {
+                eprintln!("warning: running {program}: {e}");
+                return;
+            }
+        }
+    }
+}
+
 fn run_all(cmds: &[Cmd]) -> Result<()> {
     for (program, args) in cmds {
         let status = std::process::Command::new(program)

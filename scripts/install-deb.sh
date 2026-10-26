@@ -7,8 +7,9 @@
 #   scripts/install-deb.sh --yes    do not ask (apt and koje setup)
 #
 # Reinstalls when the version is the same (another build of the same commit).
-# In the koje session koje setup then reloads Hyprland's config and restarts
-# all session services with their new unit files (koje session restart);
+# In the koje session koje setup then reloads Hyprland's config, loads koje's
+# Hyprland plugin again and restarts all session services with their new
+# unit files (koje session restart);
 # elsewhere it restarts kojed and koje-shell. sudo is used for apt.
 set -euo pipefail
 
@@ -16,7 +17,7 @@ yes=0
 for arg in "$@"; do
   case "$arg" in
     --yes | -y) yes=1 ;;
-    -h | --help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done

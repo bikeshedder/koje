@@ -209,9 +209,45 @@ pub fn restart_commands() -> Vec<Cmd> {
     ]
 }
 
+/// koje's plugin from the file as it is now (a package update replaced it):
+/// out of Hyprland if it is `loaded`, then in. Hyprland reads a plugin's
+/// file only when loading it.
+pub fn plugin_reload_commands(loaded: bool) -> Vec<Cmd> {
+    let hyprctl = |verb: &str| {
+        (
+            "hyprctl",
+            vec!["plugin".to_owned(), verb.to_owned(), PLUGIN.to_owned()],
+        )
+    };
+    let mut cmds = Vec::new();
+    if loaded {
+        cmds.push(hyprctl("unload"));
+    }
+    cmds.push(hyprctl("load"));
+    cmds
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_plugin_is_loaded_again_from_its_file() {
+        let line = |c: &Cmd| format!("{} {}", c.0, c.1.join(" "));
+        let again: Vec<String> = plugin_reload_commands(true).iter().map(line).collect();
+        assert_eq!(
+            again,
+            [
+                "hyprctl plugin unload /usr/lib/koje/koje-hyprland.so",
+                "hyprctl plugin load /usr/lib/koje/koje-hyprland.so"
+            ]
+        );
+        let first: Vec<String> = plugin_reload_commands(false).iter().map(line).collect();
+        assert_eq!(
+            first,
+            ["hyprctl plugin load /usr/lib/koje/koje-hyprland.so"]
+        );
+    }
 
     #[test]
     fn xdph_gets_kojes_picker_then_the_users_settings() {

@@ -334,8 +334,8 @@ pub enum SessionCmd {
     /// (from Hyprland's `exec-once`).
     #[command(hide = true)]
     Ready,
-    /// Restart koje's services (kojed, the shell, …); the session and its
-    /// windows go on.
+    /// Restart koje's services (kojed, the shell, …) and load koje's
+    /// Hyprland plugin again; the session and its windows go on.
     Restart,
     /// Log out, restart or power off – the shell asks first, with GNOME's
     /// 60-second countdown (Super+Shift+E logs out).
