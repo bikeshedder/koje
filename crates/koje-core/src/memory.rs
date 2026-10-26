@@ -159,6 +159,30 @@ pub fn meter(used: ByteSize, limits: &Limits, width: usize) -> Option<Meter> {
     })
 }
 
+/// The hover text of the bar's memory meter (M8.21, M8.29): used and
+/// charged memory, each limit with the share of it in use. Plain text.
+pub fn details(context: &str, used: ByteSize, charged: ByteSize, limits: &Limits) -> String {
+    let share = |l: Option<ByteSize>| {
+        l.map_or_else(
+            || "none".to_owned(),
+            |l| {
+                format!(
+                    "{} – {} %",
+                    l.human(),
+                    u128::from(used.0) * 100 / u128::from(l.0.max(1))
+                )
+            },
+        )
+    };
+    format!(
+        "{context}: memory\nused {} (charged {})\nsoft limit {}\nhard limit {}",
+        used.human(),
+        charged.human(),
+        share(limits.memory_soft),
+        share(limits.memory_hard)
+    )
+}
+
 /// One line for menus (M8.17): the working set against the hard limit, else
 /// the soft one. `None` when the usage cannot be read.
 pub fn summary(used: Option<ByteSize>, limits: &Limits) -> String {
@@ -189,6 +213,19 @@ mod tests {
 
     fn gib_tenths(t: u64) -> ByteSize {
         ByteSize((1 << 30) / 10 * t)
+    }
+
+    #[test]
+    fn details_for_the_hover() {
+        assert_eq!(
+            details("kp", ByteSize(3 << 30), ByteSize(9 << 29), &limits()),
+            "kp: memory\nused 3.0 GiB (charged 4.5 GiB)\nsoft limit 6.0 GiB – 50 %\nhard limit 8.0 GiB – 37 %"
+        );
+        let none = Limits::default();
+        assert!(
+            details("kp", gib_tenths(30), gib_tenths(30), &none)
+                .ends_with("soft limit none\nhard limit none")
+        );
     }
 
     #[test]

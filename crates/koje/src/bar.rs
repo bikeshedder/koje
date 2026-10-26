@@ -101,26 +101,12 @@ pub fn memory_module(m: &Memory) -> String {
         memory_hard: limit(*hard),
     };
     let used_b = ByteSize(*used);
-    let share = |l: Option<ByteSize>| {
-        l.map_or_else(
-            || "none".to_owned(),
-            |l| {
-                format!(
-                    "{} – {} %",
-                    l.human(),
-                    u128::from(*used) * 100 / u128::from(l.0.max(1))
-                )
-            },
-        )
-    };
-    let tooltip = format!(
-        "{}: memory\nused {} (charged {})\nsoft limit {}\nhard limit {}",
-        escape(ctx),
-        used_b.human(),
-        ByteSize(*charged).human(),
-        share(limits.memory_soft),
-        share(limits.memory_hard)
-    );
+    let tooltip = escape(&koje_core::memory::details(
+        ctx,
+        used_b,
+        ByteSize(*charged),
+        &limits,
+    ));
     let Some(m) = meter(used_b, &limits, METER_WIDTH) else {
         return serde_json::to_string(&Module {
             text: used_b.human(),

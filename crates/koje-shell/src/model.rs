@@ -4,7 +4,10 @@
 //! and [`Action`]s say what clicks do.
 
 use koje_core::color::Color;
+use koje_core::config::Limits;
+use koje_core::memory::{MemoryLevel, classify};
 use koje_core::ports::CompositorCommand;
+use koje_core::size::ByteSize;
 
 /// Something the shell learned from kojed or Hyprland.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,8 +16,36 @@ pub enum Update {
     Desktop(Desktop),
     /// The running contexts (kojed's `RunningContexts`).
     Contexts(Vec<RunningContext>),
+    /// The active context's memory (kojed's `Memory("")`).
+    Memory(MemoryReading),
     /// kojed does not own its bus name (not started, crashed, restarting).
     KojedGone,
+}
+
+/// kojed's `Memory`: the working set, what the cgroup charges and the limits
+/// of a context; `context` is empty without an active context or before the
+/// first reading.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemoryReading {
+    pub context: String,
+    pub used: u64,
+    pub charged: u64,
+    /// 0 = none.
+    pub soft: u64,
+    /// 0 = none.
+    pub hard: u64,
+}
+
+impl From<(String, u64, u64, u64, u64)> for MemoryReading {
+    fn from((context, used, charged, soft, hard): (String, u64, u64, u64, u64)) -> Self {
+        Self {
+            context,
+            used,
+            charged,
+            soft,
+            hard,
+        }
+    }
 }
 
 /// One entry of kojed's `RunningContexts`.
@@ -93,6 +124,7 @@ pub struct Shell {
     /// lists windows in stacking order, which every raise changes; the task
     /// list must not jump when a window gets focus.
     order: Vec<String>,
+    memory: MemoryReading,
 }
 
 /// Whose color an element shows as its accent: a context's, or the grey of
@@ -140,10 +172,71 @@ pub struct BarView {
     pub tasks: Vec<Task>,
     /// The accent of the task list: its workspace's.
     pub tasks_accent: Accent,
-    /// The active context and its color.
-    pub context: Option<(String, String)>,
+    /// The active context: a capsule in its color with its memory.
+    pub capsule: Option<Capsule>,
     /// A problem worth showing in the bar.
     pub warning: Option<&'static str>,
+}
+
+/// The active context's capsule (M8.29).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capsule {
+    pub name: String,
+    pub accent: Accent,
+    /// `None` until kojed read the context's memory.
+    pub memory: Option<MemoryView>,
+}
+
+/// The memory meter: usage against the hard limit, else the soft one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryView {
+    /// The used share of the meter in thousandths; `None` without limits
+    /// (no meter, only the size).
+    pub fill: Option<u16>,
+    /// Where the soft limit lies on the meter, in thousandths – only with a
+    /// hard limit too.
+    pub soft: Option<u16>,
+    pub level: MemoryLevel,
+    /// `42%`, or the size without limits.
+    pub label: String,
+    /// Used, charged, the limits ([`koje_core::memory::details`]).
+    pub tooltip: String,
+}
+
+impl MemoryView {
+    pub fn from_reading(m: &MemoryReading) -> Self {
+        let limit = |b: u64| (b > 0).then_some(ByteSize(b));
+        let limits = Limits {
+            memory_soft: limit(m.soft),
+            memory_hard: limit(m.hard),
+        };
+        let used = u128::from(m.used);
+        let max = limits
+            .memory_hard
+            .or(limits.memory_soft)
+            .map(|l| u128::from(l.0.max(1)));
+        let thousandths =
+            |v: u128, max: u128| u16::try_from((v * 1000 / max).min(1000)).unwrap_or(1000);
+        Self {
+            fill: max.map(|max| thousandths(used, max)),
+            soft: limits
+                .memory_hard
+                .and(limits.memory_soft)
+                .zip(max)
+                .map(|(s, max)| thousandths(u128::from(s.0), max)),
+            level: classify(ByteSize(m.used), &limits),
+            label: max.map_or_else(
+                || ByteSize(m.used).human(),
+                |max| format!("{}%", (used * 100 + max / 2) / max),
+            ),
+            tooltip: koje_core::memory::details(
+                &m.context,
+                ByteSize(m.used),
+                ByteSize(m.charged),
+                &limits,
+            ),
+        }
+    }
 }
 
 pub const KOJED_GONE: &str = "kojed is not running";
@@ -179,7 +272,11 @@ impl Shell {
                 self.desktop = desktop;
             }
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
-            Update::KojedGone => self.kojed = Kojed::Gone,
+            Update::Memory(reading) => self.memory = reading,
+            Update::KojedGone => {
+                self.kojed = Kojed::Gone;
+                self.memory = MemoryReading::default();
+            }
         }
     }
 
@@ -246,11 +343,13 @@ impl Shell {
                 .collect(),
             tasks,
             tasks_accent: active.map_or(Accent::Host, |a| self.accent(a)),
-            context: self
-                .contexts()
-                .iter()
-                .find(|c| c.active)
-                .map(|c| (c.name.clone(), c.color.clone())),
+            capsule: self.contexts().iter().find(|c| c.active).map(|c| Capsule {
+                name: c.name.clone(),
+                accent: Accent::Context(c.name.clone()),
+                // A reading of another context is from before a switch.
+                memory: (self.memory.context == c.name)
+                    .then(|| MemoryView::from_reading(&self.memory)),
+            }),
             warning: (self.kojed == Kojed::Gone).then_some(KOJED_GONE),
         }
     }
@@ -454,11 +553,62 @@ mod tests {
         assert_eq!(shell().bar(None), shell().bar(Some("eDP-1")));
     }
 
+    fn reading(context: &str, used: u64, soft: u64, hard: u64) -> MemoryReading {
+        MemoryReading {
+            context: context.into(),
+            used,
+            charged: used + (100 << 20),
+            soft,
+            hard,
+        }
+    }
+
+    const GIB: u64 = 1 << 30;
+
     #[test]
-    fn shows_the_active_context() {
-        let bar = shell().bar(None);
-        assert_eq!(bar.context, Some(("kp".into(), "#3584e4".into())));
-        assert_eq!(bar.warning, None);
+    fn shows_the_active_context_with_its_memory() {
+        let mut s = shell();
+        let capsule = s.bar(None).capsule.unwrap();
+        assert_eq!(capsule.name, "kp");
+        assert_eq!(capsule.accent, Accent::Context("kp".into()));
+        assert_eq!(capsule.memory, None, "no reading yet");
+
+        s.apply(Update::Memory(reading("kp", 3 * GIB, 6 * GIB, 8 * GIB)));
+        let m = s.bar(None).capsule.unwrap().memory.unwrap();
+        assert_eq!(m.fill, Some(375));
+        assert_eq!(m.soft, Some(750));
+        assert_eq!(m.level, MemoryLevel::Normal);
+        assert_eq!(m.label, "38%");
+        assert!(
+            m.tooltip.starts_with("kp: memory\nused 3.0 GiB"),
+            "{}",
+            m.tooltip
+        );
+        assert_eq!(s.bar(None).warning, None);
+    }
+
+    #[test]
+    fn a_reading_of_another_context_is_not_shown() {
+        let mut s = shell();
+        s.apply(Update::Memory(reading("privat", GIB, 0, 0)));
+        assert_eq!(s.bar(None).capsule.unwrap().memory, None);
+    }
+
+    #[test]
+    fn memory_levels_limits_and_none() {
+        let view = |used, soft, hard| MemoryView::from_reading(&reading("kp", used, soft, hard));
+        // Only a soft limit: the meter goes up to it, no mark.
+        let soft_only = view(5 * GIB + GIB / 2, 6 * GIB, 0);
+        assert_eq!((soft_only.fill, soft_only.soft), (Some(916), None));
+        assert_eq!(soft_only.level, MemoryLevel::NearSoft);
+        let over = view(7 * GIB, 6 * GIB, 8 * GIB);
+        assert_eq!(over.level, MemoryLevel::OverSoft);
+        let full = view(9 * GIB, 6 * GIB, 8 * GIB);
+        assert_eq!((full.fill, full.level), (Some(1000), MemoryLevel::OverHard));
+        assert_eq!(full.label, "113%");
+        // No limits: no meter, the size.
+        let free = view(3 * GIB, 0, 0);
+        assert_eq!((free.fill, free.label.as_str()), (None, "3.0 GiB"));
     }
 
     #[test]
@@ -466,7 +616,7 @@ mod tests {
         let mut s = shell();
         s.apply(Update::KojedGone);
         let bar = s.bar(None);
-        assert_eq!(bar.context, None);
+        assert_eq!(bar.capsule, None);
         assert_eq!(bar.warning, Some(KOJED_GONE));
         // Without kojed no context colors: all grey.
         assert_eq!(bar.tasks_accent, Accent::Host);

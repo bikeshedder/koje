@@ -14,7 +14,7 @@ use koje_hyprland::events::Line;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::hypr;
-use crate::model::{Action, RunningContext, Update};
+use crate::model::{Action, MemoryReading, RunningContext, Update};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 /// Events come in bursts (a workspace switch focuses a window too): read the
@@ -31,8 +31,13 @@ const RETRY: Duration = Duration::from_secs(2);
 trait Daemon {
     fn running_contexts(&self) -> zbus::Result<Vec<(String, String, u32, bool)>>;
 
+    fn memory(&self, context: &str) -> zbus::Result<(String, u64, u64, u64, u64)>;
+
     #[zbus(signal)]
     fn contexts_changed(&self) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    fn memory_changed(&self) -> zbus::Result<()>;
 }
 
 /// Start the backend thread: updates go to `tx`, clicks come from
@@ -124,11 +129,13 @@ async fn kojed(tx: &Sender<Update>) -> Result<()> {
         .build()
         .await?;
     let mut changed = daemon.receive_contexts_changed().await?;
+    let mut readings = daemon.receive_memory_changed().await?;
     let mut owner = daemon.inner().receive_owner_changed().await?;
     refresh(&daemon, tx).await;
     loop {
         tokio::select! {
             Some(_) = changed.next() => refresh(&daemon, tx).await,
+            Some(_) = readings.next() => memory(&daemon, tx).await,
             Some(new_owner) = owner.next() => {
                 if new_owner.is_some() {
                     refresh(&daemon, tx).await;
@@ -144,26 +151,47 @@ async fn kojed(tx: &Sender<Update>) -> Result<()> {
     }
 }
 
-/// Ask kojed for the running contexts.
+/// Ask kojed for the running contexts, then for the active one's memory
+/// (another context may be active now).
 async fn refresh(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) {
-    let update = match tokio::time::timeout(TIMEOUT, daemon.running_contexts()).await {
-        Ok(Ok(contexts)) => {
-            Update::Contexts(contexts.into_iter().map(RunningContext::from).collect())
+    if contexts(daemon, tx).await {
+        memory(daemon, tx).await;
+    }
+}
+
+/// The active context's memory; `""` asks for the active one.
+async fn memory(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) {
+    match tokio::time::timeout(TIMEOUT, daemon.memory("")).await {
+        Ok(Ok(reading)) => {
+            let _ = tx.send(Update::Memory(MemoryReading::from(reading))).await;
         }
+        Ok(Err(e)) => tracing::debug!("kojed: Memory: {e}"),
+        Err(_) => tracing::warn!("kojed did not answer Memory within {TIMEOUT:?}"),
+    }
+}
+
+/// Ask kojed for the running contexts; whether it answered.
+async fn contexts(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) -> bool {
+    let (update, answered) = match tokio::time::timeout(TIMEOUT, daemon.running_contexts()).await {
+        Ok(Ok(contexts)) => (
+            Update::Contexts(contexts.into_iter().map(RunningContext::from).collect()),
+            true,
+        ),
         Ok(Err(zbus::Error::MethodError(name, ..)))
             if name == "org.freedesktop.DBus.Error.ServiceUnknown"
                 || name == "org.freedesktop.DBus.Error.NameHasNoOwner" =>
         {
-            Update::KojedGone
+            (Update::KojedGone, false)
         }
         Ok(Err(e)) => {
             tracing::warn!("kojed: RunningContexts: {e}");
-            return;
+            return false;
         }
         Err(_) => {
             tracing::warn!("kojed did not answer RunningContexts within {TIMEOUT:?}");
-            return;
+            return false;
         }
     };
     let _ = tx.send(update).await;
+    answered
 }
