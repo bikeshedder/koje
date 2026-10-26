@@ -4,7 +4,8 @@
 //! dash below. It renders an [`OverviewView`]; the shell's `hide-overview`
 //! action closes it on every monitor.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use gtk4 as gtk;
 use gtk4::prelude::*;
@@ -14,8 +15,9 @@ use libadwaita as adw;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::dash::DashEntry;
-use crate::model::{Action, WorkspaceButton};
+use crate::model::{Accent, Action, Shell, WorkspaceButton};
 use crate::overview::{OverviewView, WindowCard};
+use crate::search::{AppHit, AppItem, AppSection, SearchView, WindowHit};
 
 /// Room between the cards.
 const GAP: f64 = 32.0;
@@ -59,6 +61,18 @@ window.koje-overview { background: #1d1d20; color: #ffffff; }
 .dash .koje-ctx .running-dot { background: var(--accent-color); min-width: 12px; }
 .dash .context-mark { min-width: 24px; min-height: 3px; border-radius: 9999px; background: var(--accent-bg-color); }
 .dash separator { margin: 8px 4px; background: alpha(#ffffff, 0.25); min-width: 1px; }
+.dash button.dash-grid:checked { background: alpha(#ffffff, 0.2); }
+entry.overview-search { margin-top: 16px; min-width: 320px; border-radius: 9999px; background: alpha(#ffffff, 0.1); color: #ffffff; }
+button.app-tile { padding: 12px 6px; border-radius: 16px; background: transparent; color: #ffffff; }
+button.app-tile:hover, flowboxchild:focus button.app-tile { background: alpha(#ffffff, 0.12); }
+.app-tile .context-mark { min-width: 24px; min-height: 4px; border-radius: 9999px; background: var(--accent-bg-color); }
+.grid-section { font-weight: bold; padding: 2px 12px; border-radius: 9999px; margin: 24px 0 8px 0; }
+.grid-section.koje-ctx { background: var(--accent-bg-color); color: var(--accent-fg-color); }
+.grid-section.koje-host { background: alpha(#ffffff, 0.15); }
+button.window-hit { border-radius: 12px; padding: 6px 12px; background: alpha(#ffffff, 0.08); color: #ffffff; }
+button.window-hit:hover { background: alpha(#ffffff, 0.15); }
+.context-pill { font-weight: bold; padding: 2px 10px; border-radius: 9999px; background: var(--accent-bg-color); color: var(--accent-fg-color); }
+.results-heading { opacity: 0.7; font-weight: bold; margin: 16px 0 8px 0; }
 ";
 
 mod imp {
@@ -136,17 +150,34 @@ impl Default for CardsLayout {
     }
 }
 
+/// What the middle of the overview shows while nothing is typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Windows,
+    /// The app grid (the dash's grid button, Super+A).
+    Apps,
+}
+
 #[derive(Debug)]
 pub struct OverviewSurface {
     window: gtk::Window,
     actions: UnboundedSender<Action>,
+    shell: Rc<RefCell<Shell>>,
     strip: gtk::Box,
     cards: gtk::Box,
     layout: CardsLayout,
     empty: gtk::Label,
     stash: gtk::Box,
     dash: gtk::Box,
+    grid_button: gtk::ToggleButton,
+    entry: gtk::SearchEntry,
+    pages: gtk::Stack,
+    results: gtk::Box,
+    grid: gtk::Box,
+    mode: Cell<Mode>,
     shown: RefCell<Option<OverviewView>>,
+    shown_search: RefCell<Option<SearchView>>,
+    shown_grid: RefCell<Option<Vec<AppSection>>>,
 }
 
 /// Close the overview on every monitor.
@@ -159,21 +190,9 @@ impl OverviewSurface {
         app: &adw::Application,
         monitor: &gdk::Monitor,
         actions: UnboundedSender<Action>,
-    ) -> Self {
-        let window = gtk::Window::builder()
-            .application(app)
-            .title("koje overview")
-            .build();
-        window.add_css_class("koje-overview");
-        window.init_layer_shell();
-        window.set_layer(Layer::Top);
-        window.set_namespace(Some("koje-overview"));
-        window.set_monitor(Some(monitor));
-        for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
-            window.set_anchor(edge, true);
-        }
-        // Below the bar, as GNOME's.
-        window.set_exclusive_zone(0);
+        shell: Rc<RefCell<Shell>>,
+    ) -> Rc<Self> {
+        let window = layer_window(app, monitor);
 
         let strip = gtk::Box::builder()
             .spacing(8)
@@ -208,44 +227,142 @@ impl OverviewSurface {
             .css_classes(["dash"])
             .visible(false)
             .build();
+        let entry = gtk::SearchEntry::builder()
+            .placeholder_text("Type to search")
+            .halign(gtk::Align::Center)
+            .css_classes(["overview-search"])
+            .build();
+        // Typing anywhere searches, as in GNOME.
+        entry.set_key_capture_widget(Some(&window));
+        let windows_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        windows_page.append(&cards);
+        windows_page.append(&empty);
+        windows_page.append(&stash);
+        let (pages, results, grid) = pages(&windows_page);
+        let grid_icon = gtk::Image::from_icon_name("view-app-grid-symbolic");
+        grid_icon.set_pixel_size(32);
+        let grid_button = gtk::ToggleButton::builder()
+            .child(&grid_icon)
+            .width_request(60)
+            .css_classes(["dash-app", "dash-grid"])
+            .tooltip_text("Show Apps")
+            .build();
         let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        content.append(&entry);
         content.append(&strip);
-        content.append(&cards);
-        content.append(&empty);
-        content.append(&stash);
+        content.append(&pages);
         content.append(&dash);
         window.set_child(Some(&content));
 
-        // A click on empty space or Escape closes it.
-        let click = gtk::GestureClick::new();
-        click.connect_released(|g, _, _, _| {
-            if let Some(w) = g.widget() {
-                hide_all(&w);
-            }
-        });
-        content.add_controller(click);
-        let keys = gtk::EventControllerKey::new();
-        keys.connect_key_pressed(|k, key, _, _| {
-            if key == gdk::Key::Escape {
-                if let Some(w) = k.widget() {
-                    hide_all(&w);
-                }
-                return glib::Propagation::Stop;
-            }
-            glib::Propagation::Proceed
-        });
-        window.add_controller(keys);
+        close_on_escape_and_click(&window, &content);
 
-        Self {
+        let me = Rc::new(Self {
             window,
             actions,
+            shell,
             strip,
             cards,
             layout,
             empty,
             stash,
             dash,
+            grid_button,
+            entry,
+            pages,
+            results,
+            grid,
+            mode: Cell::new(Mode::Windows),
             shown: RefCell::new(None),
+            shown_search: RefCell::new(None),
+            shown_grid: RefCell::new(None),
+        });
+        me.connect_controls();
+        me
+    }
+
+    /// The search entry and the grid button.
+    fn connect_controls(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.entry.connect_search_changed(move |_| {
+            if let Some(me) = weak.upgrade() {
+                me.update_page();
+            }
+        });
+        // Escape: first the search, then the overview.
+        let weak = Rc::downgrade(self);
+        self.entry.connect_stop_search(move |e| {
+            if e.text().is_empty() {
+                hide_all(e);
+            } else if let Some(me) = weak.upgrade() {
+                e.set_text("");
+                me.update_page();
+            }
+        });
+        // Enter: the first result.
+        let weak = Rc::downgrade(self);
+        self.entry.connect_activate(move |e| {
+            if let Some(me) = weak.upgrade() {
+                me.activate_first();
+                hide_all(e);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.grid_button.connect_clicked(move |b| {
+            if let Some(me) = weak.upgrade() {
+                me.set_mode(if b.is_active() {
+                    Mode::Apps
+                } else {
+                    Mode::Windows
+                });
+            }
+        });
+    }
+
+    /// Windows or the app grid; a search shows its results over either.
+    pub fn set_mode(&self, mode: Mode) {
+        self.mode.set(mode);
+        self.grid_button.set_active(mode == Mode::Apps);
+        self.update_page();
+    }
+
+    pub fn mode(&self) -> Mode {
+        self.mode.get()
+    }
+
+    /// The page for the search and the mode, its content current.
+    fn update_page(&self) {
+        let query = self.entry.text();
+        if !query.trim().is_empty() {
+            let view = self.shell.borrow().search(&query);
+            if self.shown_search.borrow().as_ref() != Some(&view) {
+                self.render_search(&view);
+                self.shown_search.replace(Some(view));
+            }
+            self.pages.set_visible_child_name("search");
+            return;
+        }
+        match self.mode.get() {
+            Mode::Windows => self.pages.set_visible_child_name("windows"),
+            Mode::Apps => {
+                let grid = self.shell.borrow().app_grid();
+                if self.shown_grid.borrow().as_ref() != Some(&grid) {
+                    self.render_grid(&grid);
+                    self.shown_grid.replace(Some(grid));
+                }
+                self.pages.set_visible_child_name("apps");
+            }
+        }
+    }
+
+    /// Enter in the search: start the first app, else show the first window.
+    fn activate_first(&self) {
+        let Some(view) = self.shown_search.borrow().clone() else {
+            return;
+        };
+        if let Some(hit) = view.apps.first() {
+            self.launch_app(&hit.app, hit.context.as_deref())();
+        } else if let Some(hit) = view.windows.first() {
+            self.show_window(hit)();
         }
     }
 
@@ -263,8 +380,11 @@ impl OverviewSurface {
         self.window.present();
     }
 
+    /// Hidden, it starts over next time: no search, the windows.
     pub fn hide(&self) {
         self.window.set_visible(false);
+        self.entry.set_text("");
+        self.set_mode(Mode::Windows);
     }
 
     pub fn close(&self) {
@@ -313,8 +433,14 @@ impl OverviewSurface {
             favorites = entry.favorite;
             self.dash.append(&self.dash_app(entry));
         }
+        if !view.dash.is_empty() {
+            self.dash
+                .append(&gtk::Separator::new(gtk::Orientation::Vertical));
+            self.dash.append(&self.grid_button);
+        }
         self.dash.set_visible(!view.dash.is_empty());
         self.shown.replace(Some(view.clone()));
+        self.update_page();
     }
 
     fn send(&self, action: Action) -> impl Fn() + 'static {
@@ -329,7 +455,7 @@ impl OverviewSurface {
     fn workspace(&self, w: &WorkspaceButton) -> gtk::Button {
         let b = gtk::Button::builder().label(&w.name).build();
         b.add_css_class(&w.accent.css_class());
-        if matches!(w.accent, crate::model::Accent::Context(_)) {
+        if matches!(w.accent, Accent::Context(_)) {
             b.add_css_class("context");
         }
         if w.active {
@@ -554,6 +680,287 @@ impl OverviewSurface {
         }
         popover
     }
+}
+
+impl OverviewSurface {
+    fn render_search(&self, view: &SearchView) {
+        clear(&self.results);
+        if view.apps.is_empty() && view.windows.is_empty() {
+            self.results.append(
+                &gtk::Label::builder()
+                    .label("No results")
+                    .css_classes(["overview-empty"])
+                    .margin_top(48)
+                    .build(),
+            );
+            return;
+        }
+        if !view.apps.is_empty() {
+            let flow = tiles();
+            for hit in &view.apps {
+                flow.append(&self.app_tile(hit));
+            }
+            self.results.append(&flow);
+        }
+        if !view.windows.is_empty() {
+            self.results.append(
+                &gtk::Label::builder()
+                    .label("Windows")
+                    .halign(gtk::Align::Start)
+                    .css_classes(["results-heading"])
+                    .build(),
+            );
+            let list = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(6)
+                .build();
+            for hit in &view.windows {
+                list.append(&self.window_hit(hit));
+            }
+            self.results.append(&list);
+        }
+    }
+
+    fn render_grid(&self, sections: &[AppSection]) {
+        clear(&self.grid);
+        if sections.is_empty() {
+            self.grid.append(
+                &gtk::Label::builder()
+                    .label("No apps")
+                    .css_classes(["overview-empty"])
+                    .margin_top(48)
+                    .build(),
+            );
+        }
+        for section in sections {
+            let title = gtk::Label::builder()
+                .label(section.context.as_deref().unwrap_or("Host"))
+                .halign(gtk::Align::Start)
+                .css_classes(["grid-section", &section.accent.css_class()])
+                .build();
+            if section.context.is_some() {
+                title.add_css_class("koje-ctx");
+            }
+            self.grid.append(&title);
+            let flow = tiles();
+            for app in &section.apps {
+                flow.append(&self.app_tile(&AppHit {
+                    app: app.clone(),
+                    context: section.context.clone(),
+                    accent: section.accent.clone(),
+                }));
+            }
+            self.grid.append(&flow);
+        }
+    }
+
+    /// An app in the grid or the search: its icon, its name, a mark in its
+    /// context's color. A click starts it there.
+    fn app_tile(&self, hit: &AppHit) -> gtk::Button {
+        let column = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .build();
+        let icon = gtk::Image::from_gicon(&item_icon(&hit.app));
+        icon.set_pixel_size(64);
+        column.append(&icon);
+        column.append(
+            &gtk::Label::builder()
+                .label(&hit.app.name)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(14)
+                .width_chars(14)
+                .justify(gtk::Justification::Center)
+                .build(),
+        );
+        let mark = gtk::Box::builder()
+            .css_classes(["context-mark"])
+            .halign(gtk::Align::Center)
+            .build();
+        mark.set_opacity(if hit.context.is_some() { 1.0 } else { 0.0 });
+        column.append(&mark);
+        let b = gtk::Button::builder()
+            .child(&column)
+            .css_classes(["app-tile", &hit.accent.css_class()])
+            .tooltip_text(match &hit.context {
+                Some(c) => format!("{} – {c}", hit.app.name),
+                None => hit.app.name.clone(),
+            })
+            .build();
+        let launch = self.launch_app(&hit.app, hit.context.as_deref());
+        b.connect_clicked(move |b| {
+            launch();
+            hide_all(b);
+        });
+        b
+    }
+
+    fn window_hit(&self, hit: &WindowHit) -> gtk::Button {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let icon = gtk::Image::from_gicon(&crate::app_info::icon(&hit.app));
+        icon.set_pixel_size(32);
+        row.append(&icon);
+        row.append(
+            &gtk::Label::builder()
+                .label(&hit.title)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(60)
+                .xalign(0.0)
+                .hexpand(true)
+                .build(),
+        );
+        if let Some(c) = &hit.context {
+            row.append(
+                &gtk::Label::builder()
+                    .label(c)
+                    .css_classes(["context-pill", &hit.accent.css_class()])
+                    .valign(gtk::Align::Center)
+                    .build(),
+            );
+        }
+        let b = gtk::Button::builder()
+            .child(&row)
+            .css_classes(["window-hit"])
+            .build();
+        let show = self.show_window(hit);
+        b.connect_clicked(move |b| {
+            show();
+            hide_all(b);
+        });
+        b
+    }
+
+    /// Start an app in its context, or on the host.
+    fn launch_app(&self, app: &AppItem, context: Option<&str>) -> impl Fn() + use<> {
+        let actions = self.actions.clone();
+        let (id, context) = (app.id.clone(), context.map(str::to_owned));
+        move || match &context {
+            Some(context) => {
+                let _ = actions.send(Action::Launch {
+                    context: context.clone(),
+                    id: id.clone(),
+                });
+            }
+            None => launch_on_host(&id),
+        }
+    }
+
+    /// A window from the search: a stashed one comes back first.
+    fn show_window(&self, hit: &WindowHit) -> impl Fn() + use<> {
+        let actions = self.actions.clone();
+        let hit = hit.clone();
+        move || {
+            if let (true, Some(context)) = (hit.stashed, &hit.context) {
+                let _ = actions.send(Action::Unstash {
+                    context: context.clone(),
+                    address: hit.address.clone(),
+                });
+            }
+            let _ = actions.send(Action::FocusWindow(hit.address.clone()));
+        }
+    }
+}
+
+/// The middle of the overview: the windows, the search results, the app
+/// grid – the last two scrolled.
+fn pages(windows: &gtk::Box) -> (gtk::Stack, gtk::Box, gtk::Box) {
+    let results = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .halign(gtk::Align::Center)
+        .margin_top(16)
+        .build();
+    let grid = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .margin_start(96)
+        .margin_end(96)
+        .margin_bottom(24)
+        .build();
+    let scrolled = |child: &gtk::Box| {
+        gtk::ScrolledWindow::builder()
+            .child(child)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .build()
+    };
+    let pages = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .vexpand(true)
+        .build();
+    pages.add_named(windows, Some("windows"));
+    pages.add_named(&scrolled(&results), Some("search"));
+    pages.add_named(&scrolled(&grid), Some("apps"));
+    (pages, results, grid)
+}
+
+/// A layer-shell surface over the whole monitor below the bar.
+fn layer_window(app: &adw::Application, monitor: &gdk::Monitor) -> gtk::Window {
+    let window = gtk::Window::builder()
+        .application(app)
+        .title("koje overview")
+        .build();
+    window.add_css_class("koje-overview");
+    window.init_layer_shell();
+    window.set_layer(Layer::Top);
+    window.set_namespace(Some("koje-overview"));
+    window.set_monitor(Some(monitor));
+    for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
+        window.set_anchor(edge, true);
+    }
+    // Below the bar, as GNOME's.
+    window.set_exclusive_zone(0);
+    window
+}
+
+/// A click on empty space or Escape closes the overview.
+fn close_on_escape_and_click(window: &gtk::Window, content: &gtk::Box) {
+    let click = gtk::GestureClick::new();
+    click.connect_released(|g, _, _, _| {
+        if let Some(w) = g.widget() {
+            hide_all(&w);
+        }
+    });
+    content.add_controller(click);
+    let keys = gtk::EventControllerKey::new();
+    keys.connect_key_pressed(|k, key, _, _| {
+        if key == gdk::Key::Escape {
+            if let Some(w) = k.widget() {
+                hide_all(&w);
+            }
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
+    window.add_controller(keys);
+}
+
+/// A flow of app tiles, as GNOME's grid.
+fn tiles() -> gtk::FlowBox {
+    gtk::FlowBox::builder()
+        .homogeneous(true)
+        .max_children_per_line(8)
+        .min_children_per_line(3)
+        .selection_mode(gtk::SelectionMode::None)
+        .column_spacing(12)
+        .row_spacing(12)
+        .build()
+}
+
+/// An app's icon: a file in its context, a theme icon the host has, else
+/// what the host knows for its desktop file id.
+fn item_icon(app: &AppItem) -> gtk4::gio::Icon {
+    let theme = gdk::Display::default().map(|d| gtk::IconTheme::for_display(&d));
+    let usable = |i: &str| {
+        if i.starts_with('/') {
+            std::path::Path::new(i).is_file()
+        } else {
+            theme.as_ref().is_some_and(|t| t.has_icon(i))
+        }
+    };
+    app.icon
+        .as_deref()
+        .filter(|i| usable(i))
+        .and_then(|i| gtk4::gio::Icon::for_string(i).ok())
+        .unwrap_or_else(|| crate::app_info::icon(&app.id))
 }
 
 /// The app's name and, for a context's, the context.

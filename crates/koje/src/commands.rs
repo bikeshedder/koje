@@ -76,9 +76,12 @@ pub fn run(command: &Command) -> Result<()> {
             command,
         } => crate::runtime::run(&paths, &ctx.context, command, !*no_focus),
 
-        Command::Apps { ctx, start, menu } => {
-            crate::apps::run(&paths, ctx, start.as_deref(), *menu)
-        }
+        Command::Apps {
+            ctx,
+            start,
+            menu,
+            json,
+        } => crate::apps::run(&paths, ctx, start.as_deref(), *menu, *json),
         Command::Dotfiles { context } => crate::dotfiles::run(&paths, context.as_deref()),
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 

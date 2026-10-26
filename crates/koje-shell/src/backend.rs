@@ -174,6 +174,23 @@ async fn act(
                     tracing::warn!("kojed: Focus {context}: {e:#}");
                 }
             }
+            Action::RefreshApps(contexts) => {
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    for context in contexts {
+                        let args = ["apps", "-c", &context, "--json"].map(str::to_owned);
+                        match koje_output(crate::KOJE, &args).await {
+                            Ok(out) => match serde_json::from_str(&out) {
+                                Ok(apps) => {
+                                    let _ = tx.send(Update::Apps { context, apps }).await;
+                                }
+                                Err(e) => tracing::warn!("koje apps -c {context} --json: {e}"),
+                            },
+                            Err(e) => tracing::debug!("koje apps -c {context}: {e}"),
+                        }
+                    }
+                });
+            }
             Action::Launch { context, id } => {
                 // Its own task: starting may take a while.
                 tokio::spawn(async move {
@@ -275,6 +292,11 @@ async fn display_change(keep: bool) -> Result<()> {
 /// Run `koje <args>` (`koje limit`, `up`, `down`, …): the CLI checks, writes
 /// and tells kojed, as when typed. The error is its message.
 async fn run_koje(koje: &str, args: &[String]) -> Result<(), String> {
+    koje_output(koje, args).await.map(drop)
+}
+
+/// [`run_koje`], with what it printed.
+async fn koje_output(koje: &str, args: &[String]) -> Result<String, String> {
     let run = tokio::process::Command::new(koje)
         .args(args)
         .stdin(std::process::Stdio::null())
@@ -291,7 +313,7 @@ async fn run_koje(koje: &str, args: &[String]) -> Result<(), String> {
         }
     };
     if out.status.success() {
-        return Ok(());
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     let err = String::from_utf8_lossy(&out.stderr);
     let err = err.trim().trim_start_matches("Error: ");

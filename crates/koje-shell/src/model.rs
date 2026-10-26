@@ -13,6 +13,7 @@ use crate::dash::{DashInput, dash};
 use crate::menu::{HistoryReading, MenuInput, MenuView, NEW_CONTEXT, menu};
 use crate::overview::{OverviewView, Stash, WindowCard, on_workspace};
 use crate::quick::{QuickView, System, quick};
+use crate::search::{AppItem, AppSection, SearchView, grid, search};
 use crate::system::Change;
 
 /// Something the shell learned from kojed or Hyprland.
@@ -44,6 +45,10 @@ pub enum Update {
     Bar(BarConfig),
     /// GNOME's favorite apps (`org.gnome.shell favorite-apps`).
     Favorites(Vec<String>),
+    /// A running context's programs (`koje apps --json`).
+    Apps { context: String, apps: Vec<AppItem> },
+    /// The host's programs.
+    HostApps(Vec<AppItem>),
     /// GNOME Settings changed the screens: ask to keep them within that many
     /// seconds (M8.53). Not part of the bar's state.
     DisplayChangePending(u32),
@@ -223,6 +228,9 @@ pub struct Shell {
     /// `[bar]` of `config.toml`.
     bar: BarConfig,
     favorites: Vec<String>,
+    /// The programs of each context that ran when they were read.
+    apps: BTreeMap<String, Vec<AppItem>>,
+    host_apps: Vec<AppItem>,
 }
 
 /// Whose color an element shows as its accent: a context's, or the grey of
@@ -293,6 +301,8 @@ pub enum Action {
     },
     /// Show a context's workspace (kojed's `Focus`).
     FocusContext(String),
+    /// Read these contexts' programs again (`koje apps --json`).
+    RefreshApps(Vec<String>),
     /// Change a context's limits with `koje limit`: sizes as it takes them,
     /// `none` to remove one ([`crate::menu::limit_arg`]).
     SetLimits {
@@ -377,6 +387,7 @@ impl Action {
             | Self::CloseWindow(_)
             | Self::Unstash { .. }
             | Self::Launch { .. }
+            | Self::RefreshApps(_)
             | Self::FocusContext(_)
             | Self::Quick(_)
             | Self::KeepDisplayChange
@@ -393,6 +404,10 @@ impl Shell {
             Update::Desktop(desktop) => self.desktop = desktop,
             Update::Bar(bar) => self.bar = bar,
             Update::Favorites(favorites) => self.favorites = favorites,
+            Update::Apps { context, apps } => {
+                self.apps.insert(context, apps);
+            }
+            Update::HostApps(apps) => self.host_apps = apps,
             Update::DisplayChangePending(_) => {}
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
@@ -509,6 +524,45 @@ impl Shell {
             quick: quick(&self.system),
             warning: (self.kojed == Kojed::Gone).then_some(KOJED_GONE),
         }
+    }
+
+    /// The names of the running contexts.
+    pub fn running(&self) -> Vec<String> {
+        self.contexts().iter().map(|c| c.name.clone()).collect()
+    }
+
+    /// The context shown on the focused monitor, if one is.
+    fn active_context(&self) -> Option<&str> {
+        let mon = self.monitor(self.focused_monitor())?;
+        match self.accent(&mon.active_workspace) {
+            Accent::Context(_) => Some(mon.active_workspace.as_str()),
+            Accent::Host => None,
+        }
+    }
+
+    /// The programs of the running contexts.
+    fn running_apps(&self) -> Vec<(String, Vec<AppItem>)> {
+        self.contexts()
+            .iter()
+            .filter_map(|c| Some((c.name.clone(), self.apps.get(&c.name)?.clone())))
+            .collect()
+    }
+
+    /// What the overview's search finds (ADR 0049).
+    pub fn search(&self, query: &str) -> SearchView {
+        search(
+            query,
+            &self.running_apps(),
+            &self.host_apps,
+            &self.desktop.windows,
+            &self.running(),
+            self.active_context(),
+        )
+    }
+
+    /// The app grid (Super+A, ADR 0049).
+    pub fn app_grid(&self) -> Vec<AppSection> {
+        grid(&self.running_apps(), &self.host_apps, self.active_context())
     }
 
     /// The monitor with the keyboard focus.

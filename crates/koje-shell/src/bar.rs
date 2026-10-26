@@ -5,6 +5,7 @@
 //! [`Action`]s.
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use gtk4 as gtk;
 use gtk4::gdk;
@@ -17,7 +18,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::bar_layout::bar_box;
 use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
-use crate::model::{Action, BarView, WorkspaceButton};
+use crate::model::{Action, BarView, Shell, WorkspaceButton};
 use crate::overview_ui::OverviewSurface;
 use crate::quick_ui::QuickWidget;
 
@@ -34,7 +35,7 @@ pub struct Bar {
     /// What the bar shows now: an update that changes nothing redraws nothing.
     shown: RefCell<Option<BarView>>,
     /// The monitor's overview (ADR 0049), hidden until asked for.
-    overview: OverviewSurface,
+    overview: Rc<OverviewSurface>,
 }
 
 impl Bar {
@@ -42,6 +43,7 @@ impl Bar {
         app: &adw::Application,
         monitor: &gdk::Monitor,
         actions: UnboundedSender<Action>,
+        shell: Rc<RefCell<Shell>>,
     ) -> Self {
         let window = gtk::Window::builder()
             .application(app)
@@ -82,7 +84,7 @@ impl Bar {
         let layout = bar_box(&workspaces, clock.widget(), &end);
         window.set_child(Some(&layout));
         window.present();
-        let overview = OverviewSurface::new(app, monitor, actions.clone());
+        let overview = OverviewSurface::new(app, monitor, actions.clone(), shell);
 
         Self {
             monitor: monitor.clone(),

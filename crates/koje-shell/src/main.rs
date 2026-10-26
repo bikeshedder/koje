@@ -19,6 +19,7 @@ mod overview;
 mod overview_ui;
 mod quick;
 mod quick_ui;
+mod search;
 mod system;
 
 use std::cell::RefCell;
@@ -32,6 +33,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::bar::Bar;
 use crate::model::{Action, Shell, Update, reconcile};
+use crate::overview_ui::Mode;
 
 /// Also the shell's name on the session bus: `GApplication` keeps it to one
 /// instance, and the systemd unit waits for it.
@@ -104,10 +106,12 @@ fn main() -> glib::ExitCode {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-    // `koje-shell overview`: show or hide the running shell's overview
-    // (Super, ADR 0049).
-    if std::env::args().nth(1).as_deref() == Some("overview") {
-        return remote_action("overview");
+    // `koje-shell overview` / `apps`: show or hide the running shell's
+    // overview or app grid (Super, Super+A; ADR 0049).
+    match std::env::args().nth(1).as_deref() {
+        Some("overview") => return remote_action("overview"),
+        Some("apps") => return remote_action("app-grid"),
+        _ => {}
     }
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_startup(start);
@@ -177,7 +181,8 @@ fn start(app: &adw::Application) {
 
     follow_config(&shell, &bars);
     follow_favorites(&shell, &bars);
-    overview_actions(app, &bars, &shell);
+    overview_actions(app, &bars, &shell, &actions_for_confirm);
+    follow_host_apps(&shell, &bars);
     // GNOME's questions with a countdown: a display change, ending the session.
     let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
     let end_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
@@ -274,6 +279,24 @@ fn follow_config(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
     }
 }
 
+/// The host's programs for the search and the app grid, now and whenever
+/// they change.
+fn follow_host_apps(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
+    let load = {
+        let (shell, bars) = (shell.clone(), bars.clone());
+        move || {
+            shell
+                .borrow_mut()
+                .apply(Update::HostApps(app_info::host_apps()));
+            render(&bars, &shell);
+        }
+    };
+    load();
+    let monitor = gio::AppInfoMonitor::get();
+    monitor.connect_changed(move |_| load());
+    std::mem::forget(monitor);
+}
+
 /// GNOME's favorite apps for the dash, now and whenever they change.
 fn follow_favorites(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
     let Some(settings) = app_info::shell_settings() else {
@@ -338,36 +361,64 @@ fn render(bars: &Bars, shell: &Rc<RefCell<Shell>>) {
     }
 }
 
-/// The actions `overview` (show or hide it on every monitor; Super) and
-/// `hide-overview` (after a click in it, Escape).
-fn overview_actions(app: &adw::Application, bars: &Bars, shell: &Rc<RefCell<Shell>>) {
-    let toggle = gio::SimpleAction::new("overview", None);
-    toggle.connect_activate({
-        let (bars, shell) = (bars.clone(), shell.clone());
-        move |_, _| {
-            let open = bars.borrow().iter().any(|b| b.overview().is_visible());
-            if open {
-                hide_overviews(&bars);
-                return;
-            }
-            let s = shell.borrow();
-            let focused = s.focused_monitor();
-            for bar in bars.borrow().iter() {
-                let connector = bar.connector();
-                bar.overview()
-                    .render(&s.overview(connector.as_deref(), &app_info::desktop_id));
-                let here = focused.is_none_or(|f| connector.as_deref() == Some(f));
-                bar.overview().show(here);
-            }
-        }
-    });
-    app.add_action(&toggle);
+/// The actions `overview` (show or hide it on every monitor; Super),
+/// `app-grid` (the same with the app grid; Super+A) and `hide-overview`
+/// (after a click in it, Escape).
+fn overview_actions(
+    app: &adw::Application,
+    bars: &Bars,
+    shell: &Rc<RefCell<Shell>>,
+    actions: &UnboundedSender<Action>,
+) {
+    for (name, mode) in [("overview", Mode::Windows), ("app-grid", Mode::Apps)] {
+        let action = gio::SimpleAction::new(name, None);
+        let (bars, shell, actions) = (bars.clone(), shell.clone(), actions.clone());
+        action.connect_activate(move |_, _| toggle_overview(&bars, &shell, &actions, mode));
+        app.add_action(&action);
+    }
     let hide = gio::SimpleAction::new("hide-overview", None);
     hide.connect_activate({
         let bars = bars.clone();
         move |_, _| hide_overviews(&bars)
     });
     app.add_action(&hide);
+}
+
+/// Open the overview in `mode`; open in that mode, close it; open in the
+/// other, switch.
+fn toggle_overview(
+    bars: &Bars,
+    shell: &Rc<RefCell<Shell>>,
+    actions: &UnboundedSender<Action>,
+    mode: Mode,
+) {
+    let s = shell.borrow();
+    let focused = s.focused_monitor();
+    let bars = bars.borrow();
+    let here = |bar: &Bar| focused.is_none_or(|f| bar.connector().as_deref() == Some(f));
+    let main = bars.iter().find(|b| here(b)).or_else(|| bars.first());
+    if bars.iter().any(|b| b.overview().is_visible()) {
+        if main.is_some_and(|b| b.overview().mode() != mode) {
+            main.inspect(|b| b.overview().set_mode(mode));
+        } else {
+            for bar in bars.iter() {
+                bar.overview().hide();
+            }
+        }
+        return;
+    }
+    // The contexts' programs may have changed since: read them again.
+    let _ = actions.send(Action::RefreshApps(s.running()));
+    for bar in bars.iter() {
+        let connector = bar.connector();
+        bar.overview()
+            .render(&s.overview(connector.as_deref(), &app_info::desktop_id));
+        let is_main = main.is_some_and(|m| std::ptr::eq(m, bar));
+        if is_main {
+            bar.overview().set_mode(mode);
+        }
+        bar.overview().show(is_main);
+    }
 }
 
 fn hide_overviews(bars: &Bars) {
@@ -396,7 +447,7 @@ fn sync_bars(
             bars.remove(i).close();
         }
         for monitor in add {
-            bars.push(Bar::new(app, monitor, actions.clone()));
+            bars.push(Bar::new(app, monitor, actions.clone(), shell.clone()));
         }
     }
     render(bars, shell);

@@ -15,7 +15,7 @@
 #   type TEXT         type letters, digits, space
 #   pause SECONDS
 # Afterwards <out dir> holds hypr.log (Hyprland requests), kojed.log (kojed
-# calls), shell.log. Example:
+# calls), koje.log (CLI calls), shell.log. Example:
 #   scripts/smoke/run.sh /tmp/x 'overview; pause 1; shot overview'
 set -euo pipefail
 
@@ -50,7 +50,8 @@ cat >"$run/schemas/org.gnome.shell.gschema.xml" <<'XML'
 XML
 glib-compile-schemas "$run/schemas"
 export GSETTINGS_SCHEMA_DIR=$run/schemas GSETTINGS_BACKEND=keyfile
-export PATH=$root/target/debug:$PATH
+# A fake `koje` (bin/koje): the shell runs it for `apps`, `up`, …
+export PATH=$here/bin:$PATH KOJE_LOG=$out/koje.log
 export SHELL_BIN=$root/target/debug/koje-shell OUT=$out LOG=$out/kojed.log INPUT=$run/input
 
 dbus-run-session -- bash -c '

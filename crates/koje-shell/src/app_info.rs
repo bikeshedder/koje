@@ -85,3 +85,30 @@ pub fn set_favorite(id: &str, favorite: bool) {
         tracing::warn!("changing GNOME's favorites: {e}");
     }
 }
+
+/// The host's programs as GNOME lists them (`should_show`: not hidden, for
+/// this desktop).
+pub fn host_apps() -> Vec<crate::search::AppItem> {
+    gio::AppInfo::all()
+        .into_iter()
+        .filter(gio::prelude::AppInfoExt::should_show)
+        .filter_map(|a| a.downcast::<gio_unix::DesktopAppInfo>().ok())
+        .filter_map(|d| {
+            Some(crate::search::AppItem {
+                name: d.name().to_string(),
+                id: d.id()?.to_string(),
+                icon: d
+                    .icon()
+                    .and_then(|i| gio::prelude::IconExt::to_string(&i))
+                    .map(String::from),
+                keywords: d
+                    .generic_name()
+                    .into_iter()
+                    .map(String::from)
+                    .chain(d.keywords().iter().map(ToString::to_string))
+                    .collect(),
+                terminal: false,
+            })
+        })
+        .collect()
+}

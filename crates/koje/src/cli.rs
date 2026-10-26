@@ -174,6 +174,9 @@ pub enum Command {
         /// For the menu: first a line with the context and its memory.
         #[arg(long)]
         menu: bool,
+        /// As JSON (name, id, icon, keywords, terminal) for koje-shell.
+        #[arg(long, conflicts_with_all = ["menu", "start"])]
+        json: bool,
     },
     /// Link the dotfiles presets again now (e.g. after adding files to one) in
     /// every running context, or one; lists the presets there are (ADR 0038).

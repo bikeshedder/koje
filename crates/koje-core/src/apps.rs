@@ -21,8 +21,9 @@ for d in "${XDG_DATA_HOME:-$HOME/.local/share}" ${XDG_DATA_DIRS:-/usr/local/shar
 done
 exit 0"#;
 
-/// koje's desktop for `OnlyShowIn` / `NotShowIn`.
-const DESKTOP: &str = "Hyprland";
+/// The koje session's desktops (`XDG_CURRENT_DESKTOP=koje:GNOME`, ADR 0048)
+/// for `OnlyShowIn` / `NotShowIn`.
+const DESKTOPS: [&str; 2] = ["koje", "GNOME"];
 
 /// A program in the menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +38,10 @@ pub struct App {
     pub command: Vec<String>,
     /// `Terminal=true`: runs inside a terminal.
     pub terminal: bool,
+    /// `Icon`: a theme icon's name or a file in the context.
+    pub icon: Option<String>,
+    /// `GenericName` and `Keywords`: what search finds it by besides its name.
+    pub keywords: Vec<String>,
 }
 
 /// What koje uses of a menu entry.
@@ -46,6 +51,8 @@ pub struct Entry {
     pub exec: String,
     pub icon: Option<String>,
     pub terminal: bool,
+    /// `GenericName`, then `Keywords`.
+    pub keywords: Vec<String>,
 }
 
 /// The `[Desktop Entry]` group of a desktop file, if it belongs in a menu:
@@ -62,7 +69,10 @@ pub fn menu_entry(text: &str) -> Option<Entry> {
         }
     }
     let is = |k: &str| keys.get(k).is_some_and(|v| *v == "true");
-    let lists_us = |k: &str| keys.get(k).map(|v| v.split(';').any(|d| d == DESKTOP));
+    let lists_us = |k: &str| {
+        keys.get(k)
+            .map(|v| v.split(';').any(|d| DESKTOPS.contains(&d)))
+    };
     let shown = lists_us("OnlyShowIn").unwrap_or(true) && !lists_us("NotShowIn").unwrap_or(false);
     let name = keys.get("Name").filter(|n| !n.is_empty())?;
     let exec = keys.get("Exec").filter(|e| !e.is_empty())?;
@@ -72,6 +82,15 @@ pub fn menu_entry(text: &str) -> Option<Entry> {
             exec: (*exec).to_owned(),
             icon: keys.get("Icon").map(|i| (*i).to_owned()),
             terminal: is("Terminal"),
+            keywords: keys
+                .get("GenericName")
+                .into_iter()
+                .chain(keys.get("Keywords"))
+                .flat_map(|v| v.split(';'))
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+                .map(str::to_owned)
+                .collect(),
         },
     )
 }
@@ -155,6 +174,33 @@ pub fn exec_command(entry: &Entry, path: &str) -> Option<Vec<String>> {
     (!out.is_empty()).then_some(out)
 }
 
+/// Where an app's `Icon` may be inside a context – its own icons are not in
+/// the host's theme: a path as it is, else the hicolor theme's sizes from
+/// the largest and `pixmaps` in the system data directories.
+pub fn icon_candidates(icon: &str) -> Vec<String> {
+    if icon.starts_with('/') {
+        return vec![icon.to_owned()];
+    }
+    if icon.is_empty() || icon.contains('/') {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for dir in [
+        "/usr/local/share",
+        "/usr/share",
+        "/var/lib/flatpak/exports/share",
+    ] {
+        out.push(format!("{dir}/icons/hicolor/scalable/apps/{icon}.svg"));
+        for size in [512, 256, 128, 96, 64, 48] {
+            out.push(format!("{dir}/icons/hicolor/{size}x{size}/apps/{icon}.png"));
+        }
+    }
+    for ext in ["svg", "png"] {
+        out.push(format!("/usr/share/pixmaps/{icon}.{ext}"));
+    }
+    out
+}
+
 /// The menu from [`LIST_SCRIPT`]'s output, sorted by name. An id seen first
 /// (the user's directory) hides later files with the same id, also when the
 /// first one is hidden – that is how users remove an entry.
@@ -176,6 +222,8 @@ pub fn parse_listing(out: &str) -> Vec<App> {
                 path: path.to_owned(),
                 command,
                 terminal: entry.terminal,
+                icon: entry.icon,
+                keywords: entry.keywords,
             });
         }
     }
@@ -213,21 +261,35 @@ mod tests {
                 name: "Files".into(),
                 exec: "nautilus %U".into(),
                 icon: Some("nautilus".into()),
-                terminal: true
+                terminal: true,
+                keywords: vec![]
             })
+        );
+        assert_eq!(
+            menu_entry(&entry("GenericName=File Manager\nKeywords=folder;manager;"))
+                .map(|e| e.keywords),
+            Some(vec![
+                "File Manager".into(),
+                "folder".into(),
+                "manager".into()
+            ])
         );
         for hidden in [
             "NoDisplay=true",
             "Hidden=true",
-            "OnlyShowIn=GNOME;",
-            "NotShowIn=GNOME;Hyprland;",
+            "OnlyShowIn=KDE;",
+            "NotShowIn=KDE;GNOME;",
         ] {
             assert_eq!(menu_name(&entry(hidden)), None, "{hidden}");
         }
-        assert_eq!(
-            menu_name(&entry("OnlyShowIn=GNOME;Hyprland;")).as_deref(),
-            Some("Files")
-        );
+        // The koje session is `koje:GNOME`.
+        for shown in ["OnlyShowIn=GNOME;", "OnlyShowIn=koje;", "NotShowIn=KDE;"] {
+            assert_eq!(
+                menu_name(&entry(shown)).as_deref(),
+                Some("Files"),
+                "{shown}"
+            );
+        }
         assert_eq!(
             menu_name("[Desktop Entry]\nType=Link\nName=x\nURL=y\n"),
             None
@@ -281,6 +343,25 @@ mod tests {
     }
 
     #[test]
+    fn icons_in_a_context() {
+        let c = icon_candidates("org.gnome.Nautilus");
+        assert_eq!(
+            c[0],
+            "/usr/local/share/icons/hicolor/scalable/apps/org.gnome.Nautilus.svg"
+        );
+        assert!(
+            c.contains(&"/usr/share/icons/hicolor/48x48/apps/org.gnome.Nautilus.png".to_owned())
+        );
+        assert_eq!(
+            c.last().map(String::as_str),
+            Some("/usr/share/pixmaps/org.gnome.Nautilus.png")
+        );
+        assert_eq!(icon_candidates("/opt/app/icon.png"), ["/opt/app/icon.png"]);
+        assert_eq!(icon_candidates("../x"), Vec::<String>::new());
+        assert_eq!(icon_candidates(""), Vec::<String>::new());
+    }
+
+    #[test]
     fn exec_lines() {
         let cmd = |exec: &str| {
             let e = Entry {
@@ -288,6 +369,7 @@ mod tests {
                 exec: exec.into(),
                 icon: Some("my-icon".into()),
                 terminal: false,
+                keywords: vec![],
             };
             exec_command(&e, "/usr/share/applications/my.desktop")
         };
