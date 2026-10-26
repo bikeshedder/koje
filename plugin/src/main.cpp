@@ -177,6 +177,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addDispatcherV2(PHANDLE, "koje:overview", ::onOverview);
     // GNOME's dark overview, drawn over the wallpaper as the windows fly in.
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overview_background", Hyprlang::INT{0xFF1D1D20});
+    // How long the windows fly, in ms (GNOME's overview: 250); 0: at once.
+    HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overview_duration", Hyprlang::INT{250});
     HyprlandAPI::reloadConfig();
 
     return {"koje", "koje's overview: the real windows, scaled", "koje", "1"};

@@ -52,7 +52,8 @@ window.koje-overview.live.arriving .window-card { opacity: 0; }
   background: alpha(var(--accent-bg-color), 0.22);
   border: 3px solid transparent; box-shadow: 0 2px 8px alpha(black, 0.4);
 }
-.window-preview:hover { border-color: alpha(#ffffff, 0.6); }
+/* The close button sits on the window: hovering it keeps the ring. */
+.window-card:hover .window-preview { border-color: alpha(#ffffff, 0.6); }
 .window-preview.koje-host { background: alpha(#ffffff, 0.08); }
 .window-card .window-close { opacity: 0; min-width: 28px; min-height: 28px; padding: 0; margin: 6px; }
 .window-card:hover .window-close { opacity: 1; }

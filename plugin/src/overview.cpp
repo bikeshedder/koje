@@ -8,7 +8,6 @@
 #include <hyprland/src/helpers/Monitor.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
 #include <hyprland/src/managers/EventManager.hpp>
-#include <hyprland/src/managers/animation/AnimationManager.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
@@ -59,9 +58,39 @@ static std::optional<Vector2D> shellOrigin(PHLMONITOR monitor) {
 // Without the shell's surface after this long the windows fly anyway.
 static constexpr auto WAIT_FOR_SHELL = std::chrono::milliseconds(300);
 
+float CProgress::value() const {
+    const auto elapsed = std::chrono::duration<float, std::milli>(Time::steadyNow() - m_start).count();
+    if (m_duration.count() <= 0 || elapsed >= m_duration.count())
+        return m_to;
+    const float x = std::max(elapsed / m_duration.count(), 0.F);
+    // Clutter's EASE_OUT_QUAD, as GNOME's overview.
+    return m_from + (m_to - m_from) * (1.F - (1.F - x) * (1.F - x));
+}
+
+void CProgress::warp(float v) {
+    m_from = m_to = v;
+    m_duration    = {};
+    m_onEnd       = {};
+}
+
+void CProgress::animateTo(float to, std::function<void()> onEnd) {
+    static auto* const* PDURATION = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:koje:overview_duration")->getDataStaticPtr();
+    m_from     = value();
+    m_to       = to;
+    m_start    = Time::steadyNow();
+    m_duration = std::chrono::milliseconds{std::max<Hyprlang::INT>(**PDURATION, 0)};
+    m_onEnd    = std::move(onEnd);
+}
+
+bool CProgress::tick() {
+    if (value() != m_to)
+        return true;
+    if (m_onEnd)
+        std::exchange(m_onEnd, {})();
+    return false;
+}
+
 COverview::COverview(PHLMONITOR monitor_) : monitor(monitor_) {
-    g_pAnimationManager->createAnimation(0.F, m_progress, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
-    m_progress->setUpdateCallback([this](auto) { damage(); });
 }
 
 COverview::~COverview() {
@@ -97,11 +126,11 @@ void COverview::setWindows(const std::vector<std::pair<PHLWINDOW, CBox>>& target
     }
     m_windows = std::move(next);
     if (animate) {
-        m_progress->setValueAndWarp(0.F);
+        m_progress.warp(0.F);
         m_waiting  = true;
         m_openedAt = Time::steadyNow();
-    } else if (m_progress->goal() < 1.F && !closing && !m_waiting) {
-        *m_progress = 1.F;
+    } else if (m_progress.goal() < 1.F && !closing && !m_waiting) {
+        m_progress.animateTo(1.F);
     }
     m_dirty = true;
     damage();
@@ -109,16 +138,11 @@ void COverview::setWindows(const std::vector<std::pair<PHLWINDOW, CBox>>& target
 
 // Into the cards; then the shell shows them (`kojeoverview>>landed,<monitor>`).
 void COverview::fly() {
-    m_waiting = false;
-    // Started first: Hyprutils runs an end callback at once for a variable
-    // that is not animating.
-    *m_progress   = 1.F;
-    const auto M  = monitor.lock();
+    m_waiting       = false;
+    const auto M    = monitor.lock();
     const auto NAME = M ? M->m_name : std::string{};
-    m_progress->setCallbackOnEnd([this, NAME](auto) {
-        if (!closing)
-            g_pEventManager->postEvent(SHyprIPCEvent{"kojeoverview", "landed," + NAME});
-    });
+    m_progress.animateTo(1.F, [NAME] { g_pEventManager->postEvent(SHyprIPCEvent{"kojeoverview", "landed," + NAME}); });
+    damage();
 }
 
 void COverview::close() {
@@ -128,7 +152,7 @@ void COverview::close() {
     m_waiting    = false;
     const auto M = monitor.lock();
     const auto NAME = M ? M->m_name : std::string{};
-    const auto end  = [NAME](auto) {
+    const auto end  = [NAME] {
         g_pEventLoopManager->doLater([NAME] { g_overviews.erase(NAME); });
     };
     // Back into their places – unless the workspace changed meanwhile: then
@@ -138,17 +162,15 @@ void COverview::close() {
                                    return W && W->m_workspace == M->m_activeWorkspace;
                                });
     if (!sameWorkspace || m_windows.empty()) {
-        end(nullptr);
+        end();
         return;
     }
     for (auto& w : m_windows) {
         if (const auto W = w.window.lock())
             w.from = placeOf(W, M);
     }
-    // Started first: Hyprutils runs an end callback at once for a variable
-    // that is not animating.
-    *m_progress = 0.F;
-    m_progress->setCallbackOnEnd(end);
+    m_progress.animateTo(0.F, end);
+    damage();
 }
 
 void COverview::render() {
@@ -173,6 +195,8 @@ void COverview::onDamage() {
 }
 
 void COverview::onPreRender() {
+    if (m_progress.tick())
+        damage();
     if (const auto M = monitor.lock()) {
         const auto origin = shellOrigin(M);
         if (origin)
@@ -242,7 +266,7 @@ void COverview::draw() {
     if (!M)
         return;
     static auto* const* PBG = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:koje:overview_background")->getDataStaticPtr();
-    const float         t   = m_progress->value();
+    const float         t   = m_progress.value();
     CRegion             all{0, 0, INT16_MAX, INT16_MAX};
     CHyprColor          bg{(uint64_t)**PBG};
     bg.a *= t;

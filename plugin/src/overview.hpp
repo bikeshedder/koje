@@ -9,9 +9,9 @@
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
-#include <hyprland/src/helpers/AnimatedVariable.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
 
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -30,6 +30,27 @@ struct SOverviewWindow {
     // The window at full size, then halved until near its card's size:
     // scaled down in steps it stays sharp (Hyprland samples linearly).
     std::vector<UP<CFramebuffer>> chain;
+};
+
+// The overview's own animation, eased out as GNOME's: it takes
+// plugin:koje:overview_duration (ms), not one of Hyprland's animations.
+class CProgress {
+  public:
+    float value() const;
+    float goal() const {
+        return m_to;
+    }
+    void warp(float v);
+    // From where it is now; `onEnd` once there.
+    void animateTo(float to, std::function<void()> onEnd = {});
+    // Each frame: true while it moves; runs `onEnd` when it arrived.
+    bool tick();
+
+  private:
+    float                     m_from = 0.F, m_to = 0.F;
+    Time::steady_tp           m_start;
+    std::chrono::milliseconds m_duration{0};
+    std::function<void()>     m_onEnd;
 };
 
 class COverview {
@@ -57,7 +78,7 @@ class COverview {
     void                         fly();
 
     std::vector<SOverviewWindow> m_windows;
-    PHLANIMVAR<float>            m_progress;
+    CProgress                    m_progress;
     bool                         m_dirty = true;
     // The shell's overview surface, relative to the monitor: where the
     // cards are. Read every frame – it is mapped only after `open`.

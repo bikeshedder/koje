@@ -36,6 +36,11 @@ way for that is a plugin – which must match the running Hyprland exactly
   on that upstream Hyprland version (`>= 0.53.3, << 0.53.4~`; the script
   stops when Ubuntu's differs). The koje session loads it (`plugin =` in the
   generated session config, ADR 0048). No hyprpm, no build on the host.
+- **Its own animation, GNOME's timing:** the windows fly in 250 ms, eased
+  out (Clutter's `EASE_OUT_QUAD`), not with Hyprland's window animation;
+  `plugin:koje:overview_duration` (ms, 0: at once) in the user's Hyprland
+  config changes it. The plugin posts `kojeoverview>>landed,<monitor>` when
+  they arrived; the shell shows the cards' rings, icons and titles then.
 - **Without the plugin** (not loaded, a Hyprland version it was not built
   for) the overview shows icons on its cards. The overview no longer captures
   windows; the capture code of M8.67 stays for the screen sharing picker
@@ -51,7 +56,7 @@ way for that is a plugin – which must match the running Hyprland exactly
   the exact version dependency makes the package manager hold Hyprland back
   until then.
 - koje keeps a plugin although title bars (ADR 0039) may lose theirs later.
-- A new plugin build reaches a running session only at the next login
-  (Hyprland keeps the loaded one).
+- Hyprland keeps a loaded plugin: `koje session restart` (run by
+  `koje setup` after a package update) loads it again from its file.
 - Follow-ups: M8.72 (build in the Ubuntu container, packaging, loading),
   M8.73 (drawing and animating the windows), M8.67 dropped in favour of them.
