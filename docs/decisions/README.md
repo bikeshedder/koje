@@ -46,8 +46,9 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0039 | [Title bars from the hyprbars plugin](0039-title-bars-with-hyprbars.md) | Accepted |
 | 0040 | [Context images: image folders, registry images, a koje layer and kept versions](0040-context-images.md) | Proposed |
 | 0041 | [Volume, brightness and media keys through `koje media`, with an OSD](0041-volume-brightness-and-media-keys.md) | Accepted |
-| 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted |
-| 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted |
+| 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted (bar design: 0047) |
+| 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted (bar: 0047) |
 | 0044 | [GNOME Settings for the system, a gsettings bridge in kojed](0044-gnome-settings-and-gsettings-bridge.md) | Accepted |
 | 0045 | [koje ships as one Debian package, built in the dev container](0045-debian-package.md) | Accepted |
 | 0046 | [Displays: GNOME Settings through Mutter's API, `monitors.xml` as the source](0046-displays-through-monitors-xml.md) | Accepted |
+| 0047 | [koje's bar is a clone of GNOME's top bar](0047-gnome-top-bar.md) | Accepted |

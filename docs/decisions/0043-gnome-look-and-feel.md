@@ -1,6 +1,6 @@
 # 0043. GNOME's look and feel, with libadwaita
 
-- Status: Accepted
+- Status: Accepted (the bar's design: ADR 0047 – a clone of GNOME's top bar)
 - Date: 2026-10-25
 - Source: discussion (the look of koje's GTK4 UI, ADR 0042); answers the open
   question "Look of koje's GTK4 UI"
