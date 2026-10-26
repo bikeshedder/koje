@@ -15,9 +15,9 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::contexts_ui::ContextListPage;
 use crate::menu::{ContextPanel, Graph, MemoryView, MenuView, Panel, limit_arg};
 use crate::model::{Accent, Action};
-use crate::overview_ui::OverviewPage;
 
 /// The koje icon's size in pixels.
 const ICON_SIZE: i32 = 16;
@@ -237,7 +237,7 @@ pub struct MenuWidget {
     popover: gtk::Popover,
     stack: gtk::Stack,
     context: ContextPage,
-    overview: Rc<OverviewPage>,
+    contexts: Rc<ContextListPage>,
 }
 
 impl MenuWidget {
@@ -259,9 +259,9 @@ impl MenuWidget {
             .margin_end(6)
             .build();
         let popover = gtk::Popover::builder().child(&stack).build();
-        let overview = OverviewPage::new(&popover, actions);
+        let contexts = ContextListPage::new(&popover, actions);
         stack.add_named(&context.root, Some("context"));
-        stack.add_named(&overview.root, Some("overview"));
+        stack.add_named(&contexts.root, Some("contexts"));
         let button = gtk::MenuButton::builder()
             .child(&face)
             .popover(&popover)
@@ -276,7 +276,7 @@ impl MenuWidget {
             popover,
             stack,
             context,
-            overview,
+            contexts,
         }
     }
 
@@ -301,9 +301,9 @@ impl MenuWidget {
                 self.context.render(p);
                 self.stack.set_visible_child_name("context");
             }
-            Panel::Overview(o) => {
-                self.overview.render(o);
-                self.stack.set_visible_child_name("overview");
+            Panel::ContextList(o) => {
+                self.contexts.render(o);
+                self.stack.set_visible_child_name("contexts");
             }
         }
     }

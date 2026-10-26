@@ -1,6 +1,6 @@
 //! The koje menu on a host workspace (M8.56): every context with its status
 //! and memory and what can be done with it – pause, wake, stop, restart,
-//! start – and a form for a new context. Renders an [`Overview`].
+//! start – and a form for a new context. Renders a [`ContextList`].
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,7 +13,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::menu::{Overview, OverviewRow, PALETTE, context_name};
+use crate::menu::{ContextList, ContextListRow, PALETTE, context_name};
 use crate::menu_ui::Meter;
 use crate::model::{Action, Status};
 
@@ -28,7 +28,7 @@ enum Confirm {
 }
 
 #[derive(Debug)]
-pub struct OverviewPage {
+pub struct ContextListPage {
     pub root: gtk::Box,
     list: gtk::ListBox,
     popover: gtk::Popover,
@@ -39,7 +39,7 @@ pub struct OverviewPage {
     names: Rc<RefCell<Vec<String>>>,
     form: NewForm,
     /// What the list shows now: re-rendered only when it changes.
-    shown: RefCell<Option<Overview>>,
+    shown: RefCell<Option<ContextList>>,
 }
 
 /// "New context…": a name and a color.
@@ -53,7 +53,7 @@ struct NewForm {
     error: gtk::Label,
 }
 
-impl OverviewPage {
+impl ContextListPage {
     pub fn new(popover: &gtk::Popover, actions: &UnboundedSender<Action>) -> Rc<Self> {
         let list = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::None)
@@ -87,7 +87,7 @@ impl OverviewPage {
         })
     }
 
-    pub fn render(self: &Rc<Self>, o: &Overview) {
+    pub fn render(self: &Rc<Self>, o: &ContextList) {
         self.form.render(o);
         if self.shown.borrow().as_ref() == Some(o) {
             return;
@@ -99,7 +99,7 @@ impl OverviewPage {
     }
 
     /// Build the list again, e.g. after a click armed a button.
-    fn rebuild(self: &Rc<Self>, o: &Overview) {
+    fn rebuild(self: &Rc<Self>, o: &ContextList) {
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
@@ -117,7 +117,7 @@ impl OverviewPage {
         }
     }
 
-    fn row(self: &Rc<Self>, r: &OverviewRow) -> adw::ActionRow {
+    fn row(self: &Rc<Self>, r: &ContextListRow) -> adw::ActionRow {
         let name = gtk::Label::builder()
             .label(&r.name)
             .css_classes(["capsule", &r.accent.css_class()])
@@ -357,7 +357,7 @@ impl NewForm {
     }
 
     /// Busy while creating; on success the form closes and empties.
-    fn render(&self, o: &Overview) {
+    fn render(&self, o: &ContextList) {
         let was_creating = self.spinner.is_visible();
         self.spinner.set_visible(o.creating);
         self.spinner.set_spinning(o.creating);

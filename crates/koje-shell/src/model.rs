@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(s.bar(None).menu.unwrap().meter.unwrap().label, "50%");
         let error = |s: &Shell| match s.bar(None).menu.unwrap().panel {
             crate::menu::Panel::Context(p) => p.error,
-            crate::menu::Panel::Overview(_) => None,
+            crate::menu::Panel::ContextList(_) => None,
         };
         s.apply(Update::Busy {
             context: "kp".into(),

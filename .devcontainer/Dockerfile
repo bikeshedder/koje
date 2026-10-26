@@ -23,6 +23,12 @@ RUN apt-get update \
         libgtk-4-dev \
         libadwaita-1-dev \
         libgtk4-layer-shell-dev \
+        sway \
+        grim \
+        fonts-cantarell \
+        adwaita-icon-theme \
+        python3-gi \
+        gir1.2-glib-2.0 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

@@ -161,7 +161,7 @@ pub struct ContextPanel {
 
 /// One context on a host workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OverviewRow {
+pub struct ContextListRow {
     pub name: String,
     pub accent: Accent,
     pub status: Status,
@@ -174,8 +174,8 @@ pub struct OverviewRow {
 /// The dropdown on a host workspace: every context, running ones first,
 /// and creating a new one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Overview {
-    pub rows: Vec<OverviewRow>,
+pub struct ContextList {
+    pub rows: Vec<ContextListRow>,
     pub creating: bool,
     pub create_error: Option<String>,
 }
@@ -183,7 +183,7 @@ pub struct Overview {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Panel {
     Context(Box<ContextPanel>),
-    Overview(Overview),
+    ContextList(ContextList),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,7 +240,7 @@ pub struct MenuInput<'a> {
     pub errors: &'a BTreeMap<String, String>,
 }
 
-fn overview(input: &MenuInput<'_>) -> Overview {
+fn context_list(input: &MenuInput<'_>) -> ContextList {
     let reading = |name: &str| input.memory.iter().find(|m| m.context == name);
     let mut all: Vec<ContextEntry> = if input.all.is_empty() {
         input
@@ -259,10 +259,10 @@ fn overview(input: &MenuInput<'_>) -> Overview {
     all.sort_by(|a, b| {
         (a.status == Status::Stopped, &a.name).cmp(&(b.status == Status::Stopped, &b.name))
     });
-    Overview {
+    ContextList {
         rows: all
             .into_iter()
-            .map(|c| OverviewRow {
+            .map(|c| ContextListRow {
                 accent: Accent::Context(c.name.clone()),
                 status: c.status,
                 memory: (c.status != Status::Stopped)
@@ -278,7 +278,7 @@ fn overview(input: &MenuInput<'_>) -> Overview {
     }
 }
 
-/// The koje menu: the active context in detail, else the overview.
+/// The koje menu: the active context in detail, else the list of contexts.
 pub fn menu(input: &MenuInput<'_>) -> MenuView {
     let reading = |name: &str| input.memory.iter().find(|m| m.context == name);
     let history = input.history;
@@ -286,7 +286,7 @@ pub fn menu(input: &MenuInput<'_>) -> MenuView {
         return MenuView {
             accent: Accent::Host,
             meter: None,
-            panel: Panel::Overview(overview(input)),
+            panel: Panel::ContextList(context_list(input)),
         };
     };
     let m = reading(&active.name);
@@ -453,7 +453,7 @@ mod tests {
             });
             match m.panel {
                 Panel::Context(p) => p.error,
-                Panel::Overview(_) => None,
+                Panel::ContextList(_) => None,
             }
         };
         assert_eq!(shown("kp"), Some("hard limit below soft".into()));
@@ -483,8 +483,8 @@ mod tests {
             (menu.accent.clone(), menu.meter.clone()),
             (Accent::Host, None)
         );
-        let Panel::Overview(o) = menu.panel else {
-            panic!("overview expected");
+        let Panel::ContextList(o) = menu.panel else {
+            panic!("context list expected");
         };
         let rows: Vec<_> = o
             .rows
@@ -507,8 +507,8 @@ mod tests {
     #[test]
     fn an_older_kojed_lists_the_running_ones() {
         let menu = plain(&[ctx("kp", false)], &[], &[], &HistoryReading::default());
-        let Panel::Overview(o) = menu.panel else {
-            panic!("overview expected");
+        let Panel::ContextList(o) = menu.panel else {
+            panic!("context list expected");
         };
         assert_eq!((o.rows.len(), o.rows[0].status), (1, Status::Running));
     }
