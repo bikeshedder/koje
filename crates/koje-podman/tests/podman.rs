@@ -2,6 +2,10 @@
 //!
 //!   cargo test -p koje-podman -- --ignored
 //!
+//! In the dev container, without the tests that need cgroups:
+//!
+//!   cargo test -p koje-podman -- --ignored --skip cgroups
+//!
 //! They only create containers labelled `io.koje.test=true` and remove them
 //! again, also when a test fails. They need `docker.io/library/alpine`
 //! (pulled on first use).
@@ -15,14 +19,16 @@ use koje_core::name::ContextName;
 use koje_core::ports::{ContainerRuntime, ContainerStatus};
 use koje_podman::Podman;
 
-/// A throwaway container `koje-kojetest-<pid>`, removed on drop.
+/// A throwaway container `koje-kojetest-<tag>-<pid>`, removed on drop.
 struct TestContainer {
     ctx: ContextName,
 }
 
 impl TestContainer {
-    fn start() -> Self {
-        let ctx = ContextName::new(format!("kojetest-{}", std::process::id())).expect("valid name");
+    /// `tag` keeps containers of tests running in parallel apart.
+    fn start(tag: &str) -> Self {
+        let ctx =
+            ContextName::new(format!("kojetest-{tag}-{}", std::process::id())).expect("valid name");
         let out = Command::new("podman")
             // --init: `sleep` as PID 1 would ignore SIGTERM (10 s per stop).
             .args(["run", "-d", "--init", "--name", &container_name(&ctx)])
@@ -62,8 +68,8 @@ impl Drop for TestContainer {
 }
 
 #[test]
-#[ignore = "needs rootless Podman on the host"]
-fn lifecycle_memory_and_pid_mapping() {
+#[ignore = "needs rootless Podman (host or dev container)"]
+fn lifecycle() {
     let podman = Podman::new();
     let missing = ContextName::new("kojetest-does-not-exist").expect("valid name");
     assert_eq!(
@@ -71,11 +77,29 @@ fn lifecycle_memory_and_pid_mapping() {
         ContainerStatus::Missing
     );
 
-    let c = TestContainer::start();
+    let c = TestContainer::start("life");
     assert_eq!(
         podman.status(&c.ctx).expect("status"),
         ContainerStatus::Running
     );
+    podman.stop(&c.ctx).expect("stop");
+    assert_eq!(
+        podman.status(&c.ctx).expect("status"),
+        ContainerStatus::Stopped
+    );
+    podman.start(&c.ctx).expect("start");
+    assert_eq!(
+        podman.status(&c.ctx).expect("status"),
+        ContainerStatus::Running
+    );
+}
+
+// The dev container has no cgroups to delegate: skip with `--skip cgroups`.
+#[test]
+#[ignore = "needs rootless Podman with cgroups (host, not the dev container)"]
+fn cgroups_memory_pid_mapping_and_pause() {
+    let podman = Podman::new();
+    let c = TestContainer::start("cg");
 
     let memory = podman.memory_usage(&c.ctx).expect("memory");
     assert!(memory.current.0 > 0, "memory.current should be positive");
@@ -98,17 +122,6 @@ fn lifecycle_memory_and_pid_mapping() {
         ContainerStatus::Paused
     );
     podman.unpause(&c.ctx).expect("unpause");
-    assert_eq!(
-        podman.status(&c.ctx).expect("status"),
-        ContainerStatus::Running
-    );
-
-    podman.stop(&c.ctx).expect("stop");
-    assert_eq!(
-        podman.status(&c.ctx).expect("status"),
-        ContainerStatus::Stopped
-    );
-    podman.start(&c.ctx).expect("start");
     assert_eq!(
         podman.status(&c.ctx).expect("status"),
         ContainerStatus::Running
@@ -193,9 +206,15 @@ fn create_from_spec_keeps_uid_and_isolates_network() {
         exec(&["sh", "-c", "echo $HOME"]),
         host.home.display().to_string()
     );
-    // Isolated: only the loopback interface.
-    let links = exec(&["ls", "/sys/class/net"]);
-    assert_eq!(links, "lo", "isolated profile must have no network");
+    // Isolated: only the loopback interface. From /proc/net/dev, not
+    // /sys/class/net: nested in the dev container, /sys is the outer one's.
+    let dev = exec(&["cat", "/proc/net/dev"]);
+    let links: Vec<_> = dev
+        .lines()
+        .filter_map(|l| l.split_once(':'))
+        .map(|(name, _)| name.trim())
+        .collect();
+    assert_eq!(links, ["lo"], "isolated profile must have no network");
 
     podman.stop(&ctx).expect("stop");
     podman.remove(&ctx).expect("remove");

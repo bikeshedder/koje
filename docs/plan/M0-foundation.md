@@ -18,5 +18,6 @@ Goal: a repository in which humans and agents can start implementing right away.
 - [x] **M0.7 Push to a Git host and get CI green**
   - Done when: repository URL set in `Cargo.toml`; CI workflow passes (check + MSRV job).
   - Notes: first CI run failed on `clippy::assert_is_empty` (new in clippy 1.99; CI and the dev container track stable). Fixed in `layout.rs` tests; CI green since run 38919341671.
-- [ ] **M0.8 Podman inside the dev container**
+- [x] **M0.8 Podman inside the dev container**
   - Done when: `podman info` works in the dev container, so `cargo test -p koje-podman -- --ignored` runs there too. Same cause as M2.5: `newuidmap` lacks its file capabilities in the image (restore them in the Dockerfile), plus `/dev/fuse` (commented in `devcontainer.json`).
+  - Verified 2026-10-26 after a rebuild: native overlay storage on the volume; `lifecycle`, the spec test and the base image test pass (`koje image build` takes under a minute here). Changes: file capabilities instead of setuid, sub-ids `1–999,1001–65535` (Debian's `100000+` lies outside the dev container's id range), `catatonit` for `--init`, `/dev/fuse` and `/dev/net/tun`, ADR 0014's inner `containers.conf` without `utsns = "host"` (conflicts with koje's `--hostname`), a volume for Podman's storage. The dev container's cgroups are read-only: the memory, pid mapping and pause checks moved into `cgroups_memory_pid_mapping_and_pause`, host only (`--skip cgroups`). The isolated-network check reads `/proc/net/dev`: nested, `/sys` is the outer one's.

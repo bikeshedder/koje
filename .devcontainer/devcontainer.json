@@ -1,6 +1,6 @@
 // Dev container for koje. Tested target: VS Code + rootless Podman on Linux.
 // One-time host setup (VS Code user settings): "dev.containers.dockerPath": "podman"
-// Details and optional extras (host Hyprland socket, nested Podman): docs/development.md
+// Details, nested Podman and the optional host Hyprland socket: docs/development.md
 {
   "name": "koje",
   // Context is the repo root so the image can install the toolchain from
@@ -21,10 +21,11 @@
   // so files in the workspace keep the host user's ownership.
   "runArgs": [
     "--userns=keep-id:uid=1000,gid=1000",
-    "--security-opt=label=disable"
-
-    // Nested Podman for container integration tests (milestone M3+), uncomment:
-    // ,"--device=/dev/fuse"
+    "--security-opt=label=disable",
+    // Nested Podman for the container integration tests (ADR 0014):
+    // fuse-overlayfs and pasta's network.
+    "--device=/dev/fuse",
+    "--device=/dev/net/tun"
   ],
 
   // The Claude Code feature installs via npm. Without the Node feature it falls
@@ -43,7 +44,10 @@
     // Claude Code sign-in, settings and history survive rebuilds (per project).
     "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
     // Cargo registry cache survives rebuilds.
-    "source=koje-cargo-registry,target=/usr/local/cargo/registry,type=volume"
+    "source=koje-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    // Nested Podman's images and containers survive rebuilds; on a volume, not
+    // the container's overlayfs, its storage can use native overlay.
+    "source=koje-dev-podman-${devcontainerId},target=/home/vscode/.local/share/containers,type=volume"
 
     // Talk to the host's Hyprland from inside the container (milestone M2+).
     // Requires Hyprland to be running on the host when the container starts:

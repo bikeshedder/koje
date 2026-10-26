@@ -17,8 +17,8 @@ VS Code user setting (once): `"dev.containers.dockerPath": "podman"`.
 
 - The host user is mapped to `vscode` (uid 1000) via `--userns=keep-id:uid=1000,gid=1000`,
   so files created in the container belong to you on the host.
-- Named volumes keep Claude Code's login/settings (`CLAUDE_CONFIG_DIR`) and the Cargo
-  registry across rebuilds.
+- Named volumes keep Claude Code's login/settings (`CLAUDE_CONFIG_DIR`), the Cargo
+  registry and nested Podman's storage across rebuilds.
 - `rust-analyzer` uses a separate target dir so it does not block `cargo` builds.
 
 ## Where things can be tested
@@ -27,7 +27,7 @@ VS Code user setting (once): `"dev.containers.dockerPath": "podman"`.
 |---|---|---|
 | Unit tests, CLI tests | anywhere (dev container, CI) | `just check` |
 | Hyprland adapter against a real session | host, or dev container with the Hyprland mount | `just test -- --ignored hypr` |
-| Context containers, nested Podman | host, or dev container with `/dev/fuse` | `just test -- --ignored podman` |
+| Context containers, nested Podman | host; dev container without cgroups | host: `cargo test -p koje-podman -- --ignored`; dev container: add `--skip cgroups` |
 | Full end-to-end (windows from contexts, colors, layouts) | host only | `just install`, then use `koje` |
 
 Tests needing real systems are `#[ignore]`d so `just check` stays hermetic.
@@ -40,11 +40,20 @@ Uncomment the Hyprland mount and the two env variables in
 look for the socket in `$KOJE_HYPR_DIR/$HYPRLAND_INSTANCE_SIGNATURE/`. Hyprland must
 be running on the host when the container starts, otherwise the bind mount fails.
 
-### Nested Podman in the dev container (optional, M3+)
+### Nested Podman in the dev container
 
-Uncomment `--device=/dev/fuse` in `runArgs` and rebuild. Inside, `podman info`
-should work rootless. This is the same setup koje needs for contexts, so problems
-found here are valuable – record them in the M2 spike report.
+Rootless Podman works inside the dev container, set up like nested Podman in
+contexts (ADR 0014): `newuidmap`/`newgidmap` with file capabilities, sub-ids
+inside the dev container's id range, `/dev/fuse` and `/dev/net/tun`, and
+`/etc/containers/containers.conf.d/koje-dev.conf` with no cgroups, the outer
+`/proc` and no default sysctls.
+
+The dev container's cgroups are read-only, so inner containers get none: no
+memory figures, no mapping of pids to contexts, no `pause`. The tests that need
+them have `cgroups` in their name and run on the host only.
+
+`base_image_runs_the_session_bus` needs `koje/base`; build it first with
+`just koje image build`.
 
 ## Running koje for real
 
