@@ -135,22 +135,28 @@ static void fail(const std::string& reason) {
     throw std::runtime_error("[koje] " + reason);
 }
 
+// `name` is a mangled symbol, or a demangled one up to its `(`: Hyprland
+// matches parts of names (`renderWorkspace` finds `renderWorkspaceWindows`
+// too), so the right one is picked here.
 static CFunctionHook* hook(const std::string& name, void* to) {
-    const auto found = HyprlandAPI::findFunctionsByName(PHANDLE, name);
-    if (found.empty())
-        fail("Hyprland has no " + name + " – the plugin was built for another version");
-    return HyprlandAPI::createFunctionHook(PHANDLE, found[0].address, to);
+    for (const auto& f : HyprlandAPI::findFunctionsByName(PHANDLE, name.contains('(') ? name.substr(name.rfind("::") + 2, name.find('(') - name.rfind("::") - 2) : name)) {
+        if (f.signature == name || f.demangled.starts_with(name))
+            return HyprlandAPI::createFunctionHook(PHANDLE, f.address, to);
+    }
+    fail("Hyprland has no " + name + " – the plugin was built for another version");
+    return nullptr;
 }
 
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
 
-    if (__hyprland_api_get_hash() != __hyprland_api_get_client_hash())
-        fail("built for another Hyprland version – rebuild koje (just deb)");
+    const std::string running = __hyprland_api_get_hash(), built = __hyprland_api_get_client_hash();
+    if (running != built)
+        fail("built for Hyprland " + built + ", this one is " + running + " – koje's package is built against Ubuntu's hyprland-dev");
 
-    g_renderWorkspaceHook = hook("renderWorkspace", (void*)hkRenderWorkspace);
+    g_renderWorkspaceHook = hook("CHyprRenderer::renderWorkspace(", (void*)hkRenderWorkspace);
     g_addDamageBoxHook    = hook("_ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE", (void*)hkAddDamageBox);
-    g_addDamageRegionHook = hook("addDamageEPK15pixman_region32", (void*)hkAddDamageRegion);
+    g_addDamageRegionHook = hook("_ZN8CMonitor9addDamageEPK15pixman_region32", (void*)hkAddDamageRegion);
     if (!findRenderWindow())
         fail("Hyprland has no CHyprRenderer::renderWindow – the plugin was built for another version");
     if (!g_renderWorkspaceHook->hook() || !g_addDamageBoxHook->hook() || !g_addDamageRegionHook->hook())
