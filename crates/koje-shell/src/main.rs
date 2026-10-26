@@ -6,7 +6,8 @@ mod backend;
 mod bar;
 mod bar_layout;
 mod clock;
-mod confirm_ui;
+mod dialog_ui;
+mod end_session;
 mod hypr;
 mod menu;
 mod menu_ui;
@@ -80,7 +81,7 @@ button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .koje-icon.koje-host { color: #ffffff; }
 .koje-graph { color: var(--accent-color); }
 .koje-bar .warning { color: var(--warning-color); margin: 0 8px; }
-window.display-confirm { background: transparent; }
+window.koje-dialog { background: transparent; }
 .dialog-card {
   background: var(--dialog-bg-color);
   color: var(--dialog-fg-color);
@@ -147,13 +148,29 @@ fn start(app: &adw::Application) {
     });
 
     follow_config(&shell, &bars);
-    let confirm = confirm_ui::DisplayConfirm::new(app, &actions_for_confirm);
+    // GNOME's questions with a countdown: a display change, ending the session.
+    let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
+    let end_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
+    end_session_actions(app, &end_dialog);
 
     glib::spawn_future_local(async move {
         let mut accents_css = accents_css;
         while let Ok(update) = rx.recv().await {
             if let Update::DisplayChangePending(seconds) = update {
-                confirm.show(seconds);
+                display_dialog.ask(
+                    dialog_ui::Question {
+                        title: "Keep these display settings?".to_owned(),
+                        text: Box::new(end_session::display_revert_text),
+                        cancel_label: "Revert Settings",
+                        on_cancel: Some(Action::RevertDisplayChange),
+                        confirm_label: "Keep Changes",
+                        destructive: false,
+                        on_confirm: Action::KeepDisplayChange,
+                        // kojed reverts by itself.
+                        on_timeout: None,
+                    },
+                    seconds,
+                );
                 continue;
             }
             shell.borrow_mut().apply(update);
@@ -224,6 +241,34 @@ fn follow_config(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
             std::mem::forget(monitor);
         }
         Err(e) => tracing::warn!("watching {}: {e}", path.display()),
+    }
+}
+
+/// The shell's actions `log-out`, `restart` and `power-off` on the session
+/// bus (`GApplication` exports them): they ask first (M8.47). `koje session
+/// end` and Super+Shift+E use them.
+fn end_session_actions(app: &adw::Application, dialog: &Rc<dialog_ui::CountdownDialog>) {
+    let user = glib::real_name().to_string_lossy().into_owned();
+    for what in end_session::EndSession::ALL {
+        let action = gio::SimpleAction::new(what.action_name(), None);
+        let (dialog, user) = (dialog.clone(), user.clone());
+        action.connect_activate(move |_, _| {
+            let user = user.clone();
+            dialog.ask(
+                dialog_ui::Question {
+                    title: what.title().to_owned(),
+                    text: Box::new(move |left| what.body(left, &user)),
+                    cancel_label: "Cancel",
+                    on_cancel: None,
+                    confirm_label: what.title(),
+                    destructive: true,
+                    on_confirm: Action::EndSession(what),
+                    on_timeout: Some(Action::EndSession(what)),
+                },
+                end_session::COUNTDOWN,
+            );
+        });
+        app.add_action(&action);
     }
 }
 

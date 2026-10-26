@@ -197,7 +197,7 @@ impl QuickWidget {
                 let _ = actions.send(Action::Quick(Change::NextLayout));
             })
         };
-        let (top, battery, battery_icon, battery_label) = top_row();
+        let (top, battery, battery_icon, battery_label) = top_row(actions);
         let tiles = gtk::Grid::builder()
             .column_spacing(8)
             .row_spacing(8)
@@ -381,7 +381,62 @@ fn dark_toggle() -> Toggle {
 }
 
 /// Battery on the left; GNOME Settings and Lock on the right.
-fn top_row() -> (gtk::Box, gtk::Box, gtk::Image, gtk::Label) {
+/// Close the popover `widget` is in.
+fn close_popover(widget: &impl IsA<gtk::Widget>) {
+    let mut w = widget.ancestor(gtk::Popover::static_type());
+    while let Some(p) = w {
+        let parent = p.parent();
+        if let Ok(p) = p.downcast::<gtk::Popover>() {
+            p.popdown();
+        }
+        w = parent.and_then(|p| p.ancestor(gtk::Popover::static_type()));
+    }
+}
+
+/// GNOME's power menu: suspend at once, the others ask first (M8.47).
+fn power_menu(actions: &UnboundedSender<Action>) -> gtk::MenuButton {
+    let items = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .build();
+    let item = |label: &str| {
+        let b = gtk::Button::builder()
+            .label(label)
+            .css_classes(["flat"])
+            .build();
+        if let Some(l) = b.child().and_downcast::<gtk::Label>() {
+            l.set_xalign(0.0);
+        }
+        items.append(&b);
+        b
+    };
+    let suspend = item("Suspend");
+    {
+        let actions = actions.clone();
+        suspend.connect_clicked(move |b| {
+            close_popover(b);
+            let _ = actions.send(Action::Suspend);
+        });
+    }
+    for (label, name) in [("Restart…", "app.restart"), ("Power Off…", "app.power-off")] {
+        item(label).connect_clicked(move |b| {
+            close_popover(b);
+            let _ = b.activate_action(name, None);
+        });
+    }
+    items.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    item("Log Out…").connect_clicked(|b| {
+        close_popover(b);
+        let _ = b.activate_action("app.log-out", None);
+    });
+    gtk::MenuButton::builder()
+        .icon_name("system-shutdown-symbolic")
+        .tooltip_text("Power Off / Log Out")
+        .css_classes(["circular"])
+        .popover(&gtk::Popover::builder().child(&items).build())
+        .build()
+}
+
+fn top_row(actions: &UnboundedSender<Action>) -> (gtk::Box, gtk::Box, gtk::Image, gtk::Label) {
     let battery_icon = gtk::Image::new();
     let battery_label = gtk::Label::new(None);
     let battery = gtk::Box::builder().spacing(6).build();
@@ -391,6 +446,24 @@ fn top_row() -> (gtk::Box, gtk::Box, gtk::Image, gtk::Label) {
     top.append(&battery);
     let spacer = gtk::Box::builder().hexpand(true).build();
     top.append(&spacer);
+    // A screenshot of an area once the menu is gone (M8.48).
+    let shot = gtk::Button::builder()
+        .icon_name("camera-photo-symbolic")
+        .tooltip_text("Take Screenshot")
+        .css_classes(["circular"])
+        .build();
+    shot.connect_clicked(|b| {
+        close_popover(b);
+        gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(400), || {
+            if let Err(e) = gio::Subprocess::newv(
+                &["koje".as_ref(), "screenshot".as_ref(), "area".as_ref()],
+                gio::SubprocessFlags::NONE,
+            ) {
+                tracing::warn!("taking a screenshot: {e}");
+            }
+        });
+    });
+    top.append(&shot);
     if let Some(app) = gio_unix::DesktopAppInfo::new("org.gnome.Settings.desktop") {
         let b = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
@@ -423,6 +496,7 @@ fn top_row() -> (gtk::Box, gtk::Box, gtk::Image, gtk::Label) {
         }
     });
     top.append(&lock);
+    top.append(&power_menu(actions));
 
     (top, battery, battery_icon, battery_label)
 }

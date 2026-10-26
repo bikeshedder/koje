@@ -172,6 +172,8 @@ async fn act(
                     tracing::warn!("kojed: Focus {context}: {e:#}");
                 }
             }
+            Action::EndSession(e) => end_session(hypr, e).await,
+            Action::Suspend => run_quietly("systemctl", &["suspend"]).await,
             Action::KeepDisplayChange | Action::RevertDisplayChange => {
                 let keep = action == Action::KeepDisplayChange;
                 if let Err(e) = display_change(keep).await {
@@ -195,6 +197,31 @@ async fn focus(context: &str) -> Result<()> {
     tokio::time::timeout(TIMEOUT, call)
         .await
         .context("kojed did not answer")?
+}
+
+/// Log out (Hyprland exits; `koje session start` cleans up), restart or
+/// power off (M8.47).
+async fn end_session(hypr: &Hyprland, e: crate::end_session::EndSession) {
+    match e.command() {
+        Some((program, args)) => run_quietly(program, &args).await,
+        None => {
+            if let Err(e) = hypr.request("dispatch exit").await {
+                tracing::warn!("logging out: {e}");
+            }
+        }
+    }
+}
+
+async fn run_quietly(program: &str, args: &[&str]) {
+    match tokio::process::Command::new(program)
+        .args(args)
+        .status()
+        .await
+    {
+        Ok(s) if s.success() => {}
+        Ok(s) => tracing::warn!("{program} {}: {s}", args.join(" ")),
+        Err(e) => tracing::warn!("{program}: {e}"),
+    }
 }
 
 /// Keep or undo the display change GNOME Settings made (M8.53).

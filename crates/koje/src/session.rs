@@ -10,13 +10,58 @@ use anyhow::{Context as _, Result, bail};
 use koje_core::paths::Paths;
 use koje_core::session::{self, Cmd};
 
-use crate::cli::SessionCmd;
+use crate::cli::{EndKind, SessionCmd};
 
 pub fn run(paths: &Paths, cmd: &SessionCmd) -> Result<()> {
     match cmd {
         SessionCmd::Start => start(paths),
         SessionCmd::Ready => run_all(&session::ready_commands()),
         SessionCmd::Restart => run_all(&session::restart_commands()),
+        SessionCmd::End { what } => end(*what),
+    }
+}
+
+/// The shell asks first (its `GApplication` action, M8.47); without the
+/// shell, logging out ends Hyprland at once – restart and power off do not
+/// happen unasked.
+fn end(what: EndKind) -> Result<()> {
+    let action = match what {
+        EndKind::LogOut => "log-out",
+        EndKind::Restart => "restart",
+        EndKind::PowerOff => "power-off",
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("starting the D-Bus client")?;
+    let asked = runtime.block_on(async {
+        let conn = zbus::Connection::session().await?;
+        let dbus = zbus::fdo::DBusProxy::new(&conn).await?;
+        if !dbus.name_has_owner("io.koje.Shell".try_into()?).await? {
+            return anyhow::Ok(false);
+        }
+        let none: Vec<zbus::zvariant::Value<'_>> = Vec::new();
+        let platform: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> =
+            std::collections::HashMap::new();
+        conn.call_method(
+            Some("io.koje.Shell"),
+            "/io/koje/Shell",
+            Some("org.gtk.Actions"),
+            "Activate",
+            &(action, none, platform),
+        )
+        .await
+        .context("asking koje-shell")?;
+        anyhow::Ok(true)
+    });
+    match (asked, what) {
+        (Ok(true), _) => Ok(()),
+        (_, EndKind::LogOut) => {
+            runtime.block_on(koje_hyprland::Hyprland::from_env().request("dispatch exit"))?;
+            Ok(())
+        }
+        (Err(e), _) => Err(e),
+        (Ok(false), _) => bail!("koje-shell is not running – it asks before {action}"),
     }
 }
 

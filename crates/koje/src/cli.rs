@@ -327,6 +327,19 @@ pub enum SessionCmd {
     /// Restart koje's services (kojed, the shell, …); the session and its
     /// windows go on.
     Restart,
+    /// Log out, restart or power off – the shell asks first, with GNOME's
+    /// 60-second countdown (Super+Shift+E logs out).
+    End {
+        #[arg(value_enum)]
+        what: EndKind,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum EndKind {
+    LogOut,
+    Restart,
+    PowerOff,
 }
 
 #[derive(Debug, Subcommand)]
@@ -408,6 +421,12 @@ mod tests {
         assert!(matches!(
             parse(&["session", "ready"]).unwrap().command,
             Command::Session(SessionCmd::Ready)
+        ));
+        assert!(matches!(
+            parse(&["session", "end", "log-out"]).unwrap().command,
+            Command::Session(SessionCmd::End {
+                what: EndKind::LogOut
+            })
         ));
         assert!(parse(&["session"]).is_err());
     }

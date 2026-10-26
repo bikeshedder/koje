@@ -276,6 +276,9 @@ pub enum Action {
     /// "Keep Changes" / "Revert Settings" after a display change.
     KeepDisplayChange,
     RevertDisplayChange,
+    /// Log out, restart or power off – asked first (M8.47).
+    EndSession(crate::end_session::EndSession),
+    Suspend,
 }
 
 impl Action {
@@ -327,7 +330,9 @@ impl Action {
             | Self::FocusContext(_)
             | Self::Quick(_)
             | Self::KeepDisplayChange
-            | Self::RevertDisplayChange => return None,
+            | Self::RevertDisplayChange
+            | Self::EndSession(_)
+            | Self::Suspend => return None,
         })
     }
 }
