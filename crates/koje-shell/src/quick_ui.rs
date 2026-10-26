@@ -397,8 +397,13 @@ fn top_row() -> (gtk::Box, gtk::Box, gtk::Image, gtk::Label) {
             .tooltip_text("Settings")
             .css_classes(["circular"])
             .build();
-        b.connect_clicked(move |_| {
-            if let Err(e) = app.launch(&[], None::<&gio::AppLaunchContext>) {
+        b.connect_clicked(move |b| {
+            // GNOME Settings exits at once unless `XDG_CURRENT_DESKTOP`
+            // names GNOME; for this process only.
+            let context = b.display().app_launch_context();
+            let current = std::env::var("XDG_CURRENT_DESKTOP").ok();
+            context.setenv("XDG_CURRENT_DESKTOP", gnome_desktop(current.as_deref()));
+            if let Err(e) = app.launch(&[], Some(&context)) {
                 tracing::warn!("starting GNOME Settings: {e}");
             }
         });
@@ -422,8 +427,35 @@ fn top_row() -> (gtk::Box, gtk::Box, gtk::Image, gtk::Label) {
     (top, battery, battery_icon, battery_label)
 }
 
+/// `XDG_CURRENT_DESKTOP` for GNOME Settings: the session's desktops with
+/// `GNOME` added (`Hyprland:GNOME`) – it refuses to run without it.
+pub fn gnome_desktop(current: Option<&str>) -> String {
+    let mut desktops: Vec<&str> = current
+        .unwrap_or_default()
+        .split(':')
+        .filter(|d| !d.is_empty())
+        .collect();
+    if !desktops.contains(&"GNOME") {
+        desktops.push("GNOME");
+    }
+    desktops.join(":")
+}
+
 /// GNOME's quick toggles: pills, the accent when on.
 pub const CSS: &str = "
 .quick-toggle { border-radius: 9999px; padding: 8px 14px; }
 .quick-toggle:checked { background: var(--accent-bg-color); color: var(--accent-fg-color); }
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gnome_settings_sees_gnome() {
+        assert_eq!(gnome_desktop(Some("Hyprland")), "Hyprland:GNOME");
+        assert_eq!(gnome_desktop(Some("Hyprland:GNOME")), "Hyprland:GNOME");
+        assert_eq!(gnome_desktop(Some("")), "GNOME");
+        assert_eq!(gnome_desktop(None), "GNOME");
+    }
+}
