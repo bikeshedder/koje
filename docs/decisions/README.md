@@ -54,3 +54,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0047 | [koje's bar is a clone of GNOME's top bar](0047-gnome-top-bar.md) | Accepted |
 | 0048 | [koje is its own session; Hyprland is the compositor it starts](0048-koje-session.md) | Accepted |
 | 0049 | [An overview and a dash like GNOME's](0049-overview-and-dash.md) | Accepted |
+| 0050 | [koje's own screen sharing picker](0050-screen-sharing-picker.md) | Accepted |

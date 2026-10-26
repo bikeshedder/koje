@@ -130,6 +130,12 @@ impl Paths {
         self.config.join("hyprland.conf")
     }
 
+    /// The user's settings for xdph in the koje session, copied into its
+    /// generated config (ADR 0050).
+    pub fn session_xdph_conf(&self) -> PathBuf {
+        self.config.join("xdph.conf")
+    }
+
     pub fn contexts_dir(&self) -> PathBuf {
         self.config.join("contexts")
     }

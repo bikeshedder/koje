@@ -82,12 +82,7 @@ fn run_all(cmds: &[Cmd]) -> Result<()> {
 /// The session's Hyprland config in the runtime directory: koje's snippet,
 /// the screens from `monitors.xml` and the user's file if there is one
 /// (ADR 0046, 0048). Its path.
-fn write_session_conf(paths: &Paths) -> Result<PathBuf> {
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .context("XDG_RUNTIME_DIR is not set – no login session?")?;
-    let dir = runtime.join("koje");
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+fn write_session_conf(paths: &Paths, dir: &Path) -> Result<PathBuf> {
     // The screens from GNOME's monitors.xml (ADR 0046), before Hyprland
     // starts: the right mode from the first frame.
     let (lines, source) = crate::screens::lines(paths, &crate::screens::connected());
@@ -110,6 +105,44 @@ fn write_session_conf(paths: &Paths) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// koje's runtime directory for the session's generated files.
+fn runtime_dir() -> Result<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .context("XDG_RUNTIME_DIR is not set – no login session?")?;
+    let dir = runtime.join("koje");
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    Ok(dir)
+}
+
+/// xdph's config with koje's screen sharing picker and the environment file
+/// that points xdph at it (ADR 0050); `user_config_home` is the session's
+/// own `XDG_CONFIG_HOME`.
+fn write_xdph(paths: &Paths, dir: &Path, user_config_home: Option<&str>) -> Result<()> {
+    let config_home = dir.join(session::XDPH_DIR);
+    let hypr = config_home.join("hypr");
+    std::fs::create_dir_all(&hypr).with_context(|| format!("creating {}", hypr.display()))?;
+    let user_file = paths.session_xdph_conf();
+    let user = match std::fs::read_to_string(&user_file) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("reading {}", user_file.display())),
+    };
+    let conf = session::xdph_conf(session::SHARE_PICKER, user.as_deref());
+    koje_core::fsutil::write_atomic(&hypr.join("xdph.conf"), conf.as_bytes())?;
+    koje_core::fsutil::write_atomic(
+        &dir.join(session::XDPH_ENV),
+        session::xdph_env(&config_home, user_config_home).as_bytes(),
+    )?;
+    Ok(())
+}
+
+/// Take xdph back to the user's own config.
+fn remove_xdph(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(session::XDPH_ENV));
+    let _ = std::fs::remove_dir_all(dir.join(session::XDPH_DIR));
+}
+
 /// The environment with the user's `environment.d` applied (ADR 0048);
 /// empty – the inherited one stays – without systemd's generator.
 fn environment_d() -> Vec<(String, String)> {
@@ -129,7 +162,18 @@ fn environment_d() -> Vec<(String, String)> {
 }
 
 fn start(paths: &Paths) -> Result<()> {
-    let conf = write_session_conf(paths)?;
+    let dir = runtime_dir()?;
+    let conf = write_session_conf(paths, &dir)?;
+    let environment_d = environment_d();
+    let user_config_home = environment_d
+        .iter()
+        .find(|(k, _)| k == "XDG_CONFIG_HOME")
+        .map(|(_, v)| v.clone())
+        .or_else(|| std::env::var("XDG_CONFIG_HOME").ok());
+    // Without it sharing still works, with xdph's own picker.
+    if let Err(e) = write_xdph(paths, &dir, user_config_home.as_deref()) {
+        eprintln!("warning: screen sharing picker: {e:#}");
+    }
     let given = std::env::var("XDG_CURRENT_DESKTOP").ok();
     // Through Hyprland's watchdog when there is one; found in the session's
     // own PATH: `environment.d` may set another.
@@ -142,7 +186,7 @@ fn start(paths: &Paths) -> Result<()> {
     // `environment.d` first (e.g. GPU variables), the session's own over it.
     hyprland
         .args(session::hyprland_args(&conf, watchdog.is_some()))
-        .envs(environment_d())
+        .envs(environment_d)
         .envs(session::session_environment(given.as_deref()));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -150,6 +194,7 @@ fn start(paths: &Paths) -> Result<()> {
         .context("starting the session's runtime")?;
     let status = runtime.block_on(supervise(hyprland));
     // Whatever happened: no services and no environment of a gone session.
+    remove_xdph(&dir);
     for (program, args) in session::end_commands() {
         let ok = std::process::Command::new(program)
             .args(&args)

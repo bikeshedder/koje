@@ -1209,8 +1209,12 @@ fn session_fakes(tmp: &Path, hyprland_exit: u8) -> String {
         &bin,
         "Hyprland",
         &format!(
-            "#!/bin/sh\necho \"Hyprland $* desktop=$XDG_CURRENT_DESKTOP session=$XDG_SESSION_DESKTOP\" >> {log}\nexit {hyprland_exit}\n",
-            log = log.display()
+            "#!/bin/sh\necho \"Hyprland $* desktop=$XDG_CURRENT_DESKTOP session=$XDG_SESSION_DESKTOP\" >> {log}\n\
+             test -f {env} && grep -q custom_picker_binary {conf} && touch {log}.xdph\n\
+             exit {hyprland_exit}\n",
+            log = log.display(),
+            env = tmp.join("run/koje/xdph.env").display(),
+            conf = tmp.join("run/koje/xdph/hypr/xdph.conf").display()
         ),
     );
     for tool in ["systemctl", "dbus-update-activation-environment"] {
@@ -1255,6 +1259,10 @@ fn session_start_runs_hyprland_with_kojes_config_and_cleans_up() {
     );
     assert_eq!(lines[1], "systemctl --user stop koje-session.target");
     assert!(lines[2].starts_with("systemctl --user unset-environment WAYLAND_DISPLAY"));
+    // xdph's config for the session is gone with it (ADR 0050).
+    assert!(t.join("session.log.xdph").exists());
+    assert!(!t.join("run/koje/xdph.env").exists());
+    assert!(!t.join("run/koje/xdph").exists());
     // No file of the user's is needed – or created.
     let user = t.join("config/koje/hyprland.conf");
     assert!(!user.exists());

@@ -107,6 +107,47 @@ pub fn session_conf(snippet: &Path, monitors: Option<&Path>, user: Option<&Path>
     conf
 }
 
+/// koje's screen sharing picker (ADR 0050), as xdph runs it.
+pub const SHARE_PICKER: &str = "/usr/lib/koje/koje-share-picker";
+
+/// xdph's config directory in the runtime directory: `XDG_CONFIG_HOME` for
+/// xdph only (its file is `hypr/xdph.conf` below it).
+pub const XDPH_DIR: &str = "xdph";
+
+/// The environment file the package's drop-in for
+/// `xdg-desktop-portal-hyprland.service` reads when it exists.
+pub const XDPH_ENV: &str = "xdph.env";
+
+/// xdph's config in the koje session (ADR 0050): koje's picker, then the
+/// user's own settings (`~/.config/koje/xdph.conf`) – later ones win. Copied
+/// in, not sourced: xdph's parser is not known to follow `source`.
+pub fn xdph_conf(picker: &str, user: Option<&str>) -> String {
+    let mut conf = format!(
+        "# xdg-desktop-portal-hyprland's config in the koje session (ADR 0050),\n\
+         # written by `koje session start` at every login – edits are lost. Your\n\
+         # own settings go into ~/.config/koje/xdph.conf.\n\
+         screencopy {{\n    custom_picker_binary = {picker}\n}}\n"
+    );
+    if let Some(user) = user {
+        conf.push_str("\n# ~/.config/koje/xdph.conf\n");
+        conf.push_str(user);
+        if !user.ends_with('\n') {
+            conf.push('\n');
+        }
+    }
+    conf
+}
+
+/// The environment file for xdph: its config directory, and the user's own
+/// `XDG_CONFIG_HOME` (empty when unset) for the picker to restore.
+pub fn xdph_env(config_home: &Path, user_config_home: Option<&str>) -> String {
+    format!(
+        "XDG_CONFIG_HOME={}\nKOJE_USER_CONFIG_HOME={}\n",
+        config_home.display(),
+        user_config_home.unwrap_or_default()
+    )
+}
+
 /// One command: program and arguments.
 pub type Cmd = (&'static str, Vec<String>);
 
@@ -160,6 +201,32 @@ pub fn restart_commands() -> Vec<Cmd> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xdph_gets_kojes_picker_then_the_users_settings() {
+        let plain = xdph_conf(SHARE_PICKER, None);
+        assert!(plain.contains(
+            "screencopy {\n    custom_picker_binary = /usr/lib/koje/koje-share-picker\n}\n"
+        ));
+        assert!(!plain.contains("koje/xdph.conf\n\n"));
+        let user = xdph_conf(SHARE_PICKER, Some("screencopy {\n    max_fps = 30\n}"));
+        let picker = user.find("custom_picker_binary").unwrap();
+        let fps = user.find("max_fps = 30").unwrap();
+        assert!(picker < fps, "{user}");
+        assert!(user.ends_with("}\n"));
+    }
+
+    #[test]
+    fn xdph_env_keeps_the_users_config_home() {
+        let dir = Path::new("/run/user/1000/koje/xdph");
+        assert_eq!(
+            xdph_env(dir, None),
+            "XDG_CONFIG_HOME=/run/user/1000/koje/xdph\nKOJE_USER_CONFIG_HOME=\n"
+        );
+        assert!(
+            xdph_env(dir, Some("/home/u/cfg")).ends_with("KOJE_USER_CONFIG_HOME=/home/u/cfg\n")
+        );
+    }
 
     #[test]
     fn environment_d_lines() {
