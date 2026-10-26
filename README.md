@@ -28,6 +28,10 @@ koje setup --dry-run                                # show what setup would chan
 koje setup                                          # asks once before changing anything
 ```
 
+`scripts/install-deb.sh` (or `just install`) does the host part in one step: it
+installs the newest package in `target/debian/` – again if the version is the
+same – and runs `koje setup`; `--yes` asks nothing.
+
 The package puts `koje`, `kojed` and `koje-shell` into `/usr/bin`, the static
 `koje-forward` and koje's helper scripts into `/usr/lib/koje/`, the systemd user
 units and the icon font into their system folders, and pulls in Podman and the

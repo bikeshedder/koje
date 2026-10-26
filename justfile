@@ -54,6 +54,10 @@ deb:
     cp target/x86_64-unknown-linux-musl/release/koje-forward target/deb-staging/
     cargo deb -p koje --no-build --deb-version "$(scripts/deb-version.sh)"
 
+# On the HOST: install the newest package from target/debian/ and run koje setup
+install *ARGS:
+    scripts/install-deb.sh {{ARGS}}
+
 # Render the concept document (needs the `typst` CLI; Tinymist in VS Code can preview too)
 concept:
     typst compile docs/concept/koje-konzept.typ docs/concept/koje-konzept.pdf

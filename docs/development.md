@@ -66,10 +66,14 @@ sudo apt install ./target/debian/koje_*_amd64.deb   # host, in the repository
 koje setup && koje list
 ```
 
+After a change: `just deb` in the dev container, then `just install` on the host
+(`scripts/install-deb.sh`: the newest package, reinstalled if the version is the
+same, then `koje setup`; `--yes` asks nothing). It warns when the package is
+older than the checkout.
+
 The version carries the commit (`0.1.0+git<date>.<time>.<commit>`, `.dirty` with
 uncommitted changes), so each commit's package is newer than the last. Two
-builds of the same commit have the same version: reinstall with
-`sudo apt install --reinstall ./…deb`.
+builds of the same commit have the same version; `just install` reinstalls.
 
 Use throwaway contexts for experiments and keep them labelled
 (`io.koje.test=true`) so they are easy to clean up.

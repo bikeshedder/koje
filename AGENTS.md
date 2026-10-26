@@ -60,7 +60,7 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 | tests (filter) | `just test layout` |
 | run CLI | `just koje list` |
 | format | `just fmt` |
-| Debian package (ADR 0045) | `just deb` |
+| Debian package (ADR 0045) | `just deb`; on the host `just install` |
 
 ## How to work here
 
