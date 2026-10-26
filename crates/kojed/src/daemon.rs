@@ -81,10 +81,17 @@ pub struct Daemon<C, R> {
     /// The last memory reading of each running context with its limits, for
     /// the bar (M8.21); taken every tick.
     memory: BTreeMap<ContextName, (koje_core::memory::MemoryUsage, koje_core::config::Limits)>,
+    /// The working set of each running context over the last minutes, for
+    /// the shell's graph (M8.55); one reading per tick.
+    history: BTreeMap<ContextName, koje_core::memory::History>,
     /// A window whose border flashes since it got focus (M8.19); the event
     /// loop takes it and calls [`Daemon::unblip`] a moment later.
     blipped: Option<String>,
 }
+
+/// Memory readings kept per context for the shell's graph: ten minutes at
+/// one reading per tick (`TICK` in main.rs, 5 s).
+pub const HISTORY_READINGS: usize = 120;
 
 /// A context crossed a memory limit (ADR 0035): notify, or at the hard limit
 /// shut it down.
@@ -124,6 +131,7 @@ where
             watches: BTreeMap::new(),
             blipped: None,
             memory: BTreeMap::new(),
+            history: BTreeMap::new(),
         }
     }
 
@@ -508,6 +516,7 @@ where
         let mut alerts = Vec::new();
         let running = self.running().await;
         self.memory.retain(|ctx, _| running.contains(ctx));
+        self.history.retain(|ctx, _| running.contains(ctx));
         for ctx in running {
             let Ok(limits) = koje_core::context::load(&self.paths, &ctx)
                 .and_then(|c| c.effective_limits(&global))
@@ -522,6 +531,10 @@ where
                 continue;
             };
             self.memory.insert(ctx.clone(), (usage, limits.clone()));
+            self.history
+                .entry(ctx.clone())
+                .or_insert_with(|| koje_core::memory::History::new(HISTORY_READINGS))
+                .push(usage.working_set());
             if limits.memory_soft.is_none() && limits.memory_hard.is_none() {
                 self.watches.remove(&ctx);
                 continue;
@@ -957,6 +970,15 @@ where
         ctx: &ContextName,
     ) -> Option<&(koje_core::memory::MemoryUsage, koje_core::config::Limits)> {
         self.memory.get(ctx)
+    }
+
+    /// The working set of a running context over the last minutes, oldest
+    /// first; empty before the first reading.
+    pub fn memory_history(&self, ctx: &ContextName) -> Vec<u64> {
+        self.history
+            .get(ctx)
+            .map(koje_core::memory::History::values)
+            .unwrap_or_default()
     }
 
     /// The window that just started to blip, for the event loop.
@@ -2295,6 +2317,11 @@ cwd = "/home/mj/src/kp"
         assert_eq!(d.check_memory().await, [], "once per crossing");
         set(2 << 30, 0);
         assert_eq!(d.check_memory().await[0].level, MemoryLevel::OverHard);
+        // Every reading went into the history, the working set as counted.
+        assert_eq!(
+            d.memory_history(&work),
+            [1 << 29, 980 << 20, 980 << 20, 2 << 30]
+        );
 
         // The shutdown: windows saved (into `default`: no current state), stopped.
         assert_eq!(
@@ -2308,6 +2335,9 @@ cwd = "/home/mj/src/kp"
         );
         d.stop_container(&work).await.unwrap();
         assert!(!d.running().await.contains(&work));
+        // A stopped context's history goes with its next reading.
+        d.check_memory().await;
+        assert_eq!(d.memory_history(&work), Vec::<u64>::new());
     }
 
     /// M7.4: sleep hides every window, autosave leaves the stash's positions

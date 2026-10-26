@@ -123,7 +123,7 @@ async fn unblip(daemon: api::Shared, address: String) {
 }
 
 /// How often kojed takes the live states (autosave, recovery file).
-const TICK: std::time::Duration = std::time::Duration::from_secs(5);
+pub const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// M5.7, M5.8: autosave of geometry and the recovery files; M6: memory
 /// limits (notify, shut down at the hard limit); the buses of contexts

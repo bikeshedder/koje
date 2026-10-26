@@ -159,6 +159,37 @@ pub fn meter(used: ByteSize, limits: &Limits, width: usize) -> Option<Meter> {
     })
 }
 
+/// The last readings of a context's working set, oldest first, for the
+/// bar's graph: at most `capacity`, the oldest dropped first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct History {
+    capacity: usize,
+    used: std::collections::VecDeque<u64>,
+}
+
+impl History {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            used: std::collections::VecDeque::with_capacity(capacity),
+        }
+    }
+
+    pub fn push(&mut self, used: ByteSize) {
+        if self.used.len() == self.capacity {
+            self.used.pop_front();
+        }
+        if self.capacity > 0 {
+            self.used.push_back(used.0);
+        }
+    }
+
+    /// Bytes, oldest first.
+    pub fn values(&self) -> Vec<u64> {
+        self.used.iter().copied().collect()
+    }
+}
+
 /// The hover text of the bar's memory meter (M8.21, M8.29): used and
 /// charged memory, each limit with the share of it in use. Plain text.
 pub fn details(context: &str, used: ByteSize, charged: ByteSize, limits: &Limits) -> String {
@@ -213,6 +244,19 @@ mod tests {
 
     fn gib_tenths(t: u64) -> ByteSize {
         ByteSize((1 << 30) / 10 * t)
+    }
+
+    #[test]
+    fn history_keeps_the_newest_readings() {
+        let mut h = History::new(3);
+        assert_eq!(h.values(), Vec::<u64>::new());
+        for v in 1..=5 {
+            h.push(ByteSize(v));
+        }
+        assert_eq!(h.values(), [3, 4, 5]);
+        let mut none = History::new(0);
+        none.push(ByteSize(1));
+        assert_eq!(none.values(), Vec::<u64>::new());
     }
 
     #[test]

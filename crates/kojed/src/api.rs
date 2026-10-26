@@ -282,6 +282,24 @@ impl Api {
         })
     }
 
+    /// The working set of a running context (`""` = the active one) over
+    /// the last minutes, oldest first, one reading every `interval` seconds:
+    /// `(context, interval, readings)` for the shell's graph (M8.55);
+    /// `("", 0, [])` without an active context.
+    async fn memory_history(&self, context: &str) -> fdo::Result<(String, u32, Vec<u64>)> {
+        let d = self.daemon.lock().await;
+        let ctx = if context.is_empty() {
+            match d.active_context() {
+                Some(c) => c.clone(),
+                None => return Ok((String::new(), 0, Vec::new())),
+            }
+        } else {
+            context_arg(context)?
+        };
+        let interval = u32::try_from(crate::TICK.as_secs()).unwrap_or(u32::MAX);
+        Ok((ctx.to_string(), interval, d.memory_history(&ctx)))
+    }
+
     /// New memory readings were taken (every tick).
     #[zbus(signal)]
     async fn memory_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
