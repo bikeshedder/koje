@@ -1,6 +1,7 @@
 # M7 – Desktop extras
 
 - [ ] **M7.1 Overlays** from `config.toml`: special workspaces, key bindings, apps in context `global`
+  - Decided 2026-10-26: overlays are configurable per user – `[overlay.<name>]` entries in `config.toml` (name, `key`, `apps`; an optional label and icon for the bar, M8.34), nothing hard-coded. `koje session start` generates the bindings (toggle, and with Shift move the window there) into the session config from them instead of the snippet's fixed Super+M/C for `mail`/`chat`; a changed `config.toml` regenerates them and reloads Hyprland. Validation at the edge (names usable as `special:<name>`, not `stash-…`, keys parseable, no duplicate keys). Open in the task: whether a new install gets `mail` and `chat` as an example, and how overlays relate to the context `global` (M7.6).
 - [ ] **M7.2 `koje pin` / `koje unpin`** (pinned window semantics → open question)
 - [ ] **M7.3 Snap zones**: `koje snap <zone>` from `config.toml`, key bindings
   - The built-in zones `left`, `right`, `maximize`, `restore` exist since M8.41 (Super+arrows, `koje_core::snap`); left: zones of one's own in `config.toml`.
