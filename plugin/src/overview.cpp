@@ -204,10 +204,25 @@ void COverview::draw() {
     bg.a *= t;
     g_pHyprOpenGL->renderRect(CBox{{0, 0}, M->m_pixelSize}, bg, {.damage = &all});
     for (auto& w : m_windows) {
-        if (w.chain.empty())
+        const auto W = w.window.lock();
+        if (w.chain.empty() || !W)
             continue;
         CBox box = lerp(w.from, w.target, t);
         box.scale(M->m_scale).round();
-        g_pHyprOpenGL->renderTexture(w.chain.back()->getTexture(), box, {.damage = &all, .a = 1.F});
+        // As Hyprland draws the window: its rounding, then its border (the
+        // context's color) – where it lands, it matches the real one.
+        const float rounding = W->rounding() * M->m_scale;
+        const float power    = W->roundingPower();
+        g_pHyprOpenGL->renderTexture(w.chain.back()->getTexture(), box, {.damage = &all, .a = 1.F, .round = (int)std::round(rounding), .roundingPower = power});
+        const int border = W->getRealBorderSize();
+        if (border > 0) {
+            const float correction = border * (M_SQRT2 - 1) * std::max(2.0 - power, 0.0);
+            g_pHyprOpenGL->renderBorder(box, W->m_realBorderColor,
+                                        {.round         = (int)std::round(rounding),
+                                         .roundingPower = power,
+                                         .borderSize    = border,
+                                         .a             = 1.F,
+                                         .outerRound    = (int)std::round((W->rounding() + border - correction) * M->m_scale)});
+        }
     }
 }
