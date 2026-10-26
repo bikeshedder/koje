@@ -159,10 +159,17 @@ fn combo(modmask: u32, key: &str) -> String {
     parts.join("+")
 }
 
-/// Key combinations bound more than once – each press runs all of them, e.g.
-/// koje's Super+Return and an own one open two terminals. One line each:
-/// the combination and what its bindings do.
-pub fn duplicate_bindings(json: &str) -> Vec<String> {
+/// A key combination bound more than once – each press runs all of its
+/// bindings, e.g. koje's Super+Return and an own one open two terminals.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Duplicate {
+    /// `Super+Return`.
+    pub combo: String,
+    /// What each binding does: its description, else its command.
+    pub what: Vec<String>,
+}
+
+pub fn duplicate_bindings(json: &str) -> Vec<Duplicate> {
     let Ok(binds) = serde_json::from_str::<Vec<Bind>>(json) else {
         return Vec::new();
     };
@@ -174,8 +181,9 @@ pub fn duplicate_bindings(json: &str) -> Vec<String> {
     groups
         .into_values()
         .filter(|g| g.len() > 1)
-        .map(|g| {
-            let what: Vec<String> = g
+        .map(|g| Duplicate {
+            combo: combo(g[0].modmask, &g[0].key),
+            what: g
                 .iter()
                 .map(|b| {
                     if b.description.is_empty() {
@@ -184,10 +192,28 @@ pub fn duplicate_bindings(json: &str) -> Vec<String> {
                         b.description.clone()
                     }
                 })
-                .collect();
-            format!("{} ({})", combo(g[0].modmask, &g[0].key), what.join("; "))
+                .collect(),
         })
         .collect()
+}
+
+/// The doctor line: what each binding does while that stays short, else
+/// only the combinations.
+fn duplicates_line(dups: &[Duplicate]) -> String {
+    if dups.len() <= 3 {
+        let each: Vec<String> = dups
+            .iter()
+            .map(|d| format!("{} ({})", d.combo, d.what.join("; ")))
+            .collect();
+        format!("key bindings bound twice: {}", each.join(", "))
+    } else {
+        let combos: Vec<&str> = dups.iter().map(|d| d.combo.as_str()).collect();
+        format!(
+            "{} key combinations bound twice: {}",
+            dups.len(),
+            combos.join(", ")
+        )
+    }
 }
 
 /// Key combinations the running Hyprland binds twice.
@@ -203,8 +229,9 @@ fn bindings() -> Option<Check> {
         Check::ok("key bindings: none bound twice")
     } else {
         Check::warn(
-            format!("key bindings bound twice: {}", dups.join(", ")),
-            "remove your own in ~/.config/hypr/hyprland.conf, or `unbind` koje's after its source line",
+            duplicates_line(&dups),
+            "your hyprland.conf binds keys koje's snippet binds too – remove yours, or move \
+             the file away and run koje setup for a fresh one (hyprctl binds shows all)",
         )
     })
 }
@@ -397,11 +424,32 @@ mod tests {
             {"modmask": 64, "submap": "", "key": "Super_L", "keycode": 0, "mouse": false, "release": false,
              "description": "", "dispatcher": "exec", "arg": "other"}
         ]"#;
+        let dups = duplicate_bindings(json);
         assert_eq!(
-            duplicate_bindings(json),
-            ["Super+Return (Terminal in the context; exec foot)"]
+            dups,
+            [Duplicate {
+                combo: "Super+Return".into(),
+                what: vec!["Terminal in the context".into(), "exec foot".into()]
+            }]
         );
-        assert_eq!(duplicate_bindings("not json"), Vec::<String>::new());
+        assert_eq!(
+            duplicates_line(&dups),
+            "key bindings bound twice: Super+Return (Terminal in the context; exec foot)"
+        );
+        assert_eq!(duplicate_bindings("not json"), []);
+    }
+
+    #[test]
+    fn many_duplicates_list_only_the_combinations() {
+        let dup = |combo: &str| Duplicate {
+            combo: combo.into(),
+            what: vec!["a".into(), "b".into()],
+        };
+        let dups = [dup("Super+1"), dup("Super+2"), dup("Super+Q"), dup("Print")];
+        assert_eq!(
+            duplicates_line(&dups),
+            "4 key combinations bound twice: Super+1, Super+2, Super+Q, Print"
+        );
     }
 
     #[test]
