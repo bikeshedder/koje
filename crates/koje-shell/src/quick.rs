@@ -82,6 +82,19 @@ pub fn volume_icon(level: Level) -> &'static str {
     }
 }
 
+/// GNOME's volume slider moves 2 % per wheel step.
+const SCROLL_STEP: f64 = 2.0;
+
+/// Whole percent to change the volume by for a scroll of `dy` wheel steps
+/// (down positive) with `carry` left over from before, and the new carry:
+/// a touchpad scrolls in fractions of a step.
+pub fn volume_scroll(carry: f64, dy: f64) -> (i32, f64) {
+    let total = carry - dy * SCROLL_STEP;
+    let whole = total.trunc();
+    #[allow(clippy::cast_possible_truncation, reason = "a few percent")]
+    (whole as i32, total - whole)
+}
+
 /// GNOME's network icon.
 pub fn network_icon(n: &Network) -> &'static str {
     match &n.primary {

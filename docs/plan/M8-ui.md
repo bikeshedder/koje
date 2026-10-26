@@ -127,6 +127,7 @@ workspaces, the dash and search. No permanent dock.
 - [x] **M8.76 The dash per context** (ADR 0053): in a context the dash shows only that context's apps – contexts are like machines of their own – and launches what is installed there; on a host workspace the host's
   - Favorites per context in `context.toml` (`favorites`, desktop file ids of the context; `koje favorites [-c] [--set …|--reset]`), pinned and unpinned from the dash; unset: GNOME's favorites matched to the context's apps (id, last part of the id, name, program), unmatched ones left out. Running apps: only the active context's windows (the host's on a host workspace), matched to the context's programs (`koje apps --json` now has `wm_class` and `binary`) for their name, icon and id. The shell reads a context's favorites with its programs when the overview opens.
   - Smoke-tested with a Fedora-like fake context: Firefox as `org.mozilla.firefox.desktop` from GNOME's `firefox.desktop`, Calculator left out, other contexts' windows gone; "Pin to Dash" runs `koje favorites --set` with the whole list, "New Window" `koje apps --start org.mozilla.firefox.desktop`. To check on the host: real contexts' ids and windows, icons from the context.
+- [x] **M8.77 Scrolling over the volume indicator** (ADR 0043): changes the volume as in GNOME – 2 % per wheel step, a touchpad's fractions added up; up to 100 % and unmuted, down to 0 %. No OSD yet (`koje media` shows its OSD as a notification; the shell has none of its own)
 
 ## GNOME integration (ADR 0044)
 

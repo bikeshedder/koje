@@ -28,6 +28,8 @@ const SINK: &str = "@DEFAULT_AUDIO_SINK@";
 pub enum Change {
     /// Percent.
     Volume(u32),
+    /// Percent up (positive) or down, from scrolling over the indicator.
+    VolumeStep(i32),
     ToggleMute,
     /// Perceived percent.
     Brightness(u32),
@@ -101,6 +103,7 @@ pub async fn change(hypr: &Hyprland, conn: Option<&zbus::Connection>, c: Change)
         Change::Volume(p) => wpctl(&["set-volume", SINK, &format!("{}%", p.min(150))])
             .await
             .map(drop),
+        Change::VolumeStep(d) => volume_step(d).await,
         Change::ToggleMute => wpctl(&["set-mute", SINK, "toggle"]).await.map(drop),
         Change::Brightness(p) => match conn {
             Some(conn) => set_brightness(conn, p).await,
@@ -119,6 +122,18 @@ pub async fn change(hypr: &Hyprland, conn: Option<&zbus::Connection>, c: Change)
     if let Err(e) = done {
         tracing::warn!("quick settings: {c:?}: {e:#}");
     }
+}
+
+/// Up to 100 % at most and unmuted, down to 0 %, as GNOME's slider.
+async fn volume_step(d: i32) -> Result<()> {
+    let by = format!("{}%{}", d.unsigned_abs(), if d > 0 { "+" } else { "-" });
+    if d > 0 {
+        wpctl(&["set-volume", "-l", "1", SINK, &by]).await?;
+        wpctl(&["set-mute", SINK, "0"]).await?;
+    } else {
+        wpctl(&["set-volume", SINK, &by]).await?;
+    }
+    Ok(())
 }
 
 async fn wpctl(args: &[&str]) -> Result<String> {

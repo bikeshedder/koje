@@ -13,7 +13,7 @@ use gtk4::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::model::Action;
-use crate::quick::QuickView;
+use crate::quick::{self, QuickView};
 use crate::system::Change;
 
 const INTERFACE: &str = "org.gnome.desktop.interface";
@@ -160,6 +160,10 @@ pub struct QuickWidget {
     /// In their order on the grid.
     tile_order: [gtk::ToggleButton; 3],
     load: gtk::Label,
+    actions: UnboundedSender<Action>,
+    /// What scrolling over the volume indicator left over (a touchpad's
+    /// fractions of a step).
+    scrolled: Rc<Cell<f64>>,
     shown: RefCell<Option<QuickView>>,
 }
 
@@ -265,6 +269,8 @@ impl QuickWidget {
             keyboard,
             tiles,
             load,
+            actions: actions.clone(),
+            scrolled: Rc::default(),
             shown: RefCell::new(None),
         }
     }
@@ -287,6 +293,26 @@ impl QuickWidget {
         &self.button
     }
 
+    /// Scrolling over the volume indicator changes the volume, as in GNOME.
+    fn volume_scroll(&self) -> gtk::EventControllerScroll {
+        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        let (actions, carry) = (self.actions.clone(), self.scrolled.clone());
+        scroll.connect_scroll(move |c, _, dy| {
+            // A touchpad scrolls in pixels; Mutter counts 10 as a wheel step.
+            let dy = match c.unit() {
+                gtk::gdk::ScrollUnit::Surface => dy / 10.0,
+                _ => dy,
+            };
+            let (step, rest) = quick::volume_scroll(carry.get(), dy);
+            carry.set(rest);
+            if step != 0 {
+                let _ = actions.send(Action::Quick(Change::VolumeStep(step)));
+            }
+            gtk::glib::Propagation::Stop
+        });
+        scroll
+    }
+
     pub fn render(&self, q: &QuickView) {
         if self.shown.borrow().as_ref() == Some(q) {
             return;
@@ -295,7 +321,11 @@ impl QuickWidget {
             self.indicators.remove(&child);
         }
         for icon in &q.indicators {
-            self.indicators.append(&gtk::Image::from_icon_name(icon));
+            let image = gtk::Image::from_icon_name(icon);
+            if q.volume.as_ref().is_some_and(|(v, ..)| v == icon) {
+                image.add_controller(self.volume_scroll());
+            }
+            self.indicators.append(&image);
         }
         match &q.layout {
             Some(l) => {
