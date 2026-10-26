@@ -239,6 +239,14 @@ fn start(app: &adw::Application) {
                 );
                 continue;
             }
+            if let Update::OverviewLanded(monitor) = &update {
+                for bar in bars.borrow().iter() {
+                    if bar.connector().as_ref() == Some(monitor) {
+                        bar.overview().landed();
+                    }
+                }
+                continue;
+            }
             shell.borrow_mut().apply(update);
             let css = shell.borrow().accent_css();
             if css != accents_css {

@@ -154,6 +154,12 @@ pub fn changes_desktop(line: &str) -> bool {
     )
 }
 
+/// koje's plugin flew the windows into the overview on this monitor
+/// (`kojeoverview>>landed,DP-1`): the cards show up.
+pub fn overview_landed(line: &str) -> Option<&str> {
+    line.strip_prefix("kojeoverview>>landed,")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +183,12 @@ mod tests {
         ] {
             assert!(!changes_desktop(line), "{line}");
         }
+    }
+
+    #[test]
+    fn the_plugin_tells_when_the_windows_landed() {
+        assert_eq!(overview_landed("kojeoverview>>landed,DP-1"), Some("DP-1"));
+        assert_eq!(overview_landed("workspacev2>>4,kp"), None);
     }
 
     #[test]

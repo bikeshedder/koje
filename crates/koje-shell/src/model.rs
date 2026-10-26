@@ -52,6 +52,9 @@ pub enum Update {
     /// GNOME Settings changed the screens: ask to keep them within that many
     /// seconds (M8.53). Not part of the bar's state.
     DisplayChangePending(u32),
+    /// koje's plugin flew the windows into the overview on this monitor.
+    /// Not part of the state.
+    OverviewLanded(String),
     /// A window's picture (the screen sharing picker). Not part of the state.
     Thumbnail {
         address: String,
@@ -420,7 +423,9 @@ impl Shell {
                 self.apps.insert(context, apps);
             }
             Update::HostApps(apps) => self.host_apps = apps,
-            Update::DisplayChangePending(_) | Update::Thumbnail { .. } => {}
+            Update::DisplayChangePending(_)
+            | Update::OverviewLanded(_)
+            | Update::Thumbnail { .. } => {}
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
             Update::History(history) => self.history = history,

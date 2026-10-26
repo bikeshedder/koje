@@ -23,9 +23,9 @@ use crate::search::{AppHit, AppItem, AppSection, SearchView, WindowHit};
 const GAP: f64 = 32.0;
 /// Below each card: its title.
 const TITLE_HEIGHT: i32 = 32;
-/// About how long the plugin takes to fly the windows in (Hyprland's
-/// `windowsMove` animation at its default speed).
-const ARRIVAL: std::time::Duration = std::time::Duration::from_millis(350);
+/// The cards wait for the plugin to tell that the windows landed – at most
+/// this long, should it never tell.
+const ARRIVAL: std::time::Duration = std::time::Duration::from_millis(1500);
 
 pub const CSS: &str = "
 window.koje-overview { background: #1d1d20; color: #ffffff; }
@@ -34,8 +34,8 @@ window.koje-overview.live { background: transparent; }
 window.koje-overview.live.covered { background: #1d1d20; }
 window.koje-overview.live .window-preview { background: transparent; box-shadow: none; }
 /* While the plugin flies the windows in, the cards' rings, icons and titles
-   wait, as GNOME's do. */
-window.koje-overview .window-card { transition: opacity 150ms ease-out; }
+   wait, as GNOME's do: gone at once, back with a fade. */
+window.koje-overview.live:not(.arriving) .window-card { transition: opacity 150ms ease-out; }
 window.koje-overview.live.arriving .window-card { opacity: 0; }
 .overview-strip { margin: 16px 0 8px 0; }
 .overview-strip button {
@@ -432,18 +432,27 @@ impl OverviewSurface {
         } else {
             KeyboardMode::None
         });
+        // The plugin flies the windows in; no card shows before they landed
+        // (`landed`).
+        if !self.window.is_visible() {
+            self.window.add_css_class("arriving");
+            let window = self.window.clone();
+            glib::timeout_add_local_once(ARRIVAL, move || window.remove_css_class("arriving"));
+        }
         self.window.present();
-        // The plugin flies the windows in. Shown again unchanged, GTK may
-        // not lay the cards out again: tell it here too, once it is mapped.
-        self.window.add_css_class("arriving");
-        let window = self.window.clone();
-        glib::timeout_add_local_once(ARRIVAL, move || window.remove_css_class("arriving"));
+        // Shown again unchanged, GTK may not lay the cards out again: tell
+        // the plugin here too, once it is mapped.
         let weak = Rc::downgrade(self);
         glib::idle_add_local_once(move || {
             if let Some(me) = weak.upgrade() {
                 me.send_places();
             }
         });
+    }
+
+    /// koje's plugin flew the windows in: the cards show up.
+    pub fn landed(&self) {
+        self.window.remove_css_class("arriving");
     }
 
     /// Hidden, it starts over next time: no search, the windows.

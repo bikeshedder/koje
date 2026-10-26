@@ -3,9 +3,11 @@
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
+#include <hyprland/src/desktop/view/LayerSurface.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/helpers/Monitor.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
+#include <hyprland/src/managers/EventManager.hpp>
 #include <hyprland/src/managers/animation/AnimationManager.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
@@ -41,6 +43,21 @@ static CBox lerp(const CBox& a, const CBox& b, float t) {
 static CBox placeOf(PHLWINDOW w, PHLMONITOR m) {
     return CBox{w->m_realPosition->value() - m->m_position, w->m_realSize->value()};
 }
+
+// The shell's overview surface on the monitor, once mapped.
+static std::optional<Vector2D> shellOrigin(PHLMONITOR monitor) {
+    for (const auto& layer : monitor->m_layerSurfaceLayers) {
+        for (const auto& ref : layer) {
+            const auto LS = ref.lock();
+            if (LS && LS->m_mapped && LS->m_namespace == SHELL_NAMESPACE)
+                return LS->m_geometry.pos() - monitor->m_position;
+        }
+    }
+    return std::nullopt;
+}
+
+// Without the shell's surface after this long the windows fly anyway.
+static constexpr auto WAIT_FOR_SHELL = std::chrono::milliseconds(300);
 
 COverview::COverview(PHLMONITOR monitor_) : monitor(monitor_) {
     g_pAnimationManager->createAnimation(0.F, m_progress, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
@@ -81,18 +98,34 @@ void COverview::setWindows(const std::vector<std::pair<PHLWINDOW, CBox>>& target
     m_windows = std::move(next);
     if (animate) {
         m_progress->setValueAndWarp(0.F);
-        *m_progress = 1.F;
-    } else if (m_progress->goal() < 1.F && !closing) {
+        m_waiting  = true;
+        m_openedAt = Time::steadyNow();
+    } else if (m_progress->goal() < 1.F && !closing && !m_waiting) {
         *m_progress = 1.F;
     }
     m_dirty = true;
     damage();
 }
 
+// Into the cards; then the shell shows them (`kojeoverview>>landed,<monitor>`).
+void COverview::fly() {
+    m_waiting = false;
+    // Started first: Hyprutils runs an end callback at once for a variable
+    // that is not animating.
+    *m_progress   = 1.F;
+    const auto M  = monitor.lock();
+    const auto NAME = M ? M->m_name : std::string{};
+    m_progress->setCallbackOnEnd([this, NAME](auto) {
+        if (!closing)
+            g_pEventManager->postEvent(SHyprIPCEvent{"kojeoverview", "landed," + NAME});
+    });
+}
+
 void COverview::close() {
     if (closing)
         return;
     closing      = true;
+    m_waiting    = false;
     const auto M = monitor.lock();
     const auto NAME = M ? M->m_name : std::string{};
     const auto end  = [NAME](auto) {
@@ -140,6 +173,17 @@ void COverview::onDamage() {
 }
 
 void COverview::onPreRender() {
+    if (const auto M = monitor.lock()) {
+        const auto origin = shellOrigin(M);
+        if (origin)
+            m_origin = *origin;
+        if (m_waiting) {
+            if (origin || Time::steadyNow() - m_openedAt > WAIT_FOR_SHELL)
+                fly();
+            else
+                damage();
+        }
+    }
     if (!m_dirty)
         return;
     m_dirty = false;
@@ -217,7 +261,7 @@ void COverview::draw() {
         const auto W = w.window.lock();
         if (w.chain.empty() || !W)
             continue;
-        CBox box = lerp(w.from, w.target, t);
+        CBox box = lerp(w.from, w.target.copy().translate(m_origin), t);
         box.scale(M->m_scale).round();
         // As Hyprland draws the window: its rounding, then its border (the
         // context's color) – fading out on the way into the overview, where

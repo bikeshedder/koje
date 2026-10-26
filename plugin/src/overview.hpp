@@ -10,6 +10,7 @@
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/helpers/AnimatedVariable.hpp>
+#include <hyprland/src/helpers/time/Time.hpp>
 
 #include <map>
 #include <string>
@@ -22,7 +23,8 @@ inline const std::string SHELL_NAMESPACE = "koje-overview";
 
 struct SOverviewWindow {
     PHLWINDOWREF window;
-    // Logical pixels relative to the monitor.
+    // Logical pixels: where it flies from, relative to the monitor; its
+    // card, relative to the shell's overview surface.
     CBox from;
     CBox target;
     // The window at full size, then halved until near its card's size:
@@ -52,9 +54,17 @@ class COverview {
     void                         damage();
     void                         redraw(SOverviewWindow& w);
 
+    void                         fly();
+
     std::vector<SOverviewWindow> m_windows;
     PHLANIMVAR<float>            m_progress;
     bool                         m_dirty = true;
+    // The shell's overview surface, relative to the monitor: where the
+    // cards are. Read every frame – it is mapped only after `open`.
+    Vector2D                     m_origin;
+    // Opened, the windows wait for that surface before they fly in.
+    bool                         m_waiting = false;
+    Time::steady_tp              m_openedAt;
 };
 
 // Finds Hyprland's renderWindow; false: the plugin cannot work.

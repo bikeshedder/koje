@@ -67,16 +67,28 @@ def command(c):
         log_line(req)
         n = req.count(";") + 1 if req.startswith("[[BATCH]]") else 1
         c.sendall(("ok\n" * n).encode())
+        # As the plugin: the windows land LANDED seconds after `open`.
+        words = req.split()
+        if "koje:overview" in req and "open" in words:
+            monitor = words[words.index("open") + 1]
+            threading.Timer(float(os.environ.get("LANDED", "0.4")), emit, [f"kojeoverview>>landed,{monitor}"]).start()
     c.close()
 
 
+listeners = []
+
+
+def emit(line):
+    for c in list(listeners):
+        try:
+            c.sendall((line + "\n").encode())
+        except OSError:
+            listeners.remove(c)
+
+
 def events(c):
-    # Silent: the shell reads the desktop when it connects.
-    try:
-        while True:
-            time.sleep(60)
-    except OSError:
-        pass
+    # Silent but for the plugin's: the shell reads the desktop when it connects.
+    listeners.append(c)
 
 
 threading.Thread(target=serve, args=(".socket2.sock", events), daemon=True).start()

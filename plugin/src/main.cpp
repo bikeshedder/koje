@@ -13,7 +13,6 @@
 #include "pass.hpp"
 
 #include <hyprland/src/Compositor.hpp>
-#include <hyprland/src/desktop/view/LayerSurface.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/helpers/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
@@ -80,20 +79,8 @@ static void hkAddDamageRegion(void* thisptr, const pixman_region32_t* region) {
     ((origAddDamageRegion)g_addDamageRegionHook->m_original)(thisptr, region);
 }
 
-// The shell's overview surface on the monitor: places are relative to it.
-static Vector2D shellOrigin(PHLMONITOR monitor) {
-    for (const auto& layer : monitor->m_layerSurfaceLayers) {
-        for (const auto& ref : layer) {
-            const auto LS = ref.lock();
-            if (LS && LS->m_mapped && LS->m_namespace == SHELL_NAMESPACE)
-                return LS->m_geometry.pos() - monitor->m_position;
-        }
-    }
-    return {};
-}
-
 // `0x55d0e8c2a1b0:10,20,800,600`
-static std::optional<std::pair<PHLWINDOW, CBox>> parsePlace(const std::string& word, const Vector2D& origin) {
+static std::optional<std::pair<PHLWINDOW, CBox>> parsePlace(const std::string& word) {
     const auto colon = word.find(':');
     if (colon == std::string::npos)
         return std::nullopt;
@@ -105,7 +92,7 @@ static std::optional<std::pair<PHLWINDOW, CBox>> parsePlace(const std::string& w
         char            comma;
         if (!window || !(in >> v[0] >> comma >> v[1] >> comma >> v[2] >> comma >> v[3]))
             return std::nullopt;
-        return std::pair{window, CBox{v[0] + origin.x, v[1] + origin.y, v[2], v[3]}};
+        return std::pair{window, CBox{v[0], v[1], v[2], v[3]}};
     } catch (...) { return std::nullopt; }
 }
 
@@ -130,10 +117,9 @@ static SDispatchResult onOverview(std::string arg) {
     const auto monitor = g_pCompositor->getMonitorFromName(words[1]);
     if (!monitor)
         return {.success = false, .error = "koje:overview: no monitor " + words[1]};
-    const auto                                origin = shellOrigin(monitor);
     std::vector<std::pair<PHLWINDOW, CBox>> places;
     for (size_t i = 2; i < words.size(); ++i) {
-        if (const auto p = parsePlace(words[i], origin))
+        if (const auto p = parsePlace(words[i]))
             places.push_back(*p);
     }
     auto& overview = g_overviews[monitor->m_name];

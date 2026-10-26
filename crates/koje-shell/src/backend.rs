@@ -102,7 +102,12 @@ async fn desktop(hypr: &Hyprland, tx: Sender<Update>) {
     loop {
         let changed = match events.next_line().await {
             Line::Connected => true,
-            Line::Event(line) => hypr::changes_desktop(&line),
+            Line::Event(line) => {
+                if let Some(monitor) = hypr::overview_landed(&line) {
+                    let _ = tx.send(Update::OverviewLanded(monitor.to_owned())).await;
+                }
+                hypr::changes_desktop(&line)
+            }
         };
         if !changed {
             continue;
@@ -110,6 +115,11 @@ async fn desktop(hypr: &Hyprland, tx: Sender<Update>) {
         // Let the rest of the burst arrive; a reconnect in it is no event.
         while let Ok(line) = tokio::time::timeout(SETTLE, events.next_line()).await {
             tracing::trace!(?line, "in the same burst");
+            if let Line::Event(line) = &line
+                && let Some(monitor) = hypr::overview_landed(line)
+            {
+                let _ = tx.send(Update::OverviewLanded(monitor.to_owned())).await;
+            }
         }
         match tokio::time::timeout(TIMEOUT, hypr::desktop(hypr)).await {
             Ok(Ok(d)) => {
