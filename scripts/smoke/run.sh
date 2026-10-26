@@ -10,6 +10,7 @@
 #   overview          koje-shell overview (show or hide)
 #   hover X Y         move the pointer to X,Y (logical pixels)
 #   click X Y         left click at X,Y
+#   rclick X Y        right click at X,Y
 #   key KEY           press a key: Escape, Return, BackSpace, Tab, arrows
 #   type TEXT         type letters, digits, space
 #   pause SECONDS
@@ -39,6 +40,17 @@ hypr=$!
 python3 -I "$here/input.py" "$run/input" 1920 1080 2>"$out/input.log" &
 input=$!
 ((dark)) && export ADW_DEBUG_COLOR_SCHEME=prefer-dark
+# GNOME Shell's favorites for the dash: its schema with just that key, in a
+# keyfile backend below the temporary config.
+mkdir -p "$run/schemas"
+cat >"$run/schemas/org.gnome.shell.gschema.xml" <<'XML'
+<schemalist><schema id="org.gnome.shell" path="/org/gnome/shell/">
+<key name="favorite-apps" type="as"><default>['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Calculator.desktop']</default></key>
+</schema></schemalist>
+XML
+glib-compile-schemas "$run/schemas"
+export GSETTINGS_SCHEMA_DIR=$run/schemas GSETTINGS_BACKEND=keyfile
+export PATH=$root/target/debug:$PATH
 export SHELL_BIN=$root/target/debug/koje-shell OUT=$out LOG=$out/kojed.log INPUT=$run/input
 
 dbus-run-session -- bash -c '
@@ -51,6 +63,7 @@ dbus-run-session -- bash -c '
   overview() { "$SHELL_BIN" overview; sleep 0.5; }
   hover() { echo "move $1 $2" >"$INPUT"; sleep 0.3; }
   click() { echo "move $1 $2" >"$INPUT"; sleep 0.2; echo click >"$INPUT"; sleep 0.5; }
+  rclick() { echo "move $1 $2" >"$INPUT"; sleep 0.2; echo rclick >"$INPUT"; sleep 0.5; }
   key() { echo "key $1" >"$INPUT"; sleep 0.3; }
   type() { echo "type $1" >"$INPUT"; sleep 0.3; }
   pause() { sleep "$1"; }

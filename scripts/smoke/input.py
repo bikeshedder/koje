@@ -6,6 +6,7 @@ FIFO:
 
   move X Y      pointer to X,Y (logical pixels on the WIDTH × HEIGHT output)
   click         left button
+  rclick        right button
   key NAME      Escape, Return, BackSpace, Tab, Up, Down, Left, Right
   type TEXT     letters, digits, space and a little punctuation (US layout)
 
@@ -28,7 +29,7 @@ from smokeproto.wayland import WlSeat  # noqa: E402
 from smokeproto.wlr_virtual_pointer_unstable_v1 import ZwlrVirtualPointerManagerV1  # noqa: E402
 from smokeproto.virtual_keyboard_unstable_v1 import ZwpVirtualKeyboardManagerV1  # noqa: E402
 
-BTN_LEFT = 0x110
+BTN_LEFT, BTN_RIGHT = 0x110, 0x111
 SHIFT = 1  # the Shift modifier's bit in the keymap
 # evdev key codes (US layout).
 KEYS = {"Escape": 1, "BackSpace": 14, "Tab": 15, "Return": 28, "space": 57, "Shift": 42,
@@ -94,12 +95,13 @@ while True:
                 x, y = rest.split()
                 pointer.motion_absolute(now(), int(x), int(y), width, height)
                 pointer.frame()
-            elif cmd == "click":
-                pointer.button(now(), BTN_LEFT, 1)
+            elif cmd in ("click", "rclick"):
+                button = BTN_LEFT if cmd == "click" else BTN_RIGHT
+                pointer.button(now(), button, 1)
                 pointer.frame()
                 display.flush()
                 time.sleep(0.05)
-                pointer.button(now(), BTN_LEFT, 0)
+                pointer.button(now(), button, 0)
                 pointer.frame()
             elif cmd == "key":
                 press(KEYS[rest])

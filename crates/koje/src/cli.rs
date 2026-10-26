@@ -167,7 +167,8 @@ pub enum Command {
     Apps {
         #[command(flatten)]
         ctx: ActiveCtx,
-        /// Start the program with this name (as listed) instead.
+        /// Start the program with this name (as listed) or desktop file id
+        /// (`firefox.desktop`) instead.
         #[arg(long, value_name = "NAME", conflicts_with = "menu")]
         start: Option<String>,
         /// For the menu: first a line with the context and its memory.

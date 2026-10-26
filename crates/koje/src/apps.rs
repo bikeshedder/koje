@@ -25,7 +25,12 @@ pub fn run(paths: &Paths, ctx: &ActiveCtx, start: Option<&str>, menu: bool) -> R
         }
         return Ok(());
     };
-    let Some(app) = apps.iter().find(|a| a.name == wanted) else {
+    // The name as listed, else the desktop file id (the shell's dash).
+    let Some(app) = apps
+        .iter()
+        .find(|a| a.name == wanted)
+        .or_else(|| apps.iter().find(|a| a.id == wanted))
+    else {
         bail!("{name} has no program named {wanted:?} – see: koje apps -c {name}");
     };
     let mut command = app.command.clone();

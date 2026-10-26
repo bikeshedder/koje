@@ -174,6 +174,15 @@ async fn act(
                     tracing::warn!("kojed: Focus {context}: {e:#}");
                 }
             }
+            Action::Launch { context, id } => {
+                // Its own task: starting may take a while.
+                tokio::spawn(async move {
+                    let args = ["apps", "-c", &context, "--start", &id].map(str::to_owned);
+                    if let Err(e) = run_koje(crate::KOJE, &args).await {
+                        tracing::warn!("starting {id} in {context}: {e}");
+                    }
+                });
+            }
             Action::Unstash { context, address } => {
                 if let Err(e) = unstash(&context, &address).await {
                     tracing::warn!("kojed: Unstash {address}: {e:#}");

@@ -48,6 +48,18 @@ struct Client {
     /// 0 for the focused window, 1 for the one before, …
     #[serde(rename = "focusHistoryID", default)]
     focus_history: i32,
+    /// kojed tags a context's windows `koje-<context>`; Hyprland marks tags
+    /// from rules with a trailing `*`.
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+/// The context a window's tags name.
+fn tagged_context(tags: &[String]) -> Option<String> {
+    tags.iter()
+        .find_map(|t| t.trim_end_matches('*').strip_prefix("koje-"))
+        .filter(|c| !c.is_empty())
+        .map(str::to_owned)
 }
 
 fn yes() -> bool {
@@ -92,6 +104,7 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
                 at: c.at,
                 size: c.size,
                 focus_history: c.focus_history,
+                context: tagged_context(&c.tags),
             })
             .collect(),
     })
@@ -176,7 +189,7 @@ mod tests {
         let c: Vec<Client> = serde_json::from_str(
             r#"[{"address":"0x5","mapped":true,"hidden":false,"at":[10,40],"size":[800,600],
                 "workspace":{"id":-1337,"name":"kp"},"floating":false,"class":"foot","title":"~",
-                "focusHistoryID":2,"pid":7}]"#,
+                "focusHistoryID":2,"pid":7,"tags":["koje-kp"]}]"#,
         )
         .unwrap();
         assert_eq!(
@@ -188,5 +201,11 @@ mod tests {
             ),
             ((10, 40), (800, 600), "kp", 2)
         );
+        assert_eq!(tagged_context(&c[0].tags).as_deref(), Some("kp"));
+        assert_eq!(
+            tagged_context(&["x".into(), "koje-mail*".into()]).as_deref(),
+            Some("mail")
+        );
+        assert_eq!(tagged_context(&[]), None);
     }
 }

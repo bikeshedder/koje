@@ -13,9 +13,12 @@ ids = {"1": 1, "2": 2, "kundenportal": -1337, "privat": -1338, "special:stash-ku
 
 
 def win(address, workspace, cls, title, at, size, focus):
+    # kojed tags a context's windows `koje-<context>`.
+    context = workspace.removeprefix("special:stash-")
+    tags = [] if context in ("1", "2") else [f"koje-{context}"]
     return {"address": address, "mapped": True, "hidden": False, "at": at, "size": size,
             "workspace": {"id": ids[workspace], "name": workspace}, "floating": False,
-            "class": cls, "title": title, "focusHistoryID": focus, "pid": 100}
+            "class": cls, "title": title, "focusHistoryID": focus, "pid": 100, "tags": tags}
 
 
 desktop = {

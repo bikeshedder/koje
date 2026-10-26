@@ -8,6 +8,7 @@ mod bar;
 mod bar_layout;
 mod clock;
 mod contexts_ui;
+mod dash;
 mod dialog_ui;
 mod end_session;
 mod hypr;
@@ -175,6 +176,7 @@ fn start(app: &adw::Application) {
     });
 
     follow_config(&shell, &bars);
+    follow_favorites(&shell, &bars);
     overview_actions(app, &bars, &shell);
     // GNOME's questions with a countdown: a display change, ending the session.
     let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
@@ -272,6 +274,30 @@ fn follow_config(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
     }
 }
 
+/// GNOME's favorite apps for the dash, now and whenever they change.
+fn follow_favorites(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
+    let Some(settings) = app_info::shell_settings() else {
+        tracing::info!("no org.gnome.shell schema: the dash has no favorites");
+        return;
+    };
+    let load = {
+        let (shell, bars) = (shell.clone(), bars.clone());
+        move |s: &gio::Settings| {
+            let favorites = s
+                .strv("favorite-apps")
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            shell.borrow_mut().apply(Update::Favorites(favorites));
+            render(&bars, &shell);
+        }
+    };
+    load(&settings);
+    settings.connect_changed(Some("favorite-apps"), move |s, _| load(s));
+    // Follows as long as the shell runs.
+    std::mem::forget(settings);
+}
+
 /// The shell's actions `log-out`, `restart` and `power-off` on the session
 /// bus (`GApplication` exports them): they ask first (M8.47). `koje session
 /// end` and Super+Shift+E use them.
@@ -306,7 +332,8 @@ fn render(bars: &Bars, shell: &Rc<RefCell<Shell>>) {
         let connector = bar.connector();
         bar.render(&shell.bar(connector.as_deref()));
         if bar.overview().is_visible() {
-            bar.overview().render(&shell.overview(connector.as_deref()));
+            bar.overview()
+                .render(&shell.overview(connector.as_deref(), &app_info::desktop_id));
         }
     }
 }
@@ -327,7 +354,8 @@ fn overview_actions(app: &adw::Application, bars: &Bars, shell: &Rc<RefCell<Shel
             let focused = s.focused_monitor();
             for bar in bars.borrow().iter() {
                 let connector = bar.connector();
-                bar.overview().render(&s.overview(connector.as_deref()));
+                bar.overview()
+                    .render(&s.overview(connector.as_deref(), &app_info::desktop_id));
                 let here = focused.is_none_or(|f| connector.as_deref() == Some(f));
                 bar.overview().show(here);
             }

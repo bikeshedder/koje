@@ -2,6 +2,7 @@
 //! current workspace's windows, the workspace strip, the context's stash –
 //! and where the windows go ([`arrange`]).
 
+use crate::dash::DashEntry;
 use crate::model::{Accent, WindowState, WorkspaceButton};
 
 /// What one monitor's overview shows.
@@ -14,6 +15,8 @@ pub struct OverviewView {
     pub windows: Vec<WindowCard>,
     /// The active context's stash; `None` on a host workspace.
     pub stash: Option<Stash>,
+    /// The dash; empty on monitors without the focus.
+    pub dash: Vec<DashEntry>,
 }
 
 /// A window in the overview.
@@ -258,6 +261,7 @@ mod tests {
             at: (x, y),
             size: (100, 100),
             focus_history: 0,
+            context: None,
         };
         let all = [
             w("0x1", "kp", 960, 40),

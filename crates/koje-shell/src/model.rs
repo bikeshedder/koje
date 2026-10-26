@@ -9,6 +9,7 @@ use koje_core::ports::CompositorCommand;
 
 use std::collections::BTreeMap;
 
+use crate::dash::{DashInput, dash};
 use crate::menu::{HistoryReading, MenuInput, MenuView, NEW_CONTEXT, menu};
 use crate::overview::{OverviewView, Stash, WindowCard, on_workspace};
 use crate::quick::{QuickView, System, quick};
@@ -41,6 +42,8 @@ pub enum Update {
     System(System),
     /// `config.toml` changed.
     Bar(BarConfig),
+    /// GNOME's favorite apps (`org.gnome.shell favorite-apps`).
+    Favorites(Vec<String>),
     /// GNOME Settings changed the screens: ask to keep them within that many
     /// seconds (M8.53). Not part of the bar's state.
     DisplayChangePending(u32),
@@ -171,6 +174,8 @@ pub struct WindowState {
     pub size: (i32, i32),
     /// 0 for the focused window, then by when they had the focus.
     pub focus_history: i32,
+    /// The context kojed tagged it with; `None` for host windows.
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,6 +222,7 @@ pub struct Shell {
     system: System,
     /// `[bar]` of `config.toml`.
     bar: BarConfig,
+    favorites: Vec<String>,
 }
 
 /// Whose color an element shows as its accent: a context's, or the grey of
@@ -273,6 +279,12 @@ pub enum Action {
     FocusWindow(String),
     /// Ask a window to close.
     CloseWindow(String),
+    /// Start a program in a context by its desktop file id (`koje apps
+    /// --start`; the dash).
+    Launch {
+        context: String,
+        id: String,
+    },
     /// Bring a stashed window back into its context's active layout
     /// (kojed's `Unstash`).
     Unstash {
@@ -364,6 +376,7 @@ impl Action {
             | Self::FocusWindow(_)
             | Self::CloseWindow(_)
             | Self::Unstash { .. }
+            | Self::Launch { .. }
             | Self::FocusContext(_)
             | Self::Quick(_)
             | Self::KeepDisplayChange
@@ -379,6 +392,7 @@ impl Shell {
         match update {
             Update::Desktop(desktop) => self.desktop = desktop,
             Update::Bar(bar) => self.bar = bar,
+            Update::Favorites(favorites) => self.favorites = favorites,
             Update::DisplayChangePending(_) => {}
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
@@ -506,8 +520,14 @@ impl Shell {
             .map(|m| m.name.as_str())
     }
 
-    /// The overview of the monitor with connector `monitor` (ADR 0049).
-    pub fn overview(&self, monitor: Option<&str>) -> OverviewView {
+    /// The overview of the monitor with connector `monitor` (ADR 0049);
+    /// the dash only on the focused one. `desktop_id` finds an app id's
+    /// desktop file.
+    pub fn overview(
+        &self,
+        monitor: Option<&str>,
+        desktop_id: &dyn Fn(&str) -> Option<String>,
+    ) -> OverviewView {
         let mon = self.monitor(monitor);
         let windows = &self.desktop.windows;
         let current = mon.map_or("", |m| m.active_workspace.as_str());
@@ -531,7 +551,25 @@ impl Shell {
                 }),
             Accent::Host => None,
         };
+        let focused = mon.is_none_or(|m| m.focused);
+        let contexts: Vec<String> = self.contexts().iter().map(|c| c.name.clone()).collect();
+        let active = match &accent {
+            Accent::Context(name) => Some(name.as_str()),
+            Accent::Host => None,
+        };
+        let dash = if focused {
+            dash(&DashInput {
+                favorites: &self.favorites,
+                windows,
+                contexts: &contexts,
+                active,
+                desktop_id,
+            })
+        } else {
+            Vec::new()
+        };
         OverviewView {
+            dash,
             workspaces: self.workspace_buttons(mon),
             windows: on_workspace(windows, current)
                 .into_iter()
@@ -677,6 +715,10 @@ mod tests {
             at,
             size: (960, 1040),
             focus_history,
+            context: workspace
+                .strip_prefix("special:stash-")
+                .or((workspace == "kp").then_some("kp"))
+                .map(str::to_owned),
         }
     }
 
@@ -689,7 +731,7 @@ mod tests {
 
     #[test]
     fn the_overview_shows_the_workspace_and_the_contexts_stash() {
-        let o = shell().overview(Some("eDP-1"));
+        let o = shell().overview(Some("eDP-1"), &|_| None);
         let addresses = |cards: &[WindowCard]| -> Vec<String> {
             cards.iter().map(|c| c.address.clone()).collect()
         };
@@ -711,14 +753,14 @@ mod tests {
 
     #[test]
     fn a_host_workspace_has_no_stash() {
-        let o = shell().overview(Some("DP-1"));
+        let o = shell().overview(Some("DP-1"), &|_| None);
         assert_eq!(o.windows, []);
         assert_eq!(o.stash, None);
         let mut s = shell();
         let mut d = desktop();
         d.monitors[0].active_workspace = "1".into();
         s.apply(Update::Desktop(d));
-        let o = s.overview(Some("eDP-1"));
+        let o = s.overview(Some("eDP-1"), &|_| None);
         assert_eq!(o.windows.len(), 1);
         assert_eq!(o.windows[0].accent, Accent::Host);
         assert_eq!(o.stash, None);
