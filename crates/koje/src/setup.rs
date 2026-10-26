@@ -54,12 +54,17 @@ pub const DEPENDENCIES: [(&str, &str); 18] = [
 pub const PORTALS: [&str; 2] = ["xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk"];
 
 pub fn on_path(command: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path).any(|dir| {
-            std::fs::metadata(dir.join(command))
-                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    find_on_path(command).is_some()
+}
+
+/// Where `command` is in `PATH`: the first executable file of that name.
+pub fn find_on_path(command: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(command))
+        .find(|p| {
+            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         })
-    })
 }
 
 /// Missing packages: commands not on `PATH`, portals not installed.

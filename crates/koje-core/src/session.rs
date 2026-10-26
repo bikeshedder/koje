@@ -39,6 +39,20 @@ pub fn current_desktop(given: Option<&str>) -> String {
     names.join(":")
 }
 
+/// systemd's generator for `~/.config/environment.d/*.conf` (and the system's
+/// `environment.d`): it prints the environment with those files applied.
+pub const ENVIRONMENT_D: &str =
+    "/usr/lib/systemd/user-environment-generators/30-systemd-environment-d-generator";
+
+/// The generator's `KEY=VALUE` lines; anything else is skipped.
+pub fn parse_environment(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|l| l.split_once('='))
+        .filter(|(k, _)| !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
+}
+
 /// Variables `koje session start` sets for Hyprland and everything in it.
 pub fn session_environment(given_desktop: Option<&str>) -> Vec<(&'static str, String)> {
     vec![
@@ -122,6 +136,21 @@ pub fn restart_commands() -> Vec<Cmd> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn environment_d_lines() {
+        let env = parse_environment(
+            "LIBVA_DRIVER_NAME=nvidia\nPATH=/a:/b\nno equals\n=x\nBAD-KEY=1\nEMPTY=\n",
+        );
+        assert_eq!(
+            env,
+            [
+                ("LIBVA_DRIVER_NAME".to_owned(), "nvidia".to_owned()),
+                ("PATH".to_owned(), "/a:/b".to_owned()),
+                ("EMPTY".to_owned(), String::new()),
+            ]
+        );
+    }
 
     #[test]
     fn the_desktop_is_koje_and_gnome() {

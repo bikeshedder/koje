@@ -130,7 +130,8 @@ koje is its own session; Hyprland is the compositor it starts.
 - [ ] **M8.62 The koje session on the host** *(host)*: from the login screen (GDM); `XDG_CURRENT_DESKTOP=koje:GNOME` reaches programs and contexts; GNOME Settings without the shell's workaround; apps that expect GNOME Shell's D-Bus services (screenshots, `org.gnome.SessionManager`); Hyprland directly or through `start-hyprland`; logout stops every service
   - Done when: a report in `docs/spikes/`; together with M8.42.
 - [ ] **M8.63 Custom shortcuts from GNOME Settings** (ADR 0044, 0048): kojed turns GNOME Settings' custom shortcuts (`org.gnome.settings-daemon.plugins.media-keys custom-keybindings`, each with name, command, binding) into Hyprland bindings – at start, on change, after a config reload; the mapping (GNOME's accelerator syntax → Hyprland's) pure in `koje-core`
-- [ ] **M8.64 The session's environment from `environment.d`** (ADR 0048): `koje session start` gives Hyprland the environment of the user's systemd manager (`~/.config/environment.d/*.conf`, e.g. GPU variables), so nothing needs Hyprland's `env =`; `koje doctor` points there
+- [x] **M8.64 The session's environment from `environment.d`** (ADR 0048): `koje session start` gives Hyprland the environment of the user's systemd manager (`~/.config/environment.d/*.conf`, e.g. GPU variables), so nothing needs Hyprland's `env =`; `koje doctor` points there
+  - systemd's `30-systemd-environment-d-generator` prints the environment with `environment.d` applied; `koje session start` gives it to Hyprland, the session's own variables over it (`koje_core::session::parse_environment`). Without the generator the inherited environment stays. Hyprland itself is looked up in the session's own `PATH` (an `environment.d` `PATH` would hide it otherwise). `koje doctor` pointing there: open.
 
 ## Settings app
 
