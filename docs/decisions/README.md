@@ -56,3 +56,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0049 | [An overview and a dash like GNOME's](0049-overview-and-dash.md) | Accepted (windows: 0051) |
 | 0050 | [koje's own screen sharing picker](0050-screen-sharing-picker.md) | Accepted |
 | 0051 | [The overview's windows come from a koje Hyprland plugin](0051-overview-plugin.md) | Accepted |
+| 0052 | [New windows open as in GNOME](0052-new-windows-as-in-gnome.md) | Accepted |

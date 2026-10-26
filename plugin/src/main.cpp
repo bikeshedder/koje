@@ -1,4 +1,5 @@
-// koje's Hyprland plugin (ADR 0051). For now the overview's windows:
+// koje's Hyprland plugin (ADR 0051). New windows open as in GNOME (ADR 0052,
+// windows.cpp). And the overview's windows:
 //
 //   hyprctl dispatch koje:overview open <monitor> <address>:<x>,<y>,<w>,<h> …
 //   hyprctl dispatch koje:overview update <monitor> <address>:<x>,<y>,<w>,<h> …
@@ -11,6 +12,7 @@
 
 #include "overview.hpp"
 #include "pass.hpp"
+#include "windows.hpp"
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
@@ -23,8 +25,10 @@ static CFunctionHook* g_renderWindowsHook   = nullptr;
 static CFunctionHook* g_renderFullscreenHook = nullptr;
 static CFunctionHook* g_addDamageBoxHook    = nullptr;
 static CFunctionHook* g_addDamageRegionHook = nullptr;
+static CFunctionHook* g_updateStateHook     = nullptr;
 
 using origRenderWindows   = void (*)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&);
+using origUpdateState     = void (*)(void*);
 using origAddDamageBox    = void (*)(void*, const CBox&);
 using origAddDamageRegion = void (*)(void*, const pixman_region32_t*);
 
@@ -77,6 +81,11 @@ static void hkAddDamageRegion(void* thisptr, const pixman_region32_t* region) {
         return;
     }
     ((origAddDamageRegion)g_addDamageRegionHook->m_original)(thisptr, region);
+}
+
+static void hkUpdateState(void* thisptr) {
+    onWindowState((Desktop::View::CWindow*)thisptr);
+    ((origUpdateState)g_updateStateHook->m_original)(thisptr);
 }
 
 // `0x55d0e8c2a1b0:10,20,800,600`
@@ -159,10 +168,19 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_renderFullscreenHook = hook("CHyprRenderer::renderWorkspaceWindowsFullscreen(", (void*)hkRenderFullscreen);
     g_addDamageBoxHook    = hook("_ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE", (void*)hkAddDamageBox);
     g_addDamageRegionHook = hook("_ZN8CMonitor9addDamageEPK15pixman_region32", (void*)hkAddDamageRegion);
+    g_updateStateHook     = hook("Desktop::View::CWindow::onUpdateState(", (void*)hkUpdateState);
     if (!findRenderWindow())
         fail("Hyprland has no CHyprRenderer::renderWindow – the plugin was built for another version");
     if (!g_renderWindowsHook->hook() || !g_renderFullscreenHook->hook() || !g_addDamageBoxHook->hook() || !g_addDamageRegionHook->hook())
         fail("could not hook Hyprland's rendering");
+    if (!g_updateStateHook->hook())
+        fail("could not hook Hyprland's window states");
+
+    static auto openWindow = HyprlandAPI::registerCallbackDynamic(PHANDLE, "openWindow", [](void*, SCallbackInfo&, std::any data) {
+        try {
+            onWindowOpen(std::any_cast<PHLWINDOW>(data));
+        } catch (const std::bad_any_cast&) {}
+    });
 
     static auto preRender = HyprlandAPI::registerCallbackDynamic(PHANDLE, "preRender", [](void*, SCallbackInfo&, std::any data) {
         try {
@@ -179,9 +197,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overview_background", Hyprlang::INT{0xFF1D1D20});
     // How long the windows fly, in ms (GNOME's overview: 250); 0: at once.
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overview_duration", Hyprlang::INT{250});
+    // New windows larger than 80 % of the screen open maximized, as GNOME's
+    // auto-maximize (ADR 0052); 0: off.
+    HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:auto_maximize", Hyprlang::INT{1});
     HyprlandAPI::reloadConfig();
 
-    return {"koje", "koje's overview: the real windows, scaled", "koje", "1"};
+    return {"koje", "koje's overview (the real windows, scaled) and new windows as in GNOME", "koje", "1"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {

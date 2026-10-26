@@ -40,7 +40,7 @@ crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
 crates/kojed       background service (Hyprland events, colors, memory watch)
 crates/koje-shell  koje's GTK4 UI (ADR 0042): the bar; later OSD, overlays, notifications, settings app
 build             the Ubuntu 26.04 image `just deb` builds the package in (ADR 0045)
-plugin            koje's Hyprland plugin (C++, ADR 0051): the overview's windows; built with the package in its Ubuntu container (build/, scripts/build-deb.sh)
+plugin            koje's Hyprland plugin (C++, ADR 0051): the overview's windows, new windows as in GNOME (ADR 0052); built with the package in its Ubuntu container (build/, scripts/build-deb.sh)
 assets            files koje ships besides binaries: icon font, Hyprland snippet, Waybar config, units
 scripts           host helpers outside koje itself (e.g. build-waybar-deb.sh: a newer Waybar)
 docs/plan          roadmap + one file per milestone with task checkboxes
