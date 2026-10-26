@@ -14,6 +14,10 @@ pub const SNIPPET: &str = "/usr/share/koje/hyprland/koje.conf";
 /// The compositor.
 pub const HYPRLAND: &str = "Hyprland";
 
+/// Hyprland's watchdog (since 0.53): starts it, restarts it in safe mode
+/// after a crash; Hyprland warns when started without it.
+pub const WATCHDOG: &str = "start-hyprland";
+
 /// What programs started by systemd and D-Bus need from the session: the
 /// display, the desktop's identity, Hyprland's instance.
 pub const ENVIRONMENT: [&str; 6] = [
@@ -62,9 +66,15 @@ pub fn session_environment(given_desktop: Option<&str>) -> Vec<(&'static str, St
     ]
 }
 
-/// The arguments to start Hyprland with koje's config.
-pub fn hyprland_args(conf: &Path) -> Vec<String> {
-    vec!["--config".to_owned(), conf.display().to_string()]
+/// The arguments to start Hyprland with koje's config – through the
+/// watchdog, which passes what follows `--` on.
+pub fn hyprland_args(conf: &Path, watchdog: bool) -> Vec<String> {
+    let mut args = Vec::new();
+    if watchdog {
+        args.push("--".to_owned());
+    }
+    args.extend(["--config".to_owned(), conf.display().to_string()]);
+    args
 }
 
 /// The session's Hyprland config, generated at login into the runtime
@@ -88,7 +98,12 @@ pub fn session_conf(snippet: &Path, monitors: Option<&Path>, user: Option<&Path>
     if let Some(u) = user {
         source(u);
     }
-    conf.push_str("\n# Hand the environment to systemd and start koje's services.\nexec-once = koje session ready\n");
+    conf.push_str(
+        "\n# `koje:GNOME` is intended (ADR 0048): no warning that it is not `Hyprland`.\n\
+         misc:disable_xdg_env_checks = true\n\
+         \n# Hand the environment to systemd and start koje's services.\n\
+         exec-once = koje session ready\n",
+    );
     conf
 }
 
@@ -178,15 +193,21 @@ mod tests {
             ]
         );
         assert!(full.contains("\nexec-once = koje session ready\n"));
+        assert!(full.contains("\nmisc:disable_xdg_env_checks = true\n"));
         let bare = session_conf(Path::new(SNIPPET), None, None);
         assert_eq!(bare.lines().filter(|l| l.starts_with("source")).count(), 1);
     }
 
     #[test]
     fn hyprland_gets_kojes_config() {
+        let conf = Path::new("/run/user/1000/koje/session.conf");
         assert_eq!(
-            hyprland_args(Path::new("/run/user/1000/koje/session.conf")),
+            hyprland_args(conf, false),
             ["--config", "/run/user/1000/koje/session.conf"]
+        );
+        assert_eq!(
+            hyprland_args(conf, true),
+            ["--", "--config", "/run/user/1000/koje/session.conf"]
         );
         let env = session_environment(Some("koje:GNOME"));
         assert!(env.contains(&("XDG_SESSION_DESKTOP", "koje".to_owned())));

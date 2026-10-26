@@ -86,13 +86,17 @@ fn environment_d() -> Vec<(String, String)> {
 fn start(paths: &Paths) -> Result<()> {
     let conf = write_session_conf(paths)?;
     let given = std::env::var("XDG_CURRENT_DESKTOP").ok();
-    // Found in the session's own PATH: `environment.d` may set another.
-    let program = crate::setup::find_on_path(session::HYPRLAND)
-        .unwrap_or_else(|| PathBuf::from(session::HYPRLAND));
+    // Through Hyprland's watchdog when there is one; found in the session's
+    // own PATH: `environment.d` may set another.
+    let watchdog = crate::setup::find_on_path(session::WATCHDOG);
+    let program = watchdog.clone().unwrap_or_else(|| {
+        crate::setup::find_on_path(session::HYPRLAND)
+            .unwrap_or_else(|| PathBuf::from(session::HYPRLAND))
+    });
     let mut hyprland = tokio::process::Command::new(program);
     // `environment.d` first (e.g. GPU variables), the session's own over it.
     hyprland
-        .args(session::hyprland_args(&conf))
+        .args(session::hyprland_args(&conf, watchdog.is_some()))
         .envs(environment_d())
         .envs(session::session_environment(given.as_deref()));
     let runtime = tokio::runtime::Builder::new_current_thread()
