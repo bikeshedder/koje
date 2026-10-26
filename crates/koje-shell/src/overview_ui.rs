@@ -419,13 +419,21 @@ impl OverviewSurface {
     }
 
     /// Show it; the focused monitor's takes the keyboard.
-    pub fn show(&self, focused: bool) {
+    pub fn show(self: &Rc<Self>, focused: bool) {
         self.window.set_keyboard_mode(if focused {
             KeyboardMode::Exclusive
         } else {
             KeyboardMode::None
         });
         self.window.present();
+        // The plugin flies the windows in. Shown again unchanged, GTK may
+        // not lay the cards out again: tell it here too, once it is mapped.
+        let weak = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            if let Some(me) = weak.upgrade() {
+                me.send_places();
+            }
+        });
     }
 
     /// Hidden, it starts over next time: no search, the windows.

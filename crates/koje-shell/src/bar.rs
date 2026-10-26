@@ -100,7 +100,7 @@ impl Bar {
         }
     }
 
-    pub fn overview(&self) -> &OverviewSurface {
+    pub fn overview(&self) -> &Rc<OverviewSurface> {
         &self.overview
     }
 

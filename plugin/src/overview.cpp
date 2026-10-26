@@ -112,8 +112,10 @@ void COverview::close() {
         if (const auto W = w.window.lock())
             w.from = placeOf(W, M);
     }
-    m_progress->setCallbackOnEnd(end);
+    // Started first: Hyprutils runs an end callback at once for a variable
+    // that is not animating.
     *m_progress = 0.F;
+    m_progress->setCallbackOnEnd(end);
 }
 
 void COverview::render() {
