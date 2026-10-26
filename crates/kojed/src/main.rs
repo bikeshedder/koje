@@ -16,6 +16,7 @@ mod daemon;
 mod gsettings;
 mod players;
 mod procfs;
+mod screens;
 mod sound;
 mod wayland;
 
@@ -47,6 +48,7 @@ async fn main() -> Result<()> {
     })?;
     let hyprland = Hyprland::from_env();
     let mut events = hyprland.events();
+    let screens_paths = paths.clone();
     let mut daemon = daemon::Daemon::new(hyprland, Podman::new(), paths);
     // The contexts before the first client asks (errors are logged; a
     // compositor that is not up yet gets its rules on `Connected`).
@@ -77,6 +79,12 @@ async fn main() -> Result<()> {
             format!("owning {BUS_NAME} on the session bus (is kojed running already?)")
         })?;
     tracing::info!("serving {BUS_NAME}");
+    // GNOME's monitors.xml while Hyprland runs (ADR 0046, M8.52).
+    tokio::spawn(screens::run(
+        Hyprland::from_env(),
+        screens_paths,
+        runtime.clone(),
+    ));
     tokio::spawn(relink_sound(runtime));
     // GNOME's input settings on Hyprland (ADR 0044, M8.43).
     let reapply_input = Arc::new(tokio::sync::Notify::new());

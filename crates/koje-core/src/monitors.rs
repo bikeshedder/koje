@@ -555,11 +555,60 @@ pub fn connector_of(entry: &str) -> Option<&str> {
     .then_some(connector)
 }
 
+/// The connected screens in a `/sys/class/drm`-like folder, with Mutter's
+/// identity from their EDID; screens without a readable EDID are left out
+/// (Mutter could not tell them apart either). Reads files only.
+pub fn read_connected(drm: &std::path::Path) -> BTreeSet<Spec> {
+    let Ok(entries) = std::fs::read_dir(drm) else {
+        return BTreeSet::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let connector = connector_of(&name)?.to_owned();
+            let status = std::fs::read_to_string(e.path().join("status")).ok()?;
+            if status.trim() != "connected" {
+                return None;
+            }
+            // sysfs reports the file as empty; reading gives the bytes.
+            let edid = std::fs::read(e.path().join("edid")).ok()?;
+            Some(Spec {
+                connector,
+                id: crate::edid::identity(&edid)?,
+            })
+        })
+        .collect()
+}
+
+/// The screens the user's own Hyprland file sets (`monitor = DP-1, …`): they
+/// win over monitors.xml (ADR 0046), so koje leaves them alone.
+pub fn user_monitors(conf: &str) -> BTreeSet<String> {
+    conf.lines()
+        .filter_map(|l| {
+            let l = l.split('#').next()?.trim();
+            let (key, value) = l.split_once('=')?;
+            (key.trim() == "monitor")
+                .then(|| value.split(',').next().unwrap_or("").trim().to_owned())
+        })
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
+/// `monitor` values without the screens in `skip` (by connector).
+pub fn without(lines: Vec<String>, skip: &BTreeSet<String>) -> Vec<String> {
+    lines
+        .into_iter()
+        .filter(|l| !skip.contains(l.split(',').next().unwrap_or("").trim()))
+        .collect()
+}
+
 /// Hyprland's config file for the screens: `monitor =` lines.
 pub fn hyprland_conf(lines: &[String]) -> String {
     let mut out = String::from(
-        "# The screens from ~/.config/monitors.xml (ADR 0046), written by koje\n\
-         # at login – edits are lost; change screens in GNOME Settings.\n",
+        "# The screens from ~/.config/monitors.xml (ADR 0046), written by koje at\n\
+         # login and when screens change – edits are lost; change screens in\n\
+         # GNOME Settings.\n",
     );
     for l in lines {
         let _ = writeln!(out, "monitor = {l}");
@@ -762,6 +811,44 @@ mod tests {
         assert_eq!(connector_of("renderD128"), None);
         assert_eq!(connector_of("card1-Writeback-1"), None);
         assert_eq!(connector_of("cardX-DP-1"), None);
+    }
+
+    #[test]
+    fn connected_screens_from_a_drm_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let screen = |name: &str, status: &str, edid: &[u8]| {
+            let d = tmp.path().join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("status"), status).unwrap();
+            std::fs::write(d.join("edid"), edid).unwrap();
+        };
+        let mut edid = vec![0u8; 128];
+        edid[..8].copy_from_slice(&[0, 255, 255, 255, 255, 255, 255, 0]);
+        edid[8..10].copy_from_slice(&0b0_00100_00101_01100u16.to_be_bytes());
+        screen("card1-DP-3", "connected\n", &edid);
+        screen("card1-DP-1", "disconnected\n", &edid);
+        screen("card1-HDMI-A-1", "connected\n", b"");
+        std::fs::create_dir_all(tmp.path().join("card1")).unwrap();
+        let found: Vec<String> = read_connected(tmp.path())
+            .into_iter()
+            .map(|s| format!("{} {}", s.connector, s.id.vendor))
+            .collect();
+        assert_eq!(found, ["DP-3 DEL"]);
+    }
+
+    #[test]
+    fn the_users_own_monitor_lines_win() {
+        let own = user_monitors(
+            "# monitor = DP-9, x\nmonitor = DP-1, 5120x2160@120, 0x0, 1\n  monitor=HDMI-A-1,disable # off\nmonitorv2 = x\n",
+        );
+        assert_eq!(
+            own,
+            BTreeSet::from(["DP-1".to_owned(), "HDMI-A-1".to_owned()])
+        );
+        assert_eq!(
+            without(vec!["DP-1, disable".into(), "DP-2, disable".into()], &own),
+            ["DP-2, disable"]
+        );
     }
 
     #[test]

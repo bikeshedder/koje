@@ -11,29 +11,9 @@ use koje_core::paths::Paths;
 
 const DRM: &str = "/sys/class/drm";
 
-/// The connected screens with Mutter's identity; screens without a readable
-/// EDID are left out (Mutter could not tell them apart either).
+/// The connected screens with Mutter's identity.
 pub fn connected() -> BTreeSet<Spec> {
-    let Ok(entries) = std::fs::read_dir(DRM) else {
-        return BTreeSet::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let connector = monitors::connector_of(&name)?.to_owned();
-            let status = std::fs::read_to_string(e.path().join("status")).ok()?;
-            if status.trim() != "connected" {
-                return None;
-            }
-            // sysfs reports the file as empty; reading gives the bytes.
-            let edid = std::fs::read(e.path().join("edid")).ok()?;
-            Some(Spec {
-                connector,
-                id: koje_core::edid::identity(&edid)?,
-            })
-        })
-        .collect()
+    monitors::read_connected(Path::new(DRM))
 }
 
 /// Where the screens' settings came from.
