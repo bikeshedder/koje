@@ -62,5 +62,6 @@ assets = [
     ["../../assets/systemd/kojed.service", "usr/lib/systemd/user/", "644"],
     ["../../assets/systemd/koje-shell.service", "usr/lib/systemd/user/", "644"],
     ["../../assets/fonts/lucide/lucide.ttf", "usr/share/fonts/truetype/koje/", "644"],
+    ["../../assets/icons/io.koje.Koje-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../../assets/fonts/lucide/LICENSE", "usr/share/doc/koje/lucide-LICENSE", "644"],
 ]

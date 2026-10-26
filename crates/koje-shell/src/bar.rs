@@ -12,7 +12,7 @@ use gtk4_layer_shell::{Edge, Layer, LayerShell as _};
 use libadwaita as adw;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::capsule::CapsuleWidget;
+use crate::menu_ui::MenuWidget;
 use crate::model::{Accent, Action, BarView, Task, WorkspaceButton};
 
 /// Widest a task's title gets, in characters.
@@ -25,7 +25,7 @@ pub struct Bar {
     actions: UnboundedSender<Action>,
     workspaces: gtk::Box,
     tasks: gtk::Box,
-    capsule: CapsuleWidget,
+    menu: MenuWidget,
     warning: gtk::Box,
     warning_text: gtk::Label,
     /// What the bar shows now: an update that changes nothing redraws nothing.
@@ -65,7 +65,7 @@ impl Bar {
         start.append(&workspaces);
         start.append(&tasks);
 
-        let capsule = CapsuleWidget::new();
+        let menu = MenuWidget::new(actions.clone());
         let warning_text = gtk::Label::new(None);
         let warning = gtk::Box::builder()
             .spacing(6)
@@ -75,7 +75,7 @@ impl Bar {
         warning.append(&gtk::Image::from_icon_name("dialog-warning-symbolic"));
         warning.append(&warning_text);
         let end = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        end.append(capsule.widget());
+        end.append(menu.widget());
         end.append(&warning);
 
         let layout = gtk::CenterBox::builder()
@@ -93,7 +93,7 @@ impl Bar {
             actions,
             workspaces,
             tasks,
-            capsule,
+            menu,
             warning,
             warning_text,
             shown: RefCell::new(None),
@@ -122,7 +122,7 @@ impl Bar {
         for t in &view.tasks {
             self.tasks.append(&self.task_button(t));
         }
-        self.capsule.render(view.capsule.as_ref());
+        self.menu.render(view.menu.as_ref());
         match view.warning {
             Some(text) => {
                 self.warning_text.set_label(text);

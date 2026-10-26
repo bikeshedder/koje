@@ -14,6 +14,7 @@ use koje_hyprland::events::Line;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::hypr;
+use crate::menu::HistoryReading;
 use crate::model::{Action, MemoryReading, RunningContext, Update};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
@@ -22,6 +23,8 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 const SETTLE: Duration = Duration::from_millis(20);
 /// Wait before connecting to the session bus again.
 const RETRY: Duration = Duration::from_secs(2);
+/// `koje limit` reads and writes a few files and may set a kernel limit.
+const LIMIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[zbus::proxy(
     interface = "io.koje.Daemon1",
@@ -32,6 +35,10 @@ trait Daemon {
     fn running_contexts(&self) -> zbus::Result<Vec<(String, String, u32, bool)>>;
 
     fn memory(&self, context: &str) -> zbus::Result<(String, u64, u64, u64, u64)>;
+
+    fn memory_history(&self, context: &str) -> zbus::Result<(String, u32, Vec<u64>)>;
+
+    fn focus(&self, context: &str) -> zbus::Result<()>;
 
     #[zbus(signal)]
     fn contexts_changed(&self) -> zbus::Result<()>;
@@ -54,7 +61,7 @@ pub fn spawn(tx: Sender<Update>, actions: UnboundedReceiver<Action>) -> Result<(
                 let hypr = Hyprland::from_env();
                 tokio::select! {
                     () = desktop(&hypr, tx.clone()) => {}
-                    () = act(&hypr, actions) => {}
+                    () = act(&hypr, actions, tx.clone()) => {}
                     () = kojed_forever(tx) => {}
                 }
             });
@@ -92,17 +99,77 @@ async fn desktop(hypr: &Hyprland, tx: Sender<Update>) {
 }
 
 /// Carry out what clicks ask for.
-async fn act(hypr: &Hyprland, mut actions: UnboundedReceiver<Action>) {
+async fn act(hypr: &Hyprland, mut actions: UnboundedReceiver<Action>, tx: Sender<Update>) {
     while let Some(action) = actions.recv().await {
         tracing::debug!(?action, "click");
-        match tokio::time::timeout(TIMEOUT, hypr.apply(&[action.command()])).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::warn!("Hyprland: {e}"),
-            Err(_) => tracing::warn!("Hyprland did not answer within {TIMEOUT:?}"),
+        if let Some(command) = action.command() {
+            match tokio::time::timeout(TIMEOUT, hypr.apply(&[command])).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("Hyprland: {e}"),
+                Err(_) => tracing::warn!("Hyprland did not answer within {TIMEOUT:?}"),
+            }
+            continue;
+        }
+        match action {
+            Action::FocusContext(context) => {
+                if let Err(e) = focus(&context).await {
+                    tracing::warn!("kojed: Focus {context}: {e:#}");
+                }
+            }
+            Action::SetLimits {
+                context,
+                soft,
+                hard,
+            } => {
+                let error = set_limits(crate::KOJE, &context, &soft, &hard).await.err();
+                let _ = tx.send(Update::LimitsChanged { context, error }).await;
+            }
+            Action::FocusWorkspace(_) | Action::FocusWindow(_) => {}
         }
     }
     // The GTK side is gone; keep the others running until it says so.
     std::future::pending::<()>().await;
+}
+
+/// Show a context's workspace through kojed.
+async fn focus(context: &str) -> Result<()> {
+    let call = async {
+        let conn = zbus::Connection::session().await?;
+        DaemonProxy::new(&conn).await?.focus(context).await?;
+        anyhow::Ok(())
+    };
+    tokio::time::timeout(TIMEOUT, call)
+        .await
+        .context("kojed did not answer")?
+}
+
+/// `koje limit <context> --soft … --hard …`: it checks the values against
+/// `config.toml`, keeps the file's comments, sets the kernel limit of a
+/// running context and tells kojed. The error is its message.
+async fn set_limits(koje: &str, context: &str, soft: &str, hard: &str) -> Result<(), String> {
+    let run = tokio::process::Command::new(koje)
+        .args(["limit", context, "--soft", soft, "--hard", hard])
+        .kill_on_drop(true)
+        .output();
+    let out = match tokio::time::timeout(LIMIT_TIMEOUT, run).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(format!("running {koje}: {e}")),
+        Err(_) => {
+            return Err(format!(
+                "koje limit did not finish within {LIMIT_TIMEOUT:?}"
+            ));
+        }
+    };
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    let err = err.trim().trim_start_matches("Error: ");
+    Err(if err.is_empty() {
+        format!("koje limit failed ({})", out.status)
+    } else {
+        err.to_owned()
+    })
 }
 
 /// Follow kojed; a lost session bus is retried.
@@ -118,8 +185,9 @@ async fn kojed_forever(tx: Sender<Update>) {
     }
 }
 
-/// Follow kojed: its contexts on start and on every `ContextsChanged`, and
-/// whether it runs at all (its bus name's owner).
+/// Follow kojed: its contexts on start and on every `ContextsChanged`, their
+/// memory on every `MemoryChanged`, and whether it runs at all (its bus
+/// name's owner).
 async fn kojed(tx: &Sender<Update>) -> Result<()> {
     let conn = zbus::Connection::session()
         .await
@@ -131,15 +199,16 @@ async fn kojed(tx: &Sender<Update>) -> Result<()> {
     let mut changed = daemon.receive_contexts_changed().await?;
     let mut readings = daemon.receive_memory_changed().await?;
     let mut owner = daemon.inner().receive_owner_changed().await?;
-    refresh(&daemon, tx).await;
+    let mut running = refresh(&daemon, tx, Vec::new()).await;
     loop {
         tokio::select! {
-            Some(_) = changed.next() => refresh(&daemon, tx).await,
-            Some(_) = readings.next() => memory(&daemon, tx).await,
+            Some(_) = changed.next() => running = refresh(&daemon, tx, running).await,
+            Some(_) = readings.next() => memory(&daemon, tx, &running).await,
             Some(new_owner) = owner.next() => {
                 if new_owner.is_some() {
-                    refresh(&daemon, tx).await;
+                    running = refresh(&daemon, tx, running).await;
                 } else {
+                    running.clear();
                     let _ = tx.send(Update::KojedGone).await;
                 }
             }
@@ -151,47 +220,134 @@ async fn kojed(tx: &Sender<Update>) -> Result<()> {
     }
 }
 
-/// Ask kojed for the running contexts, then for the active one's memory
-/// (another context may be active now).
-async fn refresh(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) {
-    if contexts(daemon, tx).await {
-        memory(daemon, tx).await;
-    }
-}
-
-/// The active context's memory; `""` asks for the active one.
-async fn memory(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) {
-    match tokio::time::timeout(TIMEOUT, daemon.memory("")).await {
-        Ok(Ok(reading)) => {
-            let _ = tx.send(Update::Memory(MemoryReading::from(reading))).await;
+/// Ask kojed for the running contexts, then for their memory (another
+/// context may be active now); the running contexts' names, else `old`.
+async fn refresh(daemon: &DaemonProxy<'_>, tx: &Sender<Update>, old: Vec<String>) -> Vec<String> {
+    match contexts(daemon, tx).await {
+        Some(running) => {
+            memory(daemon, tx, &running).await;
+            running
         }
-        Ok(Err(e)) => tracing::debug!("kojed: Memory: {e}"),
-        Err(_) => tracing::warn!("kojed did not answer Memory within {TIMEOUT:?}"),
+        None => old,
     }
 }
 
-/// Ask kojed for the running contexts; whether it answered.
-async fn contexts(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) -> bool {
-    let (update, answered) = match tokio::time::timeout(TIMEOUT, daemon.running_contexts()).await {
-        Ok(Ok(contexts)) => (
-            Update::Contexts(contexts.into_iter().map(RunningContext::from).collect()),
-            true,
-        ),
+/// The memory of every running context and the active one's history.
+async fn memory(daemon: &DaemonProxy<'_>, tx: &Sender<Update>, running: &[String]) {
+    let mut readings = Vec::new();
+    for name in running {
+        match tokio::time::timeout(TIMEOUT, daemon.memory(name)).await {
+            Ok(Ok(reading)) => readings.push(MemoryReading::from(reading)),
+            Ok(Err(e)) => tracing::debug!("kojed: Memory {name}: {e}"),
+            Err(_) => tracing::warn!("kojed did not answer Memory within {TIMEOUT:?}"),
+        }
+    }
+    let _ = tx.send(Update::Memory(readings)).await;
+    match tokio::time::timeout(TIMEOUT, daemon.memory_history("")).await {
+        Ok(Ok(history)) => {
+            let _ = tx
+                .send(Update::History(HistoryReading::from(history)))
+                .await;
+        }
+        Ok(Err(e)) => tracing::debug!("kojed: MemoryHistory: {e}"),
+        Err(_) => tracing::warn!("kojed did not answer MemoryHistory within {TIMEOUT:?}"),
+    }
+}
+
+/// Ask kojed for the running contexts: their names, `None` if it did not
+/// answer.
+async fn contexts(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) -> Option<Vec<String>> {
+    let (update, running) = match tokio::time::timeout(TIMEOUT, daemon.running_contexts()).await {
+        Ok(Ok(contexts)) => {
+            let contexts: Vec<RunningContext> =
+                contexts.into_iter().map(RunningContext::from).collect();
+            let names = contexts.iter().map(|c| c.name.clone()).collect();
+            (Update::Contexts(contexts), Some(names))
+        }
         Ok(Err(zbus::Error::MethodError(name, ..)))
             if name == "org.freedesktop.DBus.Error.ServiceUnknown"
                 || name == "org.freedesktop.DBus.Error.NameHasNoOwner" =>
         {
-            (Update::KojedGone, false)
+            (Update::KojedGone, None)
         }
         Ok(Err(e)) => {
             tracing::warn!("kojed: RunningContexts: {e}");
-            return false;
+            return None;
         }
         Err(_) => {
             tracing::warn!("kojed did not answer RunningContexts within {TIMEOUT:?}");
-            return false;
+            return None;
         }
     };
     let _ = tx.send(update).await;
-    answered
+    running
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fake `koje` that logs its arguments and answers as `script` says.
+    /// Written by a child process, so no fd of this test process points at
+    /// it while other tests fork ("text file busy").
+    fn fake_koje(dir: &std::path::Path, name: &str, script: &str) -> String {
+        let path = dir.join(name);
+        let body = format!(
+            "#!/bin/sh\necho \"$@\" > {}/args\n{script}\n",
+            dir.display()
+        );
+        let ok = std::process::Command::new("sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(&path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write as _;
+                child
+                    .stdin
+                    .take()
+                    .map(|mut i| i.write_all(body.as_bytes()))
+                    .transpose()?;
+                child.wait()
+            })
+            .unwrap();
+        assert!(ok.success());
+        path.display().to_string()
+    }
+
+    #[tokio::test]
+    async fn limits_go_to_koje_limit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let koje = fake_koje(tmp.path(), "koje", "exit 0");
+        assert_eq!(set_limits(&koje, "kp", "6G", "none").await, Ok(()));
+        let args = std::fs::read_to_string(tmp.path().join("args")).unwrap();
+        assert_eq!(args.trim(), "limit kp --soft 6G --hard none");
+    }
+
+    #[tokio::test]
+    async fn koje_limits_error_is_shown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let koje = fake_koje(
+            tmp.path(),
+            "koje",
+            "echo 'Error: the hard limit 2G is below the soft limit 6G' >&2; exit 1",
+        );
+        assert_eq!(
+            set_limits(&koje, "kp", "6G", "2G").await,
+            Err("the hard limit 2G is below the soft limit 6G".into())
+        );
+        let silent = fake_koje(tmp.path(), "silent", "exit 3");
+        assert!(
+            set_limits(&silent, "kp", "6G", "2G")
+                .await
+                .unwrap_err()
+                .starts_with("koje limit failed")
+        );
+        assert!(
+            set_limits("/nonexistent/koje", "kp", "6G", "2G")
+                .await
+                .unwrap_err()
+                .starts_with("running /nonexistent/koje")
+        );
+    }
 }

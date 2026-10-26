@@ -4,8 +4,9 @@
 
 mod backend;
 mod bar;
-mod capsule;
 mod hypr;
+mod menu;
+mod menu_ui;
 mod model;
 
 use std::cell::RefCell;
@@ -24,6 +25,9 @@ use crate::model::{Action, Shell, reconcile};
 /// instance, and the systemd unit waits for it.
 const APP_ID: &str = "io.koje.Shell";
 
+/// The CLI the shell runs for changes (`koje limit`); the package's.
+pub const KOJE: &str = "koje";
+
 /// The bar's look; the accents come from [`Shell::accent_css`]. Workspace
 /// buttons are pills, the active one filled with its accent; the focused
 /// task is underlined with its workspace's accent.
@@ -38,13 +42,15 @@ const CSS: &str = "
 }
 .koje-bar .tasks button { border-radius: 6px; padding: 0 8px; }
 .koje-bar .tasks button.focused { box-shadow: inset 0 -2px var(--accent-bg-color); }
-.koje-bar .capsule {
+.capsule {
   background: var(--accent-bg-color);
   color: var(--accent-fg-color);
   border-radius: 9999px;
   padding: 2px 10px;
   font-weight: bold;
 }
+.koje-bar .koje-icon { color: var(--accent-color); }
+.koje-graph { color: var(--accent-color); }
 .koje-bar .warning { color: var(--warning-color); }
 ";
 
