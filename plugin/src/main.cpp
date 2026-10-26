@@ -20,11 +20,12 @@
 
 #include <sstream>
 
-static CFunctionHook* g_renderWorkspaceHook = nullptr;
+static CFunctionHook* g_renderWindowsHook   = nullptr;
+static CFunctionHook* g_renderFullscreenHook = nullptr;
 static CFunctionHook* g_addDamageBoxHook    = nullptr;
 static CFunctionHook* g_addDamageRegionHook = nullptr;
 
-using origRenderWorkspace = void (*)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&, const CBox&);
+using origRenderWindows   = void (*)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&);
 using origAddDamageBox    = void (*)(void*, const CBox&);
 using origAddDamageRegion = void (*)(void*, const pixman_region32_t*);
 
@@ -39,12 +40,26 @@ static COverview* overviewOf(const CMonitor* monitor) {
     return it == g_overviews.end() ? nullptr : it->second.get();
 }
 
-static void hkRenderWorkspace(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now, const CBox& geometry) {
-    if (const auto O = overviewOf(monitor.get())) {
+// Only the windows are replaced: the wallpaper and the layers below them and
+// above (the bar, the shell's overview) are drawn as always. Windows of a
+// shown special workspace (a stash, an overlay) are left out meanwhile.
+static bool replaceWindows(PHLMONITOR monitor, PHLWORKSPACE workspace) {
+    const auto O = overviewOf(monitor.get());
+    if (!O)
+        return false;
+    if (!workspace || !workspace->m_isSpecialWorkspace)
         O->render();
-        return;
-    }
-    ((origRenderWorkspace)g_renderWorkspaceHook->m_original)(thisptr, monitor, workspace, now, geometry);
+    return true;
+}
+
+static void hkRenderWindows(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
+    if (!replaceWindows(monitor, workspace))
+        ((origRenderWindows)g_renderWindowsHook->m_original)(thisptr, monitor, workspace, now);
+}
+
+static void hkRenderFullscreen(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
+    if (!replaceWindows(monitor, workspace))
+        ((origRenderWindows)g_renderFullscreenHook->m_original)(thisptr, monitor, workspace, now);
 }
 
 static void hkAddDamageBox(void* thisptr, const CBox& box) {
@@ -154,12 +169,13 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     if (running != built)
         fail("built for Hyprland " + built + ", this one is " + running + " – koje's package is built against Ubuntu's hyprland-dev");
 
-    g_renderWorkspaceHook = hook("CHyprRenderer::renderWorkspace(", (void*)hkRenderWorkspace);
+    g_renderWindowsHook    = hook("CHyprRenderer::renderWorkspaceWindows(", (void*)hkRenderWindows);
+    g_renderFullscreenHook = hook("CHyprRenderer::renderWorkspaceWindowsFullscreen(", (void*)hkRenderFullscreen);
     g_addDamageBoxHook    = hook("_ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE", (void*)hkAddDamageBox);
     g_addDamageRegionHook = hook("_ZN8CMonitor9addDamageEPK15pixman_region32", (void*)hkAddDamageRegion);
     if (!findRenderWindow())
         fail("Hyprland has no CHyprRenderer::renderWindow – the plugin was built for another version");
-    if (!g_renderWorkspaceHook->hook() || !g_addDamageBoxHook->hook() || !g_addDamageRegionHook->hook())
+    if (!g_renderWindowsHook->hook() || !g_renderFullscreenHook->hook() || !g_addDamageBoxHook->hook() || !g_addDamageRegionHook->hook())
         fail("could not hook Hyprland's rendering");
 
     static auto preRender = HyprlandAPI::registerCallbackDynamic(PHANDLE, "preRender", [](void*, SCallbackInfo&, std::any data) {
