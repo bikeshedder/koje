@@ -50,3 +50,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted |
 | 0044 | [GNOME Settings for the system, a gsettings bridge in kojed](0044-gnome-settings-and-gsettings-bridge.md) | Accepted |
 | 0045 | [koje ships as one Debian package, built in the dev container](0045-debian-package.md) | Accepted |
+| 0046 | [Displays: GNOME Settings through Mutter's API, `monitors.xml` as the source](0046-displays-through-monitors-xml.md) | Accepted |

@@ -92,6 +92,12 @@ Hyprland; the shell takes over the rest of GNOME Shell's duties.
 - [ ] **M8.49 Alt+Tab like GNOME's**: windows grouped by app, Alt+` within one app, in the shell
 - [ ] **M8.50 GNOME Shell's data in the shell**: favorites (`org.gnome.shell favorite-apps`), app folders (`org.gnome.desktop.app-folders`) and the apps' search providers (`org.gnome.Shell.SearchProvider2`) in the launcher (M8.40, M8.18); notification settings per app and "Do Not Disturb" (`org.gnome.desktop.notifications`) for M8.36
 
+- [ ] **M8.51 Mutter's display API in kojed** (ADR 0046): `org.gnome.Mutter.DisplayConfig` from `hyprctl monitors all` – `GetCurrentState`, `MonitorsChanged`, `ApplyMonitorsConfig` (verify, temporary, persistent) applied to Hyprland; the mapping between Mutter's and Hyprland's monitors, modes, scales and transforms pure in `koje-core`
+  - Notes: after the bar and M8.42; check which version of the API the host's GNOME Settings speaks.
+- [ ] **M8.52 `monitors.xml` and the generated monitor config** (ADR 0046): read and write `~/.config/monitors.xml` in Mutter's format (configurations per monitor set); generate `$XDG_CONFIG_HOME/koje/hyprland/monitors.conf` for the connected set, sourced by koje's snippet; again on changes of `monitors.xml` and on hotplug; `koje setup` stops writing a `monitor =` line
+- [ ] **M8.53 "Keep these display settings?" in the shell** (ADR 0046): GNOME Shell's countdown dialog after a display change; reverts unless confirmed
+- [ ] **M8.54 Monitors in `koje doctor`** (ADR 0046): warn when a screen runs below its best refresh rate at its resolution, and when an own `monitor` line in `hyprland.conf` overrides the generated file
+
 ## Settings app
 
 - [x] **M8.3 Choose panel toolkit** (iced, egui, Slint) → ADR
