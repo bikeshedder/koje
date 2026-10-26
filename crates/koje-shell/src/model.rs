@@ -83,11 +83,16 @@ enum Kojed {
 }
 
 /// The shell's view of the desktop. kojed and Hyprland hold the real state
-/// (ADR 0030); this is only their latest answers.
+/// (ADR 0030); this is only their latest answers, plus the order in which
+/// windows appeared.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Shell {
     desktop: Desktop,
     kojed: Kojed,
+    /// Window addresses in the order the shell first saw them. Hyprland
+    /// lists windows in stacking order, which every raise changes; the task
+    /// list must not jump when a window gets focus.
+    order: Vec<String>,
 }
 
 /// Whose color an element shows as its accent: a context's, or the grey of
@@ -163,7 +168,16 @@ impl Action {
 impl Shell {
     pub fn apply(&mut self, update: Update) {
         match update {
-            Update::Desktop(desktop) => self.desktop = desktop,
+            Update::Desktop(desktop) => {
+                self.order
+                    .retain(|a| desktop.windows.iter().any(|w| &w.address == a));
+                for w in &desktop.windows {
+                    if !self.order.contains(&w.address) {
+                        self.order.push(w.address.clone());
+                    }
+                }
+                self.desktop = desktop;
+            }
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::KojedGone => self.kojed = Kojed::Gone,
         }
@@ -205,10 +219,14 @@ impl Shell {
             key(a).cmp(&key(b)).then_with(|| a.name.cmp(&b.name))
         });
 
-        let tasks = d
+        let mut windows: Vec<&Window> = d
             .windows
             .iter()
             .filter(|w| Some(w.workspace.as_str()) == active)
+            .collect();
+        windows.sort_by_key(|w| self.order.iter().position(|a| a == &w.address));
+        let tasks = windows
+            .into_iter()
             .map(|w| Task {
                 address: w.address.clone(),
                 class: w.class.clone(),
@@ -395,6 +413,31 @@ mod tests {
             .collect();
         assert_eq!(tasks, [("editor", false), ("browser", true)]);
         assert_eq!(bar.tasks_accent, Accent::Context("kp".into()));
+    }
+
+    #[test]
+    fn raising_a_window_keeps_the_task_order() {
+        let mut s = shell();
+        // Focus and raise `editor`: Hyprland now lists it last.
+        let mut d = desktop();
+        let editor = d.windows.remove(0);
+        d.windows.push(editor);
+        d.focused = Some("0xa".into());
+        s.apply(Update::Desktop(d.clone()));
+        let titles = |s: &Shell| -> Vec<String> {
+            s.bar(Some("eDP-1"))
+                .tasks
+                .into_iter()
+                .map(|t| t.title)
+                .collect()
+        };
+        assert_eq!(titles(&s), ["editor", "browser"]);
+
+        // A new window goes last; a closed one is forgotten.
+        d.windows.insert(0, win("0xe", "kp", "new"));
+        d.windows.retain(|w| w.address != "0xc");
+        s.apply(Update::Desktop(d));
+        assert_eq!(titles(&s), ["editor", "new"]);
     }
 
     #[test]
