@@ -13,6 +13,7 @@
 
 mod api;
 mod daemon;
+mod gsettings;
 mod players;
 mod procfs;
 mod sound;
@@ -77,6 +78,9 @@ async fn main() -> Result<()> {
         })?;
     tracing::info!("serving {BUS_NAME}");
     tokio::spawn(relink_sound(runtime));
+    // GNOME's input settings on Hyprland (ADR 0044, M8.43).
+    let reapply_input = Arc::new(tokio::sync::Notify::new());
+    tokio::spawn(gsettings::run(Hyprland::from_env(), reapply_input.clone()));
     tokio::spawn(tick(
         Arc::clone(&daemon),
         sockets.clone(),
@@ -88,6 +92,13 @@ async fn main() -> Result<()> {
         if event == CompositorEvent::Connected {
             // A new compositor (or kojed's start): new security contexts.
             sockets.reset();
+        }
+        if matches!(
+            event,
+            CompositorEvent::Connected | CompositorEvent::ConfigReloaded
+        ) {
+            // Both reset Hyprland's `keyword` settings.
+            reapply_input.notify_one();
         }
         // The bar (`koje bar`) follows contexts, the active one, window counts.
         let bar_relevant = !matches!(event, CompositorEvent::WindowTitle { .. });

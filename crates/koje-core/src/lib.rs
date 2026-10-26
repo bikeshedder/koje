@@ -19,6 +19,7 @@ pub mod context;
 pub mod dotfiles;
 pub mod error;
 pub mod fsutil;
+pub mod gsettings;
 pub mod hostbus;
 pub mod integration;
 pub mod layout;
