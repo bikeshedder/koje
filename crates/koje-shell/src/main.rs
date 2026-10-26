@@ -67,7 +67,6 @@ window.koje-bar button.workspace-dot:hover { opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored { background: var(--accent-bg-color); opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored.koje-host { background: #ffffff; opacity: 0.5; }
 window.koje-bar button.workspace-dot.active { min-width: 32px; opacity: 1; }
-window.koje-bar button.workspace-dot.empty { opacity: 0.45; }
 button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .capsule {
   background: var(--accent-bg-color);
