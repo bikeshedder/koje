@@ -4,6 +4,7 @@
 
 mod backend;
 mod bar;
+mod hypr;
 mod model;
 
 use std::cell::RefCell;
@@ -12,17 +13,30 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{gdk, gio, glib};
 use libadwaita as adw;
+use tokio::sync::mpsc::UnboundedSender;
 use tracing_subscriber::EnvFilter;
 
 use crate::bar::Bar;
-use crate::model::{Shell, reconcile};
+use crate::model::{Action, Shell, reconcile};
 
 /// Also the shell's name on the session bus: `GApplication` keeps it to one
 /// instance, and the systemd unit waits for it.
 const APP_ID: &str = "io.koje.Shell";
 
+/// The bar's look; the accents come from [`Shell::accent_css`]. Workspace
+/// buttons are pills, the active one filled with its accent; the focused
+/// task is underlined with its workspace's accent.
 const CSS: &str = "
 .koje-bar { min-height: 32px; }
+.koje-bar button { min-height: 24px; padding: 0 10px; }
+.koje-bar .workspaces, .koje-bar .tasks { margin: 4px 0; }
+.koje-bar .workspaces button { border-radius: 9999px; }
+.koje-bar .workspaces button.active {
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+.koje-bar .tasks button { border-radius: 6px; padding: 0 8px; }
+.koje-bar .tasks button.focused { box-shadow: inset 0 -2px var(--accent-bg-color); }
 .koje-bar .warning { color: var(--warning-color); }
 ";
 
@@ -44,7 +58,8 @@ fn main() -> glib::ExitCode {
 
 fn start(app: &adw::Application) {
     let (tx, rx) = async_channel::unbounded();
-    if let Err(e) = backend::spawn(tx) {
+    let (actions, actions_rx) = tokio::sync::mpsc::unbounded_channel();
+    if let Err(e) = backend::spawn(tx, actions_rx) {
         tracing::error!("{e:#}");
         app.quit();
         return;
@@ -54,35 +69,51 @@ fn start(app: &adw::Application) {
         app.quit();
         return;
     };
-    let css = gtk4::CssProvider::new();
-    css.load_from_string(CSS);
-    gtk4::style_context_add_provider_for_display(
-        &display,
-        &css,
-        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
-
+    let style = |css: &str| {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_string(css);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        provider
+    };
+    style(CSS);
     let shell = Rc::new(RefCell::new(Shell::default()));
+    let accents_css = shell.borrow().accent_css();
+    let accents = style(&accents_css);
+
     let bars: Bars = Rc::default();
     let monitors = display.monitors();
-    sync_bars(app, &monitors, &bars, &shell);
+    sync_bars(app, &monitors, &bars, &shell, &actions);
     monitors.connect_items_changed({
         let (app, bars, shell) = (app.clone(), bars.clone(), shell.clone());
-        move |monitors, _, _, _| sync_bars(&app, monitors, &bars, &shell)
+        move |monitors, _, _, _| sync_bars(&app, monitors, &bars, &shell, &actions)
     });
 
     glib::spawn_future_local(async move {
+        let mut accents_css = accents_css;
         while let Ok(update) = rx.recv().await {
             shell.borrow_mut().apply(update);
-            let view = shell.borrow().bar();
-            for bar in bars.borrow().iter() {
-                bar.render(&view);
+            let css = shell.borrow().accent_css();
+            if css != accents_css {
+                accents.load_from_string(&css);
+                accents_css = css;
             }
+            render(&bars, &shell);
         }
     });
 
     // Keep running without monitors (all unplugged): bars come back with them.
     std::mem::forget(app.hold());
+}
+
+fn render(bars: &Bars, shell: &Rc<RefCell<Shell>>) {
+    let shell = shell.borrow();
+    for bar in bars.borrow().iter() {
+        bar.render(&shell.bar(bar.connector().as_deref()));
+    }
 }
 
 /// One bar per monitor: new ones for new monitors, none for gone ones.
@@ -91,21 +122,22 @@ fn sync_bars(
     monitors: &gio::ListModel,
     bars: &Bars,
     shell: &Rc<RefCell<Shell>>,
+    actions: &UnboundedSender<Action>,
 ) {
     let want: Vec<gdk::Monitor> = monitors
         .iter::<gdk::Monitor>()
         .filter_map(Result::ok)
         .collect();
-    let mut bars = bars.borrow_mut();
-    let have: Vec<gdk::Monitor> = bars.iter().map(|b| b.monitor().clone()).collect();
-    let (remove, add) = reconcile(&have, &want);
-    for i in remove {
-        bars.remove(i).close();
+    {
+        let mut bars = bars.borrow_mut();
+        let have: Vec<gdk::Monitor> = bars.iter().map(|b| b.monitor().clone()).collect();
+        let (remove, add) = reconcile(&have, &want);
+        for i in remove {
+            bars.remove(i).close();
+        }
+        for monitor in add {
+            bars.push(Bar::new(app, monitor, actions.clone()));
+        }
     }
-    let view = shell.borrow().bar();
-    for monitor in add {
-        let bar = Bar::new(app, monitor);
-        bar.render(&view);
-        bars.push(bar);
-    }
+    render(bars, shell);
 }

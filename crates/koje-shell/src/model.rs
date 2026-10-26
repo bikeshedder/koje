@@ -1,12 +1,16 @@
 //! What the shell shows, without GTK (ADR 0042: decisions stay pure). The
 //! backend turns kojed's and Hyprland's answers into [`Update`]s, [`Shell`]
-//! keeps the latest of each, and [`Shell::bar`] says what every bar shows.
+//! keeps the latest of each, [`Shell::bar`] says what a monitor's bar shows
+//! and [`Action`]s say what clicks do.
+
+use koje_core::color::Color;
+use koje_core::ports::CompositorCommand;
 
 /// Something the shell learned from kojed or Hyprland.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Update {
-    /// The focused workspace (Hyprland).
-    Workspace(String),
+    /// Monitors, workspaces and windows (Hyprland).
+    Desktop(Desktop),
     /// The running contexts (kojed's `RunningContexts`).
     Contexts(Vec<RunningContext>),
     /// kojed does not own its bus name (not started, crashed, restarting).
@@ -32,6 +36,42 @@ impl From<(String, String, u32, bool)> for RunningContext {
     }
 }
 
+/// Hyprland's monitors, workspaces and windows, as read at one moment.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Desktop {
+    pub monitors: Vec<MonitorState>,
+    pub workspaces: Vec<WorkspaceState>,
+    /// Mapped, visible windows in Hyprland's order.
+    pub windows: Vec<Window>,
+    /// The focused window's address.
+    pub focused: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonitorState {
+    /// The connector name, e.g. `eDP-1` (GDK's `Monitor::connector`).
+    pub name: String,
+    pub active_workspace: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceState {
+    /// Positive for numbered workspaces; named ones get negative ids.
+    pub id: i64,
+    pub name: String,
+    pub monitor: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Window {
+    /// `0x…`.
+    pub address: String,
+    pub workspace: String,
+    /// The app id; the icon comes from it.
+    pub class: String,
+    pub title: String,
+}
+
 /// What kojed told the shell last.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 enum Kojed {
@@ -46,15 +86,55 @@ enum Kojed {
 /// (ADR 0030); this is only their latest answers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Shell {
-    workspace: Option<String>,
+    desktop: Desktop,
     kojed: Kojed,
 }
 
+/// Whose color an element shows as its accent: a context's, or the grey of
+/// host workspaces (M8.20).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Accent {
+    Host,
+    Context(String),
+}
+
+impl Accent {
+    /// The CSS class that sets libadwaita's accent variables ([`accent_css`]).
+    pub fn css_class(&self) -> String {
+        match self {
+            Self::Host => "koje-host".to_owned(),
+            // Context names are a-z, 0-9 and '-': valid in a class name.
+            Self::Context(name) => format!("koje-ctx-{name}"),
+        }
+    }
+}
+
+/// One button of the workspace list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceButton {
+    pub name: String,
+    pub active: bool,
+    pub accent: Accent,
+}
+
+/// One window of the task list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Task {
+    pub address: String,
+    pub class: String,
+    pub title: String,
+    pub focused: bool,
+}
+
 /// What one bar shows.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BarView {
-    /// The focused workspace's name; empty until Hyprland answered.
-    pub workspace: String,
+    /// The monitor's workspaces, numbered ones first.
+    pub workspaces: Vec<WorkspaceButton>,
+    /// The windows of the monitor's active workspace.
+    pub tasks: Vec<Task>,
+    /// The accent of the task list: its workspace's.
+    pub tasks_accent: Accent,
     /// The active context and its color.
     pub context: Option<(String, String)>,
     /// A problem worth showing in the bar.
@@ -63,28 +143,146 @@ pub struct BarView {
 
 pub const KOJED_GONE: &str = "kojed is not running";
 
+/// What a click asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    FocusWorkspace(String),
+    /// Focus and raise a window.
+    FocusWindow(String),
+}
+
+impl Action {
+    pub fn command(self) -> CompositorCommand {
+        match self {
+            Self::FocusWorkspace(workspace) => CompositorCommand::FocusWorkspace { workspace },
+            Self::FocusWindow(address) => CompositorCommand::FocusWindow { address },
+        }
+    }
+}
+
 impl Shell {
     pub fn apply(&mut self, update: Update) {
         match update {
-            Update::Workspace(name) => self.workspace = Some(name),
+            Update::Desktop(desktop) => self.desktop = desktop,
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::KojedGone => self.kojed = Kojed::Gone,
         }
     }
 
-    pub fn bar(&self) -> BarView {
-        let context = match &self.kojed {
-            Kojed::Running(contexts) => contexts
+    fn contexts(&self) -> &[RunningContext] {
+        match &self.kojed {
+            Kojed::Running(contexts) => contexts,
+            Kojed::Unknown | Kojed::Gone => &[],
+        }
+    }
+
+    /// The accent of a workspace: its context's while that runs.
+    fn accent(&self, workspace: &str) -> Accent {
+        if self.contexts().iter().any(|c| c.name == workspace) {
+            Accent::Context(workspace.to_owned())
+        } else {
+            Accent::Host
+        }
+    }
+
+    /// The bar of the monitor with connector `monitor`; the first monitor
+    /// when GDK does not know the connector.
+    pub fn bar(&self, monitor: Option<&str>) -> BarView {
+        let d = &self.desktop;
+        let mon = monitor
+            .and_then(|name| d.monitors.iter().find(|m| m.name == name))
+            .or_else(|| d.monitors.first());
+        let active = mon.map(|m| m.active_workspace.as_str());
+
+        let mut workspaces: Vec<&WorkspaceState> = d
+            .workspaces
+            .iter()
+            .filter(|w| !w.name.starts_with("special:"))
+            .filter(|w| mon.is_none_or(|m| w.monitor == m.name))
+            .collect();
+        workspaces.sort_by(|a, b| {
+            let key = |w: &WorkspaceState| (w.id <= 0, if w.id > 0 { w.id } else { 0 });
+            key(a).cmp(&key(b)).then_with(|| a.name.cmp(&b.name))
+        });
+
+        let tasks = d
+            .windows
+            .iter()
+            .filter(|w| Some(w.workspace.as_str()) == active)
+            .map(|w| Task {
+                address: w.address.clone(),
+                class: w.class.clone(),
+                title: w.title.clone(),
+                focused: d.focused.as_ref() == Some(&w.address),
+            })
+            .collect();
+
+        BarView {
+            workspaces: workspaces
+                .into_iter()
+                .map(|w| WorkspaceButton {
+                    name: w.name.clone(),
+                    active: Some(w.name.as_str()) == active,
+                    accent: self.accent(&w.name),
+                })
+                .collect(),
+            tasks,
+            tasks_accent: active.map_or(Accent::Host, |a| self.accent(a)),
+            context: self
+                .contexts()
                 .iter()
                 .find(|c| c.active)
                 .map(|c| (c.name.clone(), c.color.clone())),
-            Kojed::Unknown | Kojed::Gone => None,
-        };
-        BarView {
-            workspace: self.workspace.clone().unwrap_or_default(),
-            context,
             warning: (self.kojed == Kojed::Gone).then_some(KOJED_GONE),
         }
+    }
+
+    /// The accent classes for the running contexts and the host.
+    pub fn accent_css(&self) -> String {
+        accent_css(self.contexts())
+    }
+}
+
+/// libadwaita's slate accent: host workspaces (M8.20 chose grey there).
+const HOST_ACCENT: Color = Color::rgb(0x6f, 0x83, 0x96);
+
+/// CSS that makes each context's color the accent of the elements carrying
+/// its [`Accent::css_class`] (libadwaita's accent variables, ADR 0043).
+pub fn accent_css(contexts: &[RunningContext]) -> String {
+    let mut css = rule(&Accent::Host, HOST_ACCENT);
+    for c in contexts {
+        if let Ok(color) = c.color.parse::<Color>() {
+            css.push_str(&rule(&Accent::Context(c.name.clone()), color));
+        }
+    }
+    css
+}
+
+fn rule(accent: &Accent, color: Color) -> String {
+    let hex = format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b);
+    format!(
+        ".{} {{ --accent-bg-color: {hex}; --accent-color: {hex}; --accent-fg-color: {}; }}\n",
+        accent.css_class(),
+        foreground(color)
+    )
+}
+
+/// Text on a color: white unless the color is light.
+fn foreground(c: Color) -> &'static str {
+    // Relative luminance (sRGB, linearized).
+    let lin = |v: u8| {
+        let v = f64::from(v) / 255.0;
+        if v <= 0.040_45 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let l = 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+    if l > 0.4 {
+        "rgb(0 0 6 / 80%)"
+    } else {
+        "#ffffff"
     }
 }
 
@@ -112,41 +310,125 @@ mod tests {
         }
     }
 
-    #[test]
-    fn starts_empty_and_without_warning() {
-        assert_eq!(Shell::default().bar(), BarView::default());
+    fn ws(id: i64, name: &str, monitor: &str) -> WorkspaceState {
+        WorkspaceState {
+            id,
+            name: name.into(),
+            monitor: monitor.into(),
+        }
+    }
+
+    fn win(address: &str, workspace: &str, title: &str) -> Window {
+        Window {
+            address: address.into(),
+            workspace: workspace.into(),
+            class: "foot".into(),
+            title: title.into(),
+        }
+    }
+
+    /// Two monitors: eDP-1 shows `kp`, DP-1 shows `3`.
+    fn desktop() -> Desktop {
+        Desktop {
+            monitors: vec![
+                MonitorState {
+                    name: "eDP-1".into(),
+                    active_workspace: "kp".into(),
+                },
+                MonitorState {
+                    name: "DP-1".into(),
+                    active_workspace: "3".into(),
+                },
+            ],
+            workspaces: vec![
+                ws(-1337, "kp", "eDP-1"),
+                ws(2, "2", "eDP-1"),
+                ws(-1338, "admin", "eDP-1"),
+                ws(1, "1", "eDP-1"),
+                ws(-98, "special:koje-stash-kp", "eDP-1"),
+                ws(3, "3", "DP-1"),
+            ],
+            windows: vec![
+                win("0xa", "kp", "editor"),
+                win("0xb", "1", "host"),
+                win("0xc", "kp", "browser"),
+                win("0xd", "3", "other monitor"),
+            ],
+            focused: Some("0xc".into()),
+        }
+    }
+
+    fn shell() -> Shell {
+        let mut s = Shell::default();
+        s.apply(Update::Desktop(desktop()));
+        s.apply(Update::Contexts(vec![ctx("kp", true)]));
+        s
     }
 
     #[test]
-    fn shows_the_workspace_and_the_active_context() {
-        let mut s = Shell::default();
-        s.apply(Update::Workspace("kundenportal".into()));
-        s.apply(Update::Contexts(vec![
-            ctx("privat", false),
-            ctx("kundenportal", true),
-        ]));
-        let bar = s.bar();
-        assert_eq!(bar.workspace, "kundenportal");
-        assert_eq!(bar.context, Some(("kundenportal".into(), "#3584e4".into())));
+    fn starts_empty_and_without_warning() {
+        let bar = Shell::default().bar(None);
+        assert_eq!((bar.workspaces.len(), bar.tasks.len()), (0, 0));
+        assert_eq!(bar.warning, None);
+        assert_eq!(bar.tasks_accent, Accent::Host);
+    }
+
+    #[test]
+    fn workspaces_of_the_monitor_numbered_first_without_special() {
+        let bar = shell().bar(Some("eDP-1"));
+        let names: Vec<_> = bar.workspaces.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, ["1", "2", "admin", "kp"]);
+        let kp = &bar.workspaces[3];
+        assert!(kp.active);
+        assert_eq!(kp.accent, Accent::Context("kp".into()));
+        // `admin` is no running context: grey.
+        assert_eq!(bar.workspaces[2].accent, Accent::Host);
+    }
+
+    #[test]
+    fn tasks_are_the_active_workspaces_windows() {
+        let bar = shell().bar(Some("eDP-1"));
+        let tasks: Vec<_> = bar
+            .tasks
+            .iter()
+            .map(|t| (t.title.as_str(), t.focused))
+            .collect();
+        assert_eq!(tasks, [("editor", false), ("browser", true)]);
+        assert_eq!(bar.tasks_accent, Accent::Context("kp".into()));
+    }
+
+    #[test]
+    fn each_monitor_gets_its_own_bar() {
+        let bar = shell().bar(Some("DP-1"));
+        let names: Vec<_> = bar.workspaces.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, ["3"]);
+        assert_eq!(bar.tasks.len(), 1);
+        assert_eq!(bar.tasks_accent, Accent::Host);
+    }
+
+    #[test]
+    fn unknown_connector_shows_the_first_monitor() {
+        assert_eq!(shell().bar(None), shell().bar(Some("eDP-1")));
+    }
+
+    #[test]
+    fn shows_the_active_context() {
+        let bar = shell().bar(None);
+        assert_eq!(bar.context, Some(("kp".into(), "#3584e4".into())));
         assert_eq!(bar.warning, None);
     }
 
     #[test]
-    fn no_context_when_none_is_active() {
-        let mut s = Shell::default();
-        s.apply(Update::Contexts(vec![ctx("privat", false)]));
-        assert_eq!(s.bar().context, None);
-    }
-
-    #[test]
     fn warns_while_kojed_is_gone_and_forgets_its_contexts() {
-        let mut s = Shell::default();
-        s.apply(Update::Contexts(vec![ctx("privat", true)]));
+        let mut s = shell();
         s.apply(Update::KojedGone);
-        assert_eq!(s.bar().context, None);
-        assert_eq!(s.bar().warning, Some(KOJED_GONE));
+        let bar = s.bar(None);
+        assert_eq!(bar.context, None);
+        assert_eq!(bar.warning, Some(KOJED_GONE));
+        // Without kojed no context colors: all grey.
+        assert_eq!(bar.tasks_accent, Accent::Host);
         s.apply(Update::Contexts(vec![]));
-        assert_eq!(s.bar().warning, None);
+        assert_eq!(s.bar(None).warning, None);
     }
 
     #[test]
@@ -158,6 +440,53 @@ mod tests {
                 name: "privat".into(),
                 color: "#ff0000".into(),
                 active: true
+            }
+        );
+    }
+
+    #[test]
+    fn accent_css_per_context_with_readable_text() {
+        let css = accent_css(&[
+            RunningContext {
+                name: "kp".into(),
+                color: "#1c71d8".into(),
+                active: false,
+            },
+            RunningContext {
+                name: "light".into(),
+                color: "#f6d32d".into(),
+                active: false,
+            },
+            RunningContext {
+                name: "bad".into(),
+                color: "blue".into(),
+                active: false,
+            },
+        ]);
+        assert!(
+            css.contains(".koje-host { --accent-bg-color: #6f8396;"),
+            "{css}"
+        );
+        assert!(
+            css.contains(".koje-ctx-kp { --accent-bg-color: #1c71d8; --accent-color: #1c71d8; --accent-fg-color: #ffffff; }"),
+            "{css}"
+        );
+        assert!(css.contains(".koje-ctx-light { --accent-bg-color: #f6d32d; --accent-color: #f6d32d; --accent-fg-color: rgb(0 0 6 / 80%); }"), "{css}");
+        assert!(!css.contains("koje-ctx-bad"), "{css}");
+    }
+
+    #[test]
+    fn clicks_focus_workspaces_and_windows() {
+        assert_eq!(
+            Action::FocusWorkspace("kp".into()).command(),
+            CompositorCommand::FocusWorkspace {
+                workspace: "kp".into()
+            }
+        );
+        assert_eq!(
+            Action::FocusWindow("0xa".into()).command(),
+            CompositorCommand::FocusWindow {
+                address: "0xa".into()
             }
         );
     }

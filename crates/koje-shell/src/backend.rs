@@ -8,12 +8,18 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use async_channel::Sender;
 use futures_util::StreamExt as _;
-use koje_core::ports::CompositorEvent;
+use koje_core::ports::Compositor as _;
 use koje_hyprland::Hyprland;
+use koje_hyprland::events::Line;
+use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::model::{RunningContext, Update};
+use crate::hypr;
+use crate::model::{Action, RunningContext, Update};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
+/// Events come in bursts (a workspace switch focuses a window too): read the
+/// desktop once after this quiet time.
+const SETTLE: Duration = Duration::from_millis(20);
 /// Wait before connecting to the session bus again.
 const RETRY: Duration = Duration::from_secs(2);
 
@@ -29,8 +35,9 @@ trait Daemon {
     fn contexts_changed(&self) -> zbus::Result<()>;
 }
 
-/// Start the backend thread. It ends when the receiving side is dropped.
-pub fn spawn(tx: Sender<Update>) -> Result<()> {
+/// Start the backend thread: updates go to `tx`, clicks come from
+/// `actions`. It ends when the receiving side of `tx` is dropped.
+pub fn spawn(tx: Sender<Update>, actions: UnboundedReceiver<Action>) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -39,8 +46,10 @@ pub fn spawn(tx: Sender<Update>) -> Result<()> {
         .name("backend".into())
         .spawn(move || {
             runtime.block_on(async {
+                let hypr = Hyprland::from_env();
                 tokio::select! {
-                    () = hyprland(tx.clone()) => {}
+                    () = desktop(&hypr, tx.clone()) => {}
+                    () = act(&hypr, actions) => {}
                     () = kojed_forever(tx) => {}
                 }
             });
@@ -49,32 +58,46 @@ pub fn spawn(tx: Sender<Update>) -> Result<()> {
     Ok(())
 }
 
-/// Follow Hyprland's events; the reader reconnects by itself.
-async fn hyprland(tx: Sender<Update>) {
-    let hypr = Hyprland::from_env();
+/// Follow Hyprland's events and send the desktop after each burst that may
+/// change it; the reader reconnects by itself.
+async fn desktop(hypr: &Hyprland, tx: Sender<Update>) {
     let mut events = hypr.events();
     loop {
-        let update = match events.next().await {
-            CompositorEvent::Connected => {
-                match tokio::time::timeout(TIMEOUT, hypr.active_workspace()).await {
-                    Ok(Ok(ws)) => Update::Workspace(ws.name),
-                    Ok(Err(e)) => {
-                        tracing::warn!("asking Hyprland for the active workspace: {e}");
-                        continue;
-                    }
-                    Err(_) => {
-                        tracing::warn!("Hyprland did not answer j/activeworkspace");
-                        continue;
-                    }
+        let changed = match events.next_line().await {
+            Line::Connected => true,
+            Line::Event(line) => hypr::changes_desktop(&line),
+        };
+        if !changed {
+            continue;
+        }
+        // Let the rest of the burst arrive; a reconnect in it is no event.
+        while let Ok(line) = tokio::time::timeout(SETTLE, events.next_line()).await {
+            tracing::trace!(?line, "in the same burst");
+        }
+        match tokio::time::timeout(TIMEOUT, hypr::desktop(hypr)).await {
+            Ok(Ok(d)) => {
+                if tx.send(Update::Desktop(d)).await.is_err() {
+                    return;
                 }
             }
-            CompositorEvent::WorkspaceFocused { name } => Update::Workspace(name),
-            _ => continue,
-        };
-        if tx.send(update).await.is_err() {
-            return;
+            Ok(Err(e)) => tracing::warn!("reading the desktop from Hyprland: {e:#}"),
+            Err(_) => tracing::warn!("Hyprland did not answer within {TIMEOUT:?}"),
         }
     }
+}
+
+/// Carry out what clicks ask for.
+async fn act(hypr: &Hyprland, mut actions: UnboundedReceiver<Action>) {
+    while let Some(action) = actions.recv().await {
+        tracing::debug!(?action, "click");
+        match tokio::time::timeout(TIMEOUT, hypr.apply(&[action.command()])).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("Hyprland: {e}"),
+            Err(_) => tracing::warn!("Hyprland did not answer within {TIMEOUT:?}"),
+        }
+    }
+    // The GTK side is gone; keep the others running until it says so.
+    std::future::pending::<()>().await;
 }
 
 /// Follow kojed; a lost session bus is retried.

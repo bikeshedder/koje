@@ -1,26 +1,42 @@
 //! One bar: a layer-shell surface along the top of a monitor that reserves
-//! its height (exclusive zone). It only renders a [`BarView`].
+//! its height (exclusive zone). It renders a [`BarView`] and turns clicks
+//! into [`Action`]s.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 use gtk4 as gtk;
-use gtk4::gdk;
 use gtk4::prelude::*;
+use gtk4::{gdk, gio};
 use gtk4_layer_shell::{Edge, Layer, LayerShell as _};
 use libadwaita as adw;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::model::BarView;
+use crate::model::{Accent, Action, BarView, Task, WorkspaceButton};
+
+/// Widest a task's title gets, in characters.
+const TITLE_CHARS: i32 = 24;
 
 #[derive(Debug)]
 pub struct Bar {
     monitor: gdk::Monitor,
     window: gtk::Window,
-    workspace: gtk::Label,
+    actions: UnboundedSender<Action>,
+    workspaces: gtk::Box,
+    tasks: gtk::Box,
     context: gtk::Label,
     warning: gtk::Box,
     warning_text: gtk::Label,
+    /// What the bar shows now: an update that changes nothing redraws nothing.
+    shown: RefCell<Option<BarView>>,
 }
 
 impl Bar {
-    pub fn new(app: &adw::Application, monitor: &gdk::Monitor) -> Self {
+    pub fn new(
+        app: &adw::Application,
+        monitor: &gdk::Monitor,
+        actions: UnboundedSender<Action>,
+    ) -> Self {
         let window = gtk::Window::builder()
             .application(app)
             .title("koje bar")
@@ -36,12 +52,19 @@ impl Bar {
         }
         window.auto_exclusive_zone_enable();
 
-        let workspace = gtk::Label::builder().css_classes(["heading"]).build();
-        let context = gtk::Label::new(None);
+        let workspaces = gtk::Box::builder()
+            .spacing(4)
+            .css_classes(["workspaces"])
+            .build();
+        let tasks = gtk::Box::builder()
+            .spacing(2)
+            .css_classes(["tasks"])
+            .build();
         let start = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        start.append(&workspace);
-        start.append(&context);
+        start.append(&workspaces);
+        start.append(&tasks);
 
+        let context = gtk::Label::new(None);
         let warning_text = gtk::Label::new(None);
         let warning = gtk::Box::builder()
             .spacing(6)
@@ -50,11 +73,14 @@ impl Bar {
             .build();
         warning.append(&gtk::Image::from_icon_name("dialog-warning-symbolic"));
         warning.append(&warning_text);
+        let end = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        end.append(&context);
+        end.append(&warning);
 
         let layout = gtk::CenterBox::builder()
             .start_widget(&start)
-            .end_widget(&warning)
-            .margin_start(12)
+            .end_widget(&end)
+            .margin_start(6)
             .margin_end(12)
             .build();
         window.set_child(Some(&layout));
@@ -63,10 +89,13 @@ impl Bar {
         Self {
             monitor: monitor.clone(),
             window,
-            workspace,
+            actions,
+            workspaces,
+            tasks,
             context,
             warning,
             warning_text,
+            shown: RefCell::new(None),
         }
     }
 
@@ -74,8 +103,24 @@ impl Bar {
         &self.monitor
     }
 
+    /// The monitor's connector (`eDP-1`), as Hyprland names it.
+    pub fn connector(&self) -> Option<String> {
+        self.monitor.connector().map(String::from)
+    }
+
     pub fn render(&self, view: &BarView) {
-        self.workspace.set_label(&view.workspace);
+        if self.shown.borrow().as_ref() == Some(view) {
+            return;
+        }
+        clear(&self.workspaces);
+        for w in &view.workspaces {
+            self.workspaces.append(&self.workspace_button(w));
+        }
+        clear(&self.tasks);
+        set_accent(&self.tasks, &view.tasks_accent);
+        for t in &view.tasks {
+            self.tasks.append(&self.task_button(t));
+        }
         match &view.context {
             Some((name, _color)) => {
                 self.context.set_label(name);
@@ -90,9 +135,100 @@ impl Bar {
             }
             None => self.warning.set_visible(false),
         }
+        self.shown.replace(Some(view.clone()));
+    }
+
+    fn workspace_button(&self, w: &WorkspaceButton) -> gtk::Button {
+        let button = gtk::Button::builder()
+            .label(&w.name)
+            .css_classes(["flat", &w.accent.css_class()])
+            .build();
+        if w.active {
+            button.add_css_class("active");
+        }
+        let (actions, name) = (self.actions.clone(), w.name.clone());
+        button.connect_clicked(move |_| {
+            let _ = actions.send(Action::FocusWorkspace(name.clone()));
+        });
+        button
+    }
+
+    fn task_button(&self, t: &Task) -> gtk::Button {
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        content.append(&gtk::Image::from_gicon(&icon(&t.class)));
+        content.append(
+            &gtk::Label::builder()
+                .label(&t.title)
+                .ellipsize(gtk4::pango::EllipsizeMode::End)
+                .max_width_chars(TITLE_CHARS)
+                .build(),
+        );
+        let button = gtk::Button::builder()
+            .child(&content)
+            .tooltip_text(&t.title)
+            .css_classes(["flat"])
+            .build();
+        if t.focused {
+            button.add_css_class("focused");
+        }
+        let (actions, address) = (self.actions.clone(), t.address.clone());
+        button.connect_clicked(move |_| {
+            let _ = actions.send(Action::FocusWindow(address.clone()));
+        });
+        button
     }
 
     pub fn close(&self) {
         self.window.destroy();
     }
+}
+
+fn clear(container: &gtk::Box) {
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
+}
+
+/// Give `widget` the accent class of `accent`, replacing any earlier one.
+fn set_accent(widget: &impl IsA<gtk::Widget>, accent: &Accent) {
+    for class in widget.css_classes() {
+        if class.starts_with("koje-ctx-") || class == "koje-host" {
+            widget.remove_css_class(&class);
+        }
+    }
+    widget.add_css_class(&accent.css_class());
+}
+
+thread_local! {
+    static ICONS: RefCell<HashMap<String, gio::Icon>> = RefCell::default();
+}
+
+/// A window's icon from its app id: the `.desktop` entry's, an icon of that
+/// name, else a generic one. Programs in contexts have their entries in the
+/// container (M8.18), so they often get the generic one.
+fn icon(class: &str) -> gio::Icon {
+    ICONS.with(|cache| {
+        if let Some(icon) = cache.borrow().get(class) {
+            return icon.clone();
+        }
+        let icon = lookup(class);
+        cache.borrow_mut().insert(class.to_owned(), icon.clone());
+        icon
+    })
+}
+
+fn lookup(class: &str) -> gio::Icon {
+    let from_entry = [class.to_owned(), class.to_lowercase()]
+        .iter()
+        .find_map(|id| gio_unix::DesktopAppInfo::new(&format!("{id}.desktop")))
+        .and_then(|info| info.icon());
+    if let Some(icon) = from_entry {
+        return icon;
+    }
+    let theme = gdk::Display::default().map(|d| gtk::IconTheme::for_display(&d));
+    let name = class.to_lowercase();
+    if !name.is_empty() && theme.is_some_and(|t| t.has_icon(&name)) {
+        return gio::ThemedIcon::new(&name).upcast();
+    }
+    gio::ThemedIcon::new("application-x-executable-symbolic").upcast()
 }

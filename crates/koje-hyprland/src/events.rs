@@ -51,6 +51,15 @@ pub fn parse_line(line: &str) -> Option<CompositorEvent> {
     })
 }
 
+/// One line of the event socket, or a new connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Line {
+    /// Connected, first or again: anything may have changed unseen.
+    Connected,
+    /// `name>>data`, without the newline.
+    Event(String),
+}
+
 /// The event stream; [`Events::next`] never ends, it waits for Hyprland.
 #[derive(Debug)]
 pub struct Events {
@@ -100,11 +109,26 @@ impl Events {
 
     /// The next event koje cares about.
     pub async fn next(&mut self) -> CompositorEvent {
+        loop {
+            match self.next_line().await {
+                Line::Connected => return CompositorEvent::Connected,
+                Line::Event(line) => {
+                    if let Some(event) = parse_line(&line) {
+                        return event;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The next line as it came, for clients that follow more events than
+    /// [`CompositorEvent`] has (the shell's bar).
+    pub async fn next_line(&mut self) -> Line {
         let mut line = Vec::new();
         loop {
             if self.reader.is_none() {
                 self.reader = Some(self.connect().await);
-                return CompositorEvent::Connected;
+                return Line::Connected;
             }
             let Some(reader) = &mut self.reader else {
                 continue;
@@ -116,9 +140,8 @@ impl Events {
                     self.reader = None;
                 }
                 Ok(_) => {
-                    if let Some(event) = parse_line(&String::from_utf8_lossy(&line)) {
-                        return event;
-                    }
+                    let text = String::from_utf8_lossy(&line);
+                    return Line::Event(text.trim_end_matches(['\n', '\r']).to_owned());
                 }
             }
         }
