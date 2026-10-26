@@ -479,6 +479,7 @@ fn top_row(actions: &UnboundedSender<Action>) -> (gtk::Box, gtk::Box, gtk::Image
             if let Err(e) = app.launch(&[], Some(&context)) {
                 tracing::warn!("starting GNOME Settings: {e}");
             }
+            close_popover(b);
         });
         top.append(&b);
     }
