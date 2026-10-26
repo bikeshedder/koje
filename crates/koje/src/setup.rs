@@ -397,9 +397,20 @@ fn refresh_session(r: &Refresh) -> Result<()> {
         // Started by Hyprland, so it gets the session's environment as at login.
         Refresh::Start(s) => ("hyprctl", vec!["dispatch", "exec", s.command]),
         Refresh::Restart(unit) => ("systemctl", vec!["--user", "restart", unit]),
+        Refresh::Session => {
+            for (program, args) in koje_core::session::restart_commands() {
+                let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                run_checked(program, &args)?;
+            }
+            return Ok(());
+        }
     };
+    run_checked(program, &args)
+}
+
+fn run_checked(program: &str, args: &[&str]) -> Result<()> {
     let out = std::process::Command::new(program)
-        .args(&args)
+        .args(args)
         .output()
         .with_context(|| format!("running {program}"))?;
     let stdout = String::from_utf8_lossy(&out.stdout);

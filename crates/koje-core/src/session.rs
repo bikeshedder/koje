@@ -140,12 +140,21 @@ pub fn end_commands() -> Vec<Cmd> {
     ]
 }
 
-/// `koje session restart`: koje's services again, the session goes on.
+/// `koje session restart`: koje's services again, the session goes on –
+/// with their unit files as they are now (a package update changes them).
+/// mako and Waybar have their own units outside the target: mako restarts,
+/// Waybar's restart meets koje's drop-in and stops it.
 pub fn restart_commands() -> Vec<Cmd> {
-    vec![(
-        "systemctl",
-        ["--user", "restart", TARGET].map(str::to_owned).to_vec(),
-    )]
+    let systemctl = |args: &[&str]| {
+        let mut all = vec!["--user".to_owned()];
+        all.extend(args.iter().map(|a| (*a).to_owned()));
+        ("systemctl", all)
+    };
+    vec![
+        systemctl(&["daemon-reload"]),
+        systemctl(&["restart", TARGET]),
+        systemctl(&["try-restart", "mako.service", "waybar.service"]),
+    ]
 }
 
 #[cfg(test)]
@@ -233,9 +242,14 @@ mod tests {
             "--user unset-environment WAYLAND_DISPLAY"
         );
         assert_eq!(end[1].1.len(), 2 + ENVIRONMENT.len());
+        let restart: Vec<String> = restart_commands().iter().map(|c| c.1.join(" ")).collect();
         assert_eq!(
-            restart_commands()[0].1.join(" "),
-            "--user restart koje-session.target"
+            restart,
+            [
+                "--user daemon-reload",
+                "--user restart koje-session.target",
+                "--user try-restart mako.service waybar.service"
+            ]
         );
     }
 }

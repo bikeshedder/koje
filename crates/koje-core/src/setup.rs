@@ -514,6 +514,9 @@ pub enum Refresh {
     Start(Service),
     /// Restart one of koje's units: it runs an old binary ([`outdated`]).
     Restart(&'static str),
+    /// `koje session restart`: all of the koje session's services with their
+    /// unit files as they are now.
+    Session,
 }
 
 impl fmt::Display for Refresh {
@@ -523,24 +526,24 @@ impl fmt::Display for Refresh {
             Self::Waybar => write!(f, "reload Waybar's config"),
             Self::Start(s) => write!(f, "start {}", s.name),
             Self::Restart(unit) => write!(f, "restart {unit} (it runs an old binary)"),
+            Self::Session => write!(f, "restart the koje session's services"),
         }
     }
 }
 
 /// In the koje session systemd starts the services (ADR 0048): only the
-/// config reload and koje's restarts are left of a `refresh`. Its Hyprland
-/// reads the package's snippet itself, so an upgrade – a unit runs an old
-/// binary – reloads it too.
+/// config reload and koje's restarts are left of a `refresh`. An upgrade – a
+/// unit runs an old binary – may have changed any file of the package: its
+/// Hyprland reloads the package's snippet, and all services restart.
 pub fn for_koje_session(refresh: Vec<Refresh>) -> Vec<Refresh> {
-    let mut out: Vec<Refresh> = refresh
-        .into_iter()
-        .filter(|r| matches!(r, Refresh::Hyprland | Refresh::Restart(_)))
-        .collect();
-    let upgraded = out.iter().any(|r| matches!(r, Refresh::Restart(_)));
-    if upgraded && !out.contains(&Refresh::Hyprland) {
-        out.insert(0, Refresh::Hyprland);
+    let upgraded = refresh.iter().any(|r| matches!(r, Refresh::Restart(_)));
+    if upgraded {
+        return vec![Refresh::Hyprland, Refresh::Session];
     }
-    out
+    refresh
+        .into_iter()
+        .filter(|r| *r == Refresh::Hyprland)
+        .collect()
 }
 
 /// What to refresh in the current Hyprland session after `steps` ran;
@@ -865,17 +868,18 @@ mod tests {
             Refresh::Start(SESSION[0]),
             Refresh::Restart("kojed"),
         ];
+        assert_eq!(for_koje_session(all), [Refresh::Hyprland, Refresh::Session]);
         assert_eq!(
-            for_koje_session(all),
-            [Refresh::Hyprland, Refresh::Restart("kojed")]
+            for_koje_session(vec![Refresh::Hyprland, Refresh::Waybar]),
+            [Refresh::Hyprland]
         );
     }
 
     #[test]
-    fn an_upgrade_reloads_the_koje_sessions_hyprland() {
+    fn an_upgrade_reloads_the_whole_koje_session() {
         assert_eq!(
             for_koje_session(vec![Refresh::Restart("koje-shell")]),
-            [Refresh::Hyprland, Refresh::Restart("koje-shell")]
+            [Refresh::Hyprland, Refresh::Session]
         );
         assert_eq!(for_koje_session(vec![Refresh::Waybar]), []);
     }

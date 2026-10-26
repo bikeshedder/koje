@@ -170,7 +170,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje media <action>` | volume, microphone, brightness and media keys (ADR 0041): `volume-up`, `volume-down`, `mute`, `mic-mute`, `brightness-up`, `brightness-down` with an OSD; `play-pause`, `next`, `previous` for the most recently active player on the host or in any context |
 | `koje screenshot [area\|screen\|window]` | a screenshot as GNOME takes it: into Pictures/Screenshots, onto the clipboard, with a notification (Print, Shift+Print, Alt+Print) |
 | `koje doctor` | check packages, Hyprland, installed files, kojed, security contexts, image, sub-ids, NVIDIA |
-| `koje session start \| restart \| end <log-out\|restart\|power-off>` | the koje session (ADR 0048): `start` runs Hyprland with koje's config (the login screen's "koje" entry) and stops koje's services when it exits; `restart` restarts koje's services, the session goes on; `end` asks through the shell (GNOME's 60-second countdown) |
+| `koje session start \| restart \| end <log-out\|restart\|power-off>` | the koje session (ADR 0048): `start` runs Hyprland with koje's config (the login screen's "koje" entry) and stops koje's services when it exits; `restart` restarts koje's services with their current unit files (also mako; Waybar stops), the session goes on – `koje setup` does it after a package update; `end` asks through the shell (GNOME's 60-second countdown) |
 
 **States:** `default` (read by a plain `up`), `fresh`
 (curated start), `empty` (reserved, virtual, read-only), any other name. Missing
