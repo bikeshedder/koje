@@ -274,6 +274,27 @@ pub struct WorkspaceButton {
     pub empty: bool,
 }
 
+/// A workspace shortcut, as GNOME's (Super+1…9, Super+Page Up/Down,
+/// Ctrl+Alt+Left/Right): through the bar's workspaces in their order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceStep {
+    /// The n-th, from 1.
+    Nth(usize),
+    Next,
+    Prev,
+}
+
+impl WorkspaceStep {
+    /// `3`, `next`, `prev`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "next" => Some(Self::Next),
+            "prev" => Some(Self::Prev),
+            n => n.parse().ok().filter(|&n| n > 0).map(Self::Nth),
+        }
+    }
+}
+
 /// What one bar shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BarView {
@@ -315,6 +336,12 @@ pub enum Action {
     },
     /// Show a context's workspace (kojed's `Focus`).
     FocusContext(String),
+    /// Move a window to a workspace, staying where one is (a workspace
+    /// shortcut with Shift: the focus follows with `FocusWorkspace`).
+    MoveWindow {
+        address: String,
+        workspace: String,
+    },
     /// Read these contexts' programs again (`koje apps --json`).
     RefreshApps(Vec<String>),
     /// Change a context's limits with `koje limit`: sizes as it takes them,
@@ -358,6 +385,10 @@ impl Action {
             Self::CloseWindow(address) => Some(CompositorCommand::CloseWindow {
                 address: address.clone(),
             }),
+            Self::MoveWindow { address, workspace } => Some(CompositorCommand::MoveToWorkspace {
+                address: address.clone(),
+                workspace: workspace.clone(),
+            }),
             _ => None,
         }
     }
@@ -399,6 +430,7 @@ impl Action {
             Self::FocusWorkspace(_)
             | Self::FocusWindow(_)
             | Self::CloseWindow(_)
+            | Self::MoveWindow { .. }
             | Self::Unstash { .. }
             | Self::Launch { .. }
             | Self::RefreshApps(_)
@@ -585,6 +617,52 @@ impl Shell {
     /// The app grid (Super+A, ADR 0049).
     pub fn app_grid(&self) -> Vec<AppSection> {
         grid(&self.running_apps(), &self.host_apps, self.active_context())
+    }
+
+    /// What a workspace shortcut does on the focused monitor: the bar's
+    /// workspaces in their order, contexts without a workspace among them;
+    /// no step past either end. `carry`: the focused window goes along –
+    /// only where it belongs (a host window to host workspaces, a context's
+    /// to its own, as M8.71's dragging), else nothing happens.
+    pub fn workspace_step(&self, step: WorkspaceStep, carry: bool) -> Vec<Action> {
+        let mon = self.monitor(self.focused_monitor());
+        let buttons = self.workspace_buttons(mon);
+        let current = buttons.iter().position(|b| b.active);
+        let target = match (step, current) {
+            (WorkspaceStep::Nth(n), _) => n - 1,
+            (WorkspaceStep::Next, Some(i)) => i + 1,
+            (WorkspaceStep::Next, None) => 0,
+            (WorkspaceStep::Prev, Some(i)) if i > 0 => i - 1,
+            (WorkspaceStep::Prev, _) => return Vec::new(),
+        };
+        let Some(target) = buttons.get(target).filter(|_| Some(target) != current) else {
+            return Vec::new();
+        };
+        let mut actions = Vec::new();
+        let focused = self.desktop.windows.iter().find(|w| {
+            w.focus_history == 0 && mon.is_none_or(|m| w.workspace == m.active_workspace)
+        });
+        if carry && let Some(w) = focused {
+            let fits = match &target.accent {
+                Accent::Context(c) => w.context.as_ref() == Some(c),
+                Accent::Host => w.context.is_none(),
+            };
+            if !fits {
+                return Vec::new();
+            }
+            actions.push(Action::MoveWindow {
+                address: w.address.clone(),
+                workspace: target.name.clone(),
+            });
+        }
+        // A context without a workspace opens through kojed – unless a
+        // window was just moved there, which made its workspace.
+        actions.push(if target.empty && actions.is_empty() {
+            Action::FocusContext(target.name.clone())
+        } else {
+            Action::FocusWorkspace(target.name.clone())
+        });
+        actions
     }
 
     /// The monitor with the keyboard focus.
@@ -862,6 +940,62 @@ mod tests {
         assert_eq!(kp.accent, Accent::Context("kp".into()));
         // `admin` is no running context: grey.
         assert_eq!(bar.workspaces[2].accent, Accent::Host);
+    }
+
+    #[test]
+    fn workspace_shortcuts_go_through_the_bars_order() {
+        let mut s = shell();
+        s.apply(Update::Contexts(vec![ctx("kp", true), ctx("leer", false)]));
+        // eDP-1: 1, 2, admin, kp (active), leer (no workspace).
+        let go = |w: &str| vec![Action::FocusWorkspace(w.into())];
+        assert_eq!(s.workspace_step(WorkspaceStep::Nth(1), false), go("1"));
+        assert_eq!(s.workspace_step(WorkspaceStep::Prev, false), go("admin"));
+        assert_eq!(
+            s.workspace_step(WorkspaceStep::Next, false),
+            [Action::FocusContext("leer".into())]
+        );
+        // Not past the ends, nothing for the one shown.
+        assert_eq!(s.workspace_step(WorkspaceStep::Nth(6), false), []);
+        assert_eq!(s.workspace_step(WorkspaceStep::Nth(4), false), []);
+        let mut d = desktop();
+        d.monitors[0].active_workspace = "1".into();
+        s.apply(Update::Desktop(d));
+        assert_eq!(s.workspace_step(WorkspaceStep::Prev, false), []);
+    }
+
+    #[test]
+    fn with_shift_the_focused_window_goes_along() {
+        let mut s = shell();
+        s.apply(Update::Contexts(vec![ctx("kp", true), ctx("leer", false)]));
+        // kp's window stays in kp.
+        assert_eq!(s.workspace_step(WorkspaceStep::Nth(2), true), []);
+        assert_eq!(s.workspace_step(WorkspaceStep::Next, true), []);
+        // A host window goes to host workspaces.
+        let mut d = desktop();
+        d.monitors[0].active_workspace = "1".into();
+        d.windows[4].focus_history = 0;
+        d.windows[1].focus_history = 5;
+        s.apply(Update::Desktop(d));
+        assert_eq!(
+            s.workspace_step(WorkspaceStep::Next, true),
+            [
+                Action::MoveWindow {
+                    address: "0xe".into(),
+                    workspace: "2".into()
+                },
+                Action::FocusWorkspace("2".into())
+            ]
+        );
+        assert_eq!(s.workspace_step(WorkspaceStep::Nth(4), true), []);
+    }
+
+    #[test]
+    fn workspace_steps_parse() {
+        assert_eq!(WorkspaceStep::parse("3"), Some(WorkspaceStep::Nth(3)));
+        assert_eq!(WorkspaceStep::parse("next"), Some(WorkspaceStep::Next));
+        assert_eq!(WorkspaceStep::parse("prev"), Some(WorkspaceStep::Prev));
+        assert_eq!(WorkspaceStep::parse("0"), None);
+        assert_eq!(WorkspaceStep::parse("up"), None);
     }
 
     #[test]

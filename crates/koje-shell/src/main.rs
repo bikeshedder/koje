@@ -37,7 +37,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing_subscriber::EnvFilter;
 
 use crate::bar::Bar;
-use crate::model::{Action, Shell, Update, reconcile};
+use crate::model::{Action, Shell, Update, WorkspaceStep, reconcile};
 use crate::overview_ui::Mode;
 
 /// Also the shell's name on the session bus: `GApplication` keeps it to one
@@ -115,7 +115,8 @@ fn main() -> glib::ExitCode {
         .init();
     // `koje-shell overview` / `apps`: show or hide the running shell's
     // overview or app grid (Super, Super+A; ADR 0049); `switch
-    // [--backwards] [--windows]`: Alt+Tab (M8.49); `share-picker`: xdph's
+    // [--backwards] [--windows]`: Alt+Tab (M8.49); `workspace <n|next|prev>
+    // [--move]`: GNOME's workspace shortcuts; `share-picker`: xdph's
     // screen sharing picker, its own process (ADR 0050).
     match std::env::args().nth(1).as_deref() {
         Some("overview") => return remote_action("overview"),
@@ -133,6 +134,20 @@ fn main() -> glib::ExitCode {
         Some("share-picker") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
             return share_ui::run(&args);
+        }
+        Some("workspace") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let carry = args.iter().any(|a| a == "--move");
+            let Some(step) = args.iter().find(|a| !a.starts_with("--")) else {
+                eprintln!("usage: koje-shell workspace <1…9|next|prev> [--move]");
+                return glib::ExitCode::FAILURE;
+            };
+            let param = if carry {
+                format!("move:{step}")
+            } else {
+                step.clone()
+            };
+            return remote_action_with("workspace", Some(&param.to_variant()));
         }
         Some("switch") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
@@ -152,6 +167,10 @@ fn main() -> glib::ExitCode {
 
 /// Activate an action of the running shell; never becomes the shell itself.
 fn remote_action(action: &str) -> glib::ExitCode {
+    remote_action_with(action, None)
+}
+
+fn remote_action_with(action: &str, param: Option<&glib::Variant>) -> glib::ExitCode {
     let app = adw::Application::builder()
         .application_id(APP_ID)
         .flags(gio::ApplicationFlags::IS_LAUNCHER)
@@ -160,7 +179,7 @@ fn remote_action(action: &str) -> glib::ExitCode {
         tracing::error!("koje-shell is not running: {e}");
         return glib::ExitCode::FAILURE;
     }
-    app.activate_action(action, None);
+    app.activate_action(action, param);
     // The call goes out with the next flush.
     if let Some(conn) = app.dbus_connection() {
         let _ = conn.flush_sync(None::<&gio::Cancellable>);
@@ -214,6 +233,7 @@ fn start(app: &adw::Application) {
     overview_actions(app, &bars, &shell, &actions_for_confirm);
     follow_host_apps(&shell, &bars);
     switcher_actions(app, &bars, &shell, &actions_for_confirm);
+    workspace_action(app, &shell, &actions_for_confirm);
     // GNOME's questions with a countdown: a display change, ending the session.
     let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
     let end_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
@@ -447,6 +467,34 @@ fn switch_action(backwards: bool, windows: bool) -> &'static str {
         (true, false) => "switch-windows",
         (true, true) => "switch-windows-prev",
     }
+}
+
+/// GNOME's workspace shortcuts: `3`, `next`, `prev`, with `move:` the
+/// focused window goes along.
+fn workspace_action(
+    app: &adw::Application,
+    shell: &Rc<RefCell<Shell>>,
+    actions: &UnboundedSender<Action>,
+) {
+    let action = gio::SimpleAction::new("workspace", Some(glib::VariantTy::STRING));
+    let (shell, actions) = (shell.clone(), actions.clone());
+    action.connect_activate(move |_, param| {
+        let Some(arg) = param.and_then(glib::Variant::get::<String>) else {
+            return;
+        };
+        let (carry, step) = match arg.strip_prefix("move:") {
+            Some(step) => (true, step),
+            None => (false, arg.as_str()),
+        };
+        let Some(step) = WorkspaceStep::parse(step) else {
+            tracing::warn!("workspace: {arg:?} is no workspace step");
+            return;
+        };
+        for a in shell.borrow().workspace_step(step, carry) {
+            let _ = actions.send(a);
+        }
+    });
+    app.add_action(&action);
 }
 
 /// Alt+Tab (M8.49): the switcher opens on the focused monitor.

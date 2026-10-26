@@ -120,6 +120,11 @@ workspaces, the dash and search. No permanent dock.
   - Smoke-tested with a fake `koje` (`scripts/smoke/bin/koje`): search with apps per context and windows, Enter, Escape twice, the grid and its button, Super+A twice, launching from a tile. Left for later: search in windows of other monitors, GNOME's search providers (M8.50), stopped contexts in the grid (M8.18).
 - [ ] **M8.71 Dragging in the overview**: a window onto another workspace in the strip moves it there (a context window only to its own context's workspaces or the stash); onto the stash row stashes it; a dash entry onto a workspace launches it there
 
+- [x] **M8.75 Workspace shortcuts as GNOME's** (decided 2026-10-26): Super+1…9 the n-th workspace in the bar's order (numbered host ones, then the contexts – a running context without a workspace opens), Super+Page Up/Down and Ctrl+Alt+Left/Right the one before or after, no wrapping; with Shift the focused window goes along where it belongs (host windows to host workspaces; a context's window stays in its context, as M8.71)
+  - `koje-shell workspace <n|next|prev> [--move]` → the shell's action `workspace`; `Shell::workspace_step` (pure) gives the actions from the focused monitor's bar list. Smoke-tested against the fake Hyprland (the dispatches); to check on the host.
+- [~] **M8.76 The dash per context** (decided 2026-10-26): in a context the dash shows only that context's apps – contexts are like machines of their own – and launches what is installed there; on a host workspace the host's
+  - Favorites per context in `context.toml` (`favorites`, desktop file ids of the context), pinned and unpinned from the dash; unset: GNOME's favorites matched to the context's apps (id, name, binary), unmatched ones left out. Running apps: only the active context's windows (the host's on a host workspace), named and drawn from the context's desktop files.
+
 ## GNOME integration (ADR 0044)
 
 GNOME Settings is the system's settings; kojed applies GNOME's gsettings to
