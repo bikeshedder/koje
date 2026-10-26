@@ -1,5 +1,5 @@
 //! koje-shell: koje's UI in one GTK application (ADR 0042) with libadwaita
-//! (ADR 0043). For now the bar, one per monitor; later the OSD, the window
+//! (ADR 0043). For now the bar, one per monitor, and the OSD; later the window
 //! overlays, the notifications and, in its own process, the settings app.
 
 mod app_info;
@@ -16,6 +16,7 @@ mod hypr;
 mod menu;
 mod menu_ui;
 mod model;
+mod osd_ui;
 mod overview;
 mod overview_ui;
 mod quick;
@@ -222,6 +223,7 @@ fn start(app: &adw::Application) {
     style(quick_ui::CSS);
     style(overview_ui::CSS);
     style(switcher_ui::CSS);
+    style(osd_ui::CSS);
     let shell = Rc::new(RefCell::new(Shell::default()));
     let accents_css = shell.borrow().accent_css();
     let accents = style(&accents_css);
@@ -240,6 +242,8 @@ fn start(app: &adw::Application) {
     follow_host_apps(&shell, &bars);
     switcher_actions(app, &bars, &shell, &actions_for_confirm);
     workspace_action(app, &shell, &actions_for_confirm);
+    let osd = osd_ui::Osd::new(app);
+    osd_action(app, &osd);
     // GNOME's questions with a countdown: a display change, ending the session.
     let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
     let end_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
@@ -263,6 +267,10 @@ fn start(app: &adw::Application) {
                     },
                     seconds,
                 );
+                continue;
+            }
+            if let Update::Osd(o) = &update {
+                osd.show(o);
                 continue;
             }
             if let Update::OverviewLanded(monitor) = &update {
@@ -384,6 +392,20 @@ fn follow_favorites(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
     settings.connect_changed(Some("favorite-apps"), move |s, _| load(s));
     // Follows as long as the shell runs.
     std::mem::forget(settings);
+}
+
+/// The shell's action `osd` on the session bus: `koje media` shows the level
+/// with it (`(icon, label, level, max)`, [`koje_core::media::Osd::to_wire`]).
+fn osd_action(app: &adw::Application, osd: &Rc<osd_ui::Osd>) {
+    type Wire = (String, String, i32, u32);
+    let action = gio::SimpleAction::new("osd", Some(&Wire::static_variant_type()));
+    let osd = osd.clone();
+    action.connect_activate(move |_, param| {
+        if let Some(wire) = param.and_then(glib::Variant::get::<Wire>) {
+            osd.show(&koje_core::media::Osd::from_wire(wire));
+        }
+    });
+    app.add_action(&action);
 }
 
 /// The shell's actions `log-out`, `restart` and `power-off` on the session

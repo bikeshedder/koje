@@ -60,6 +60,8 @@ pub enum Update {
     /// koje's plugin flew the windows into the overview on this monitor.
     /// Not part of the state.
     OverviewLanded(String),
+    /// Show the OSD (scrolling over the volume indicator). Not part of the state.
+    Osd(koje_core::media::Osd),
     /// A window's picture (the screen sharing picker). Not part of the state.
     Thumbnail {
         address: String,
@@ -482,6 +484,7 @@ impl Shell {
             }
             Update::DisplayChangePending(_)
             | Update::OverviewLanded(_)
+            | Update::Osd(_)
             | Update::Thumbnail { .. } => {}
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,

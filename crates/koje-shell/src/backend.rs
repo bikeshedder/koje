@@ -191,7 +191,9 @@ async fn act(
     while let Some(action) = actions.recv().await {
         tracing::debug!(?action, "click");
         if let Action::Quick(change) = action {
-            system::change(hypr, system_bus, change).await;
+            if let Some(osd) = system::change(hypr, system_bus, change).await {
+                let _ = tx.send(Update::Osd(osd)).await;
+            }
             wake.notify_one();
             continue;
         }

@@ -13,6 +13,7 @@ use crate::cli::MediaAction;
 
 const SINK: &str = "@DEFAULT_AUDIO_SINK@";
 const SOURCE: &str = "@DEFAULT_AUDIO_SOURCE@";
+const SHELL: &str = "io.koje.Shell";
 const BACKLIGHTS: &str = "/sys/class/backlight";
 /// How long the OSD stays.
 const OSD_MS: i32 = 1500;
@@ -22,19 +23,19 @@ pub fn run(action: MediaAction) -> Result<()> {
     let osd = match action {
         MediaAction::VolumeUp => {
             wpctl(&["set-volume", "-l", "1", SINK, "5%+"])?;
-            media::volume_osd(level(SINK)?)
+            media::volume_osd(level(SINK)?, name(SINK))
         }
         MediaAction::VolumeDown => {
             wpctl(&["set-volume", SINK, "5%-"])?;
-            media::volume_osd(level(SINK)?)
+            media::volume_osd(level(SINK)?, name(SINK))
         }
         MediaAction::Mute => {
             wpctl(&["set-mute", SINK, "toggle"])?;
-            media::volume_osd(level(SINK)?)
+            media::volume_osd(level(SINK)?, name(SINK))
         }
         MediaAction::MicMute => {
             wpctl(&["set-mute", SOURCE, "toggle"])?;
-            media::microphone_osd(level(SOURCE)?)
+            media::microphone_osd(level(SOURCE)?, name(SOURCE))
         }
         MediaAction::BrightnessUp => brightness(true)?,
         MediaAction::BrightnessDown => brightness(false)?,
@@ -79,6 +80,11 @@ fn level(node: &str) -> Result<Level> {
     let out = wpctl(&["get-volume", node])?;
     media::parse_wpctl_volume(&out)
         .with_context(|| format!("unexpected answer from wpctl get-volume: {out:?}"))
+}
+
+/// The device's name for the OSD; without one the OSD shows none.
+fn name(node: &str) -> Option<String> {
+    media::parse_wpctl_description(&wpctl(&["inspect", node]).ok()?)
 }
 
 fn read_number(path: &Path) -> Result<u32> {
@@ -127,44 +133,80 @@ fn brightness(up: bool) -> Result<Osd> {
     Ok(media::brightness_osd(media::brightness_percent(next, max)))
 }
 
-/// The OSD as a notification. The `synchronous` hint makes it replace the
-/// previous one; `replaces_id` with that hint crashes mako 1.10.
+/// The shell's OSD, looking like GNOME's (M8.26); without the shell a
+/// notification.
 fn show(osd: &Osd) -> Result<()> {
     block_on(async {
-        use zbus::zvariant::Value;
         let conn = zbus::Connection::session()
             .await
             .context("connecting to the session bus")?;
-        let value = i32::try_from(osd.value).unwrap_or(100);
-        let hints: std::collections::HashMap<&str, Value<'_>> = [
-            ("value", Value::from(value)),
-            ("x-canonical-private-synchronous", Value::from("koje-osd")),
-            // Low urgency; not kept in the notification history.
-            ("urgency", Value::from(0u8)),
-            ("transient", Value::from(true)),
-        ]
-        .into_iter()
-        .collect();
-        conn.call_method(
-            Some("org.freedesktop.Notifications"),
-            "/org/freedesktop/Notifications",
-            Some("org.freedesktop.Notifications"),
-            "Notify",
-            &(
-                "koje",
-                0u32,
-                osd.icon,
-                osd.summary.as_str(),
-                "",
-                Vec::<&str>::new(),
-                hints,
-                OSD_MS,
-            ),
-        )
-        .await
-        .context("sending the OSD notification")?;
-        Ok(())
+        match shell_osd(&conn, osd).await {
+            Ok(true) => Ok(()),
+            Ok(false) => notify(&conn, osd).await,
+            Err(e) => {
+                tracing::warn!("koje-shell's OSD: {e:#}");
+                notify(&conn, osd).await
+            }
+        }
     })
+}
+
+/// The shell's `osd` action; `false` when the shell is not running.
+async fn shell_osd(conn: &zbus::Connection, osd: &Osd) -> Result<bool> {
+    use zbus::zvariant::{Structure, Value};
+    let dbus = zbus::fdo::DBusProxy::new(conn).await?;
+    if !dbus.name_has_owner(SHELL.try_into()?).await? {
+        return Ok(false);
+    }
+    let param = vec![Value::from(Structure::from(osd.to_wire()))];
+    let platform: std::collections::HashMap<&str, Value<'_>> = std::collections::HashMap::new();
+    conn.call_method(
+        Some(SHELL),
+        "/io/koje/Shell",
+        Some("org.gtk.Actions"),
+        "Activate",
+        &("osd", param, platform),
+    )
+    .await
+    .context("asking koje-shell")?;
+    Ok(true)
+}
+
+/// The OSD as a notification. The `synchronous` hint makes it replace the
+/// previous one; `replaces_id` with that hint crashes mako 1.10.
+async fn notify(conn: &zbus::Connection, osd: &Osd) -> Result<()> {
+    use zbus::zvariant::Value;
+    let value = osd
+        .level
+        .map_or(0, |l| i32::try_from(l.min(100)).unwrap_or(100));
+    let hints: std::collections::HashMap<&str, Value<'_>> = [
+        ("value", Value::from(value)),
+        ("x-canonical-private-synchronous", Value::from("koje-osd")),
+        // Low urgency; not kept in the notification history.
+        ("urgency", Value::from(0u8)),
+        ("transient", Value::from(true)),
+    ]
+    .into_iter()
+    .collect();
+    conn.call_method(
+        Some("org.freedesktop.Notifications"),
+        "/org/freedesktop/Notifications",
+        Some("org.freedesktop.Notifications"),
+        "Notify",
+        &(
+            "koje",
+            0u32,
+            osd.icon.as_str(),
+            osd.summary.as_str(),
+            "",
+            Vec::<&str>::new(),
+            hints,
+            OSD_MS,
+        ),
+    )
+    .await
+    .context("sending the OSD notification")?;
+    Ok(())
 }
 
 fn block_on<T>(f: impl Future<Output = Result<T>>) -> Result<T> {

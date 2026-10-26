@@ -97,8 +97,13 @@ async fn within<T>(f: impl Future<Output = Result<T>>) -> Option<T> {
     }
 }
 
-/// Make a change, then wake the reader.
-pub async fn change(hypr: &Hyprland, conn: Option<&zbus::Connection>, c: Change) {
+/// Make a change, then wake the reader. Scrolling over the volume indicator
+/// shows the OSD, as in GNOME: what to show.
+pub async fn change(
+    hypr: &Hyprland,
+    conn: Option<&zbus::Connection>,
+    c: Change,
+) -> Option<media::Osd> {
     let done = match c {
         Change::Volume(p) => wpctl(&["set-volume", SINK, &format!("{}%", p.min(150))])
             .await
@@ -121,6 +126,12 @@ pub async fn change(hypr: &Hyprland, conn: Option<&zbus::Connection>, c: Change)
     };
     if let Err(e) = done {
         tracing::warn!("quick settings: {c:?}: {e:#}");
+        return None;
+    }
+    match c {
+        // GNOME's indicator shows no device name.
+        Change::VolumeStep(_) => within(volume()).await.map(|l| media::volume_osd(l, None)),
+        _ => None,
     }
 }
 

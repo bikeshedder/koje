@@ -69,4 +69,6 @@ Volume needs no change: the contexts play through the host's PipeWire
 - A paused context's bus does not answer: kojed connects only to running
   contexts (it checks every few seconds) and calls into context buses with a
   timeout.
-- The OSD looks like a notification until koje's own OSD exists (M8.26).
+- The OSD looks like a notification only when koje-shell is not running: since
+  M8.26 `koje media` asks the shell's `osd` action first, which looks like
+  GNOME's OSD.
