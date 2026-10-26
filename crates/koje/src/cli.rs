@@ -98,7 +98,8 @@ pub enum Command {
     },
     /// Bring a stashed window into the active (or given) layout.
     Unstash {
-        /// Window id (default: the focused window, e.g. picked in the shown stash).
+        /// Window id or Hyprland address (default: the focused window, e.g. picked
+        /// in the shown stash).
         window: Option<String>,
         #[arg(long)]
         to: Option<String>,

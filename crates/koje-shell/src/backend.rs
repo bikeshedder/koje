@@ -45,6 +45,8 @@ trait Daemon {
 
     fn focus(&self, context: &str) -> zbus::Result<()>;
 
+    fn unstash(&self, context: &str, window: &str, to: &str) -> zbus::Result<String>;
+
     fn keep_display_change(&self) -> zbus::Result<bool>;
 
     fn revert_display_change(&self) -> zbus::Result<bool>;
@@ -172,6 +174,11 @@ async fn act(
                     tracing::warn!("kojed: Focus {context}: {e:#}");
                 }
             }
+            Action::Unstash { context, address } => {
+                if let Err(e) = unstash(&context, &address).await {
+                    tracing::warn!("kojed: Unstash {address}: {e:#}");
+                }
+            }
             Action::EndSession(e) => end_session(hypr, e).await,
             Action::Suspend => run_quietly("systemctl", &["suspend"]).await,
             Action::KeepDisplayChange | Action::RevertDisplayChange => {
@@ -185,6 +192,21 @@ async fn act(
     }
     // The GTK side is gone; keep the others running until it says so.
     std::future::pending::<()>().await;
+}
+
+/// A stashed window back into its context's active layout, through kojed.
+async fn unstash(context: &str, address: &str) -> Result<()> {
+    let call = async {
+        let conn = zbus::Connection::session().await?;
+        DaemonProxy::new(&conn)
+            .await?
+            .unstash(context, address, "")
+            .await?;
+        anyhow::Ok(())
+    };
+    tokio::time::timeout(TIMEOUT, call)
+        .await
+        .context("kojed did not answer")?
 }
 
 /// Show a context's workspace through kojed.

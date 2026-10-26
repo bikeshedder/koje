@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use koje_core::api::OBJECT_PATH;
 use koje_core::media::PlayerAction;
-use koje_core::name::{ContextName, LayoutName, StateName, WindowId};
+use koje_core::name::{ContextName, LayoutName, StateName};
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
 use tokio::sync::Mutex;
@@ -439,15 +439,13 @@ impl Api {
         Ok((ctx.to_string(), id))
     }
 
-    /// `unstash [<window>] [--to <layout>]`; `""` for the focused window and
-    /// the active layout. Returns the window id.
+    /// `unstash [<window>] [--to <layout>]`: the window by its id or its
+    /// Hyprland address; `""` for the focused window and the active layout.
+    /// Returns the window id.
     async fn unstash(&self, context: &str, window: &str, to: &str) -> fdo::Result<String> {
         let mut d = self.daemon.lock().await;
         let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        let window = (!window.is_empty())
-            .then(|| WindowId::new(window))
-            .transpose()
-            .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?;
+        let window = (!window.is_empty()).then_some(window);
         let to = (!to.is_empty()).then(|| layout_arg(to)).transpose()?;
         d.unstash(&ctx, window, to)
             .await

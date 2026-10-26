@@ -28,6 +28,7 @@ VS Code user setting (once): `"dev.containers.dockerPath": "podman"`.
 | Unit tests, CLI tests | anywhere (dev container, CI) | `just check` |
 | Hyprland adapter against a real session | host, or dev container with the Hyprland mount | `just test -- --ignored hypr` |
 | Context containers, nested Podman | host; dev container without cgroups | host: `cargo test -p koje-podman -- --ignored`; dev container: add `--skip cgroups` |
+| koje-shell's surfaces (bar, menus, overview): screenshots, clicks, keys | dev container | `cargo build -p koje-shell`, then `scripts/smoke/run.sh <out dir> '<steps>'` – a headless sway with fake Hyprland and kojed; steps and helpers in the script's header |
 | Full end-to-end (windows from contexts, colors, layouts) | host only | `just deb`, install the package, `koje setup` |
 
 Tests needing real systems are `#[ignore]`d so `just check` stays hermetic.

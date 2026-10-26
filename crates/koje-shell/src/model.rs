@@ -10,6 +10,7 @@ use koje_core::ports::CompositorCommand;
 use std::collections::BTreeMap;
 
 use crate::menu::{HistoryReading, MenuInput, MenuView, NEW_CONTEXT, menu};
+use crate::overview::{OverviewView, Stash, WindowCard, on_workspace};
 use crate::quick::{QuickView, System, quick};
 use crate::system::Change;
 
@@ -148,11 +149,28 @@ impl From<(String, String, u32, bool)> for RunningContext {
     }
 }
 
-/// Hyprland's monitors and workspaces, as read at one moment.
+/// Hyprland's monitors, workspaces and windows, as read at one moment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Desktop {
     pub monitors: Vec<MonitorState>,
     pub workspaces: Vec<WorkspaceState>,
+    pub windows: Vec<WindowState>,
+}
+
+/// A mapped window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowState {
+    /// Hyprland's address, `0x…`.
+    pub address: String,
+    /// The app id (Wayland) or class (X11).
+    pub class: String,
+    pub title: String,
+    /// Its workspace's name; `special:stash-<context>` when stashed.
+    pub workspace: String,
+    pub at: (i32, i32),
+    pub size: (i32, i32),
+    /// 0 for the focused window, then by when they had the focus.
+    pub focus_history: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,6 +269,16 @@ pub const KOJED_GONE: &str = "kojed is not running";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     FocusWorkspace(String),
+    /// Focus and raise a window (the overview).
+    FocusWindow(String),
+    /// Ask a window to close.
+    CloseWindow(String),
+    /// Bring a stashed window back into its context's active layout
+    /// (kojed's `Unstash`).
+    Unstash {
+        context: String,
+        address: String,
+    },
     /// Show a context's workspace (kojed's `Focus`).
     FocusContext(String),
     /// Change a context's limits with `koje limit`: sizes as it takes them,
@@ -287,6 +315,12 @@ impl Action {
         match self {
             Self::FocusWorkspace(workspace) => Some(CompositorCommand::FocusWorkspace {
                 workspace: workspace.clone(),
+            }),
+            Self::FocusWindow(address) => Some(CompositorCommand::FocusWindow {
+                address: address.clone(),
+            }),
+            Self::CloseWindow(address) => Some(CompositorCommand::CloseWindow {
+                address: address.clone(),
             }),
             _ => None,
         }
@@ -327,6 +361,9 @@ impl Action {
                 )
             }
             Self::FocusWorkspace(_)
+            | Self::FocusWindow(_)
+            | Self::CloseWindow(_)
+            | Self::Unstash { .. }
             | Self::FocusContext(_)
             | Self::Quick(_)
             | Self::KeepDisplayChange
@@ -384,15 +421,20 @@ impl Shell {
         }
     }
 
-    /// The bar of the monitor with connector `monitor`; the first monitor
-    /// when GDK does not know the connector.
-    pub fn bar(&self, monitor: Option<&str>) -> BarView {
+    /// The monitor with connector `monitor`; the first one when GDK does
+    /// not know the connector.
+    fn monitor(&self, monitor: Option<&str>) -> Option<&MonitorState> {
         let d = &self.desktop;
-        let mon = monitor
+        monitor
             .and_then(|name| d.monitors.iter().find(|m| m.name == name))
-            .or_else(|| d.monitors.first());
-        let active = mon.map(|m| m.active_workspace.as_str());
+            .or_else(|| d.monitors.first())
+    }
 
+    /// A monitor's workspaces, numbered ones first, with the running
+    /// contexts Hyprland has no workspace for on the focused monitor.
+    fn workspace_buttons(&self, mon: Option<&MonitorState>) -> Vec<WorkspaceButton> {
+        let d = &self.desktop;
+        let active = mon.map(|m| m.active_workspace.as_str());
         // Numbered workspaces first, then named ones by name.
         let key = |id: i64, name: &str| (id <= 0, if id > 0 { id } else { 0 }, name.to_owned());
         let mut workspaces: Vec<((bool, i64, String), WorkspaceButton)> = d
@@ -430,9 +472,15 @@ impl Shell {
             }
         }
         workspaces.sort_by(|a, b| a.0.cmp(&b.0));
+        workspaces.into_iter().map(|(_, b)| b).collect()
+    }
 
+    /// The bar of the monitor with connector `monitor`; the first monitor
+    /// when GDK does not know the connector.
+    pub fn bar(&self, monitor: Option<&str>) -> BarView {
+        let mon = self.monitor(monitor);
         BarView {
-            workspaces: workspaces.into_iter().map(|(_, b)| b).collect(),
+            workspaces: self.workspace_buttons(mon),
             style: self.bar.workspaces,
             menu: matches!(self.kojed, Kojed::Running(_)).then(|| {
                 menu(&MenuInput {
@@ -446,6 +494,50 @@ impl Shell {
             }),
             quick: quick(&self.system),
             warning: (self.kojed == Kojed::Gone).then_some(KOJED_GONE),
+        }
+    }
+
+    /// The monitor with the keyboard focus.
+    pub fn focused_monitor(&self) -> Option<&str> {
+        self.desktop
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .map(|m| m.name.as_str())
+    }
+
+    /// The overview of the monitor with connector `monitor` (ADR 0049).
+    pub fn overview(&self, monitor: Option<&str>) -> OverviewView {
+        let mon = self.monitor(monitor);
+        let windows = &self.desktop.windows;
+        let current = mon.map_or("", |m| m.active_workspace.as_str());
+        let accent = self.accent(current);
+        let stash = match &accent {
+            Accent::Context(name) => name
+                .parse::<koje_core::name::ContextName>()
+                .ok()
+                .map(|ctx| {
+                    let stash = koje_core::live_layouts::stash_workspace(&ctx);
+                    let mut stashed: Vec<&WindowState> =
+                        windows.iter().filter(|w| w.workspace == stash).collect();
+                    stashed.sort_by_key(|w| w.focus_history);
+                    Stash {
+                        context: name.clone(),
+                        windows: stashed
+                            .into_iter()
+                            .map(|w| WindowCard::new(w, accent.clone()))
+                            .collect(),
+                    }
+                }),
+            Accent::Host => None,
+        };
+        OverviewView {
+            workspaces: self.workspace_buttons(mon),
+            windows: on_workspace(windows, current)
+                .into_iter()
+                .map(|w| WindowCard::new(w, accent.clone()))
+                .collect(),
+            stash,
         }
     }
 
@@ -563,9 +655,28 @@ mod tests {
                 ws(2, "2", "eDP-1"),
                 ws(-1338, "admin", "eDP-1"),
                 ws(1, "1", "eDP-1"),
-                ws(-98, "special:koje-stash-kp", "eDP-1"),
+                ws(-98, "special:stash-kp", "eDP-1"),
                 ws(3, "3", "DP-1"),
             ],
+            windows: vec![
+                win("0xa", "kp", (960, 40), 1),
+                win("0xb", "kp", (0, 40), 0),
+                win("0xc", "special:stash-kp", (0, 40), 3),
+                win("0xd", "special:stash-kp", (0, 40), 2),
+                win("0xe", "1", (0, 40), 4),
+            ],
+        }
+    }
+
+    fn win(address: &str, workspace: &str, at: (i32, i32), focus_history: i32) -> WindowState {
+        WindowState {
+            address: address.into(),
+            class: "foot".into(),
+            title: format!("title {address}"),
+            workspace: workspace.into(),
+            at,
+            size: (960, 1040),
+            focus_history,
         }
     }
 
@@ -574,6 +685,43 @@ mod tests {
         s.apply(Update::Desktop(desktop()));
         s.apply(Update::Contexts(vec![ctx("kp", true)]));
         s
+    }
+
+    #[test]
+    fn the_overview_shows_the_workspace_and_the_contexts_stash() {
+        let o = shell().overview(Some("eDP-1"));
+        let addresses = |cards: &[WindowCard]| -> Vec<String> {
+            cards.iter().map(|c| c.address.clone()).collect()
+        };
+        // Left to right on the screen.
+        assert_eq!(addresses(&o.windows), ["0xb", "0xa"]);
+        assert!(
+            o.windows
+                .iter()
+                .all(|c| c.accent == Accent::Context("kp".into()))
+        );
+        assert_eq!(o.windows[0].size, (960, 1040));
+        let stash = o.stash.expect("kp's stash");
+        assert_eq!(stash.context, "kp");
+        // Most recently used first.
+        assert_eq!(addresses(&stash.windows), ["0xd", "0xc"]);
+        // The strip is the bar's list.
+        assert_eq!(o.workspaces, shell().bar(Some("eDP-1")).workspaces);
+    }
+
+    #[test]
+    fn a_host_workspace_has_no_stash() {
+        let o = shell().overview(Some("DP-1"));
+        assert_eq!(o.windows, []);
+        assert_eq!(o.stash, None);
+        let mut s = shell();
+        let mut d = desktop();
+        d.monitors[0].active_workspace = "1".into();
+        s.apply(Update::Desktop(d));
+        let o = s.overview(Some("eDP-1"));
+        assert_eq!(o.windows.len(), 1);
+        assert_eq!(o.windows[0].accent, Accent::Host);
+        assert_eq!(o.stash, None);
     }
 
     #[test]

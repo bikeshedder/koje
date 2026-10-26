@@ -18,6 +18,7 @@ use crate::bar_layout::bar_box;
 use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
 use crate::model::{Action, BarView, WorkspaceButton};
+use crate::overview_ui::OverviewSurface;
 use crate::quick_ui::QuickWidget;
 
 #[derive(Debug)]
@@ -32,6 +33,8 @@ pub struct Bar {
     warning_text: gtk::Label,
     /// What the bar shows now: an update that changes nothing redraws nothing.
     shown: RefCell<Option<BarView>>,
+    /// The monitor's overview (ADR 0049), hidden until asked for.
+    overview: OverviewSurface,
 }
 
 impl Bar {
@@ -79,6 +82,7 @@ impl Bar {
         let layout = bar_box(&workspaces, clock.widget(), &end);
         window.set_child(Some(&layout));
         window.present();
+        let overview = OverviewSurface::new(app, monitor, actions.clone());
 
         Self {
             monitor: monitor.clone(),
@@ -90,7 +94,12 @@ impl Bar {
             warning,
             warning_text,
             shown: RefCell::new(None),
+            overview,
         }
+    }
+
+    pub fn overview(&self) -> &OverviewSurface {
+        &self.overview
     }
 
     pub fn monitor(&self) -> &gdk::Monitor {
@@ -180,6 +189,7 @@ impl Bar {
     }
 
     pub fn close(&self) {
+        self.overview.close();
         self.window.destroy();
     }
 }

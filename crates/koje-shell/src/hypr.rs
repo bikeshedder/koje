@@ -1,4 +1,4 @@
-//! What the bar reads from Hyprland: monitors and workspaces, read again
+//! What the shell reads from Hyprland: monitors, workspaces and windows, read again
 //! after every event that may change them – the bar never keeps a copy that
 //! could drift from Hyprland's.
 
@@ -6,7 +6,7 @@ use anyhow::{Context as _, Result};
 use koje_hyprland::Hyprland;
 use serde::Deserialize;
 
-use crate::model::{Desktop, MonitorState, WorkspaceState};
+use crate::model::{Desktop, MonitorState, WindowState, WorkspaceState};
 
 #[derive(Debug, Deserialize)]
 struct NameRef {
@@ -29,6 +29,31 @@ struct Workspace {
     monitor: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct Client {
+    address: String,
+    #[serde(default = "yes")]
+    mapped: bool,
+    #[serde(default)]
+    hidden: bool,
+    #[serde(default)]
+    at: (i32, i32),
+    #[serde(default)]
+    size: (i32, i32),
+    workspace: NameRef,
+    #[serde(default)]
+    class: String,
+    #[serde(default)]
+    title: String,
+    /// 0 for the focused window, 1 for the one before, …
+    #[serde(rename = "focusHistoryID", default)]
+    focus_history: i32,
+}
+
+fn yes() -> bool {
+    true
+}
+
 async fn json<T: serde::de::DeserializeOwned>(hypr: &Hyprland, request: &str) -> Result<T> {
     let reply = hypr.request(request).await?;
     serde_json::from_str(&reply).with_context(|| format!("Hyprland's answer to {request}"))
@@ -38,6 +63,7 @@ async fn json<T: serde::de::DeserializeOwned>(hypr: &Hyprland, request: &str) ->
 pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
     let monitors: Vec<Monitor> = json(hypr, "j/monitors").await?;
     let workspaces: Vec<Workspace> = json(hypr, "j/workspaces").await?;
+    let clients: Vec<Client> = json(hypr, "j/clients").await?;
     Ok(Desktop {
         monitors: monitors
             .into_iter()
@@ -55,11 +81,27 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
                 monitor: w.monitor,
             })
             .collect(),
+        windows: clients
+            .into_iter()
+            .filter(|c| c.mapped && !c.hidden)
+            .map(|c| WindowState {
+                address: c.address,
+                class: c.class,
+                title: c.title,
+                workspace: c.workspace.name,
+                at: c.at,
+                size: c.size,
+                focus_history: c.focus_history,
+            })
+            .collect(),
     })
 }
 
-/// Hyprland events after which the bar reads the desktop again. A context's
-/// workspace appears with its first window (`createworkspacev2`).
+/// Hyprland events after which the shell reads the desktop again. A context's
+/// workspace appears with its first window (`createworkspacev2`); windows
+/// open, close, move, change their title and take the focus (the dash's
+/// most recent window). Sizes change without an event: the overview has
+/// the desktop read again when it opens.
 pub fn changes_desktop(line: &str) -> bool {
     let name = line.split_once(">>").map_or(line, |(n, _)| n);
     matches!(
@@ -80,6 +122,12 @@ pub fn changes_desktop(line: &str) -> bool {
             | "monitorremoved"
             | "monitorremovedv2"
             | "configreloaded"
+            | "openwindow"
+            | "closewindow"
+            | "movewindowv2"
+            | "windowtitlev2"
+            | "activewindowv2"
+            | "changefloatingmode"
     )
 }
 
@@ -94,12 +142,14 @@ mod tests {
             "createworkspacev2>>5,privat",
             "focusedmonv2>>DP-1,3",
             "configreloaded>>",
+            "windowtitlev2>>55d0e8c2a1b0,new title",
+            "openwindow>>55d0e8c2a1b0,kp,foot,~",
         ] {
             assert!(changes_desktop(line), "{line}");
         }
         for line in [
             "activelayout>>kb,English (US)",
-            "windowtitlev2>>55d0e8c2a1b0,new title",
+            "windowtitle>>55d0e8c2a1b0",
             "screencast>>1,0",
         ] {
             assert!(!changes_desktop(line), "{line}");
@@ -123,5 +173,20 @@ mod tests {
         let w: Vec<Workspace> =
             serde_json::from_str(r#"[{"id":1,"name":"1","monitor":"eDP-1","windows":2}]"#).unwrap();
         assert_eq!((w[0].id, w[0].monitor.as_str()), (1, "eDP-1"));
+        let c: Vec<Client> = serde_json::from_str(
+            r#"[{"address":"0x5","mapped":true,"hidden":false,"at":[10,40],"size":[800,600],
+                "workspace":{"id":-1337,"name":"kp"},"floating":false,"class":"foot","title":"~",
+                "focusHistoryID":2,"pid":7}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                c[0].at,
+                c[0].size,
+                c[0].workspace.name.as_str(),
+                c[0].focus_history
+            ),
+            ((10, 40), (800, 600), "kp", 2)
+        );
     }
 }

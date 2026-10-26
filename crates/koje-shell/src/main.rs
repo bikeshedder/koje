@@ -2,6 +2,7 @@
 //! (ADR 0043). For now the bar, one per monitor; later the OSD, the window
 //! overlays, the notifications and, in its own process, the settings app.
 
+mod app_info;
 mod backend;
 mod bar;
 mod bar_layout;
@@ -13,6 +14,8 @@ mod hypr;
 mod menu;
 mod menu_ui;
 mod model;
+mod overview;
+mod overview_ui;
 mod quick;
 mod quick_ui;
 mod system;
@@ -100,12 +103,35 @@ fn main() -> glib::ExitCode {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
+    // `koje-shell overview`: show or hide the running shell's overview
+    // (Super, ADR 0049).
+    if std::env::args().nth(1).as_deref() == Some("overview") {
+        return remote_action("overview");
+    }
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_startup(start);
     // A second `koje-shell` activates this one: the bars are already there.
     app.connect_activate(|_| {});
     // GTK must not parse koje-shell's arguments.
     app.run_with_args::<&str>(&[])
+}
+
+/// Activate an action of the running shell; never becomes the shell itself.
+fn remote_action(action: &str) -> glib::ExitCode {
+    let app = adw::Application::builder()
+        .application_id(APP_ID)
+        .flags(gio::ApplicationFlags::IS_LAUNCHER)
+        .build();
+    if let Err(e) = app.register(None::<&gio::Cancellable>) {
+        tracing::error!("koje-shell is not running: {e}");
+        return glib::ExitCode::FAILURE;
+    }
+    app.activate_action(action, None);
+    // The call goes out with the next flush.
+    if let Some(conn) = app.dbus_connection() {
+        let _ = conn.flush_sync(None::<&gio::Cancellable>);
+    }
+    glib::ExitCode::SUCCESS
 }
 
 fn start(app: &adw::Application) {
@@ -135,6 +161,7 @@ fn start(app: &adw::Application) {
     style(CSS);
     style(&swatch_css());
     style(quick_ui::CSS);
+    style(overview_ui::CSS);
     let shell = Rc::new(RefCell::new(Shell::default()));
     let accents_css = shell.borrow().accent_css();
     let accents = style(&accents_css);
@@ -148,6 +175,7 @@ fn start(app: &adw::Application) {
     });
 
     follow_config(&shell, &bars);
+    overview_actions(app, &bars, &shell);
     // GNOME's questions with a countdown: a display change, ending the session.
     let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
     let end_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
@@ -275,7 +303,48 @@ fn end_session_actions(app: &adw::Application, dialog: &Rc<dialog_ui::CountdownD
 fn render(bars: &Bars, shell: &Rc<RefCell<Shell>>) {
     let shell = shell.borrow();
     for bar in bars.borrow().iter() {
-        bar.render(&shell.bar(bar.connector().as_deref()));
+        let connector = bar.connector();
+        bar.render(&shell.bar(connector.as_deref()));
+        if bar.overview().is_visible() {
+            bar.overview().render(&shell.overview(connector.as_deref()));
+        }
+    }
+}
+
+/// The actions `overview` (show or hide it on every monitor; Super) and
+/// `hide-overview` (after a click in it, Escape).
+fn overview_actions(app: &adw::Application, bars: &Bars, shell: &Rc<RefCell<Shell>>) {
+    let toggle = gio::SimpleAction::new("overview", None);
+    toggle.connect_activate({
+        let (bars, shell) = (bars.clone(), shell.clone());
+        move |_, _| {
+            let open = bars.borrow().iter().any(|b| b.overview().is_visible());
+            if open {
+                hide_overviews(&bars);
+                return;
+            }
+            let s = shell.borrow();
+            let focused = s.focused_monitor();
+            for bar in bars.borrow().iter() {
+                let connector = bar.connector();
+                bar.overview().render(&s.overview(connector.as_deref()));
+                let here = focused.is_none_or(|f| connector.as_deref() == Some(f));
+                bar.overview().show(here);
+            }
+        }
+    });
+    app.add_action(&toggle);
+    let hide = gio::SimpleAction::new("hide-overview", None);
+    hide.connect_activate({
+        let bars = bars.clone();
+        move |_, _| hide_overviews(&bars)
+    });
+    app.add_action(&hide);
+}
+
+fn hide_overviews(bars: &Bars) {
+    for bar in bars.borrow().iter() {
+        bar.overview().hide();
     }
 }
 

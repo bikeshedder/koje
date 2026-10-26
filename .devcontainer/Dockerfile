@@ -25,6 +25,9 @@ RUN apt-get update \
         libgtk4-layer-shell-dev \
         sway \
         grim \
+        python3-pywayland \
+        python3-cffi-backend \
+        libxkbcommon-tools \
         fonts-cantarell \
         adwaita-icon-theme \
         python3-gi \

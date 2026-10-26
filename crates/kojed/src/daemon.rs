@@ -305,16 +305,20 @@ where
         Ok((ctx, id))
     }
 
-    /// `koje unstash [<window>] [--to <layout>]`; without a window the
-    /// focused one (e.g. picked in the shown stash).
+    /// `koje unstash [<window>] [--to <layout>]`: a window by its id or its
+    /// Hyprland address (the shell's overview); without one the focused
+    /// window (e.g. picked in the shown stash).
     pub async fn unstash(
         &mut self,
         ctx: &ContextName,
-        window: Option<WindowId>,
+        window: Option<&str>,
         to: Option<LayoutName>,
     ) -> Result<WindowId> {
-        let id = if let Some(id) = window {
-            id
+        let id = if let Some(window) = window {
+            match self.live_mut(ctx)?.windows.get(window) {
+                Some(w) => w.id.clone(),
+                None => WindowId::new(window)?,
+            }
         } else {
             let address = self.focused.clone().context("no window has focus")?;
             self.live_mut(ctx)?
@@ -1969,7 +1973,7 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
             w.workspace = stash_ws.into();
         }
         assert_eq!(
-            d.unstash(&work, Some(WindowId::new("terminal").unwrap()), None)
+            d.unstash(&work, Some("terminal"), None)
                 .await
                 .unwrap()
                 .as_str(),
@@ -1982,6 +1986,16 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
                 workspace: "work".into()
             }]
         );
+        // The overview names windows by their Hyprland address.
+        let by_address = d.unstash(&work, Some("0xb"), None).await.unwrap();
+        assert_eq!(
+            comp.take(),
+            [CompositorCommand::MoveToWorkspace {
+                address: "0xb".into(),
+                workspace: "work".into()
+            }]
+        );
+        assert_ne!(by_address.as_str(), "0xb");
         let names: Vec<(String, bool, usize)> = d
             .layouts(&work)
             .unwrap()
@@ -1990,7 +2004,7 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
             .collect();
         assert_eq!(
             names,
-            [("main".into(), false, 2), ("review".into(), true, 1)]
+            [("main".into(), false, 2), ("review".into(), true, 2)]
         );
 
         // `koje stash` takes the focused window.
