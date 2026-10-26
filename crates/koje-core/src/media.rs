@@ -69,6 +69,18 @@ pub fn brightness_percent(raw: u32, max: u32) -> u32 {
     to_u32(level * 100.0)
 }
 
+/// The raw brightness for a perceived level (0–100), as a slider sets it –
+/// the inverse of [`brightness_percent`]; never below the lowest value
+/// [`brightness_step`] goes to.
+pub fn brightness_raw(percent: u32, max: u32) -> u32 {
+    if max == 0 {
+        return 0;
+    }
+    let lowest = (max / 100).max(1);
+    let level = f64::from(percent.min(100)) / 100.0;
+    to_u32(level.powf(EXPONENT) * f64::from(max)).clamp(lowest, max)
+}
+
 /// The raw brightness one step up or down from `raw`. The screen never goes
 /// fully dark: the lowest value is 1 % of `max` (at least 1).
 pub fn brightness_step(raw: u32, max: u32, up: bool) -> u32 {
@@ -209,6 +221,19 @@ pub fn player_order<K: Clone + PartialEq>(last: Option<&K>, players: &[(K, Playb
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn brightness_from_a_slider() {
+        assert_eq!(brightness_raw(100, 1000), 1000);
+        assert_eq!(brightness_raw(0, 1000), 10, "never fully dark");
+        assert_eq!(brightness_raw(50, 1000), 63);
+        assert_eq!(brightness_raw(200, 1000), 1000);
+        assert_eq!(brightness_raw(50, 0), 0);
+        // Above the floor (1 % of max is 32 % perceived) it round-trips.
+        for p in [35, 70, 90] {
+            assert_eq!(brightness_percent(brightness_raw(p, 100_000), 100_000), p);
+        }
+    }
 
     #[test]
     fn reads_wpctl() {

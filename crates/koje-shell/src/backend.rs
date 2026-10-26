@@ -3,6 +3,7 @@
 //! send what they learn as [`Update`]s over a channel. Every call has a
 //! timeout.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -16,6 +17,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::hypr;
 use crate::menu::HistoryReading;
 use crate::model::{Action, ContextEntry, MemoryReading, RunningContext, Update};
+use crate::system;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 /// Events come in bursts (a workspace switch focuses a window too): read the
@@ -62,9 +64,20 @@ pub fn spawn(tx: Sender<Update>, actions: UnboundedReceiver<Action>) -> Result<(
         .spawn(move || {
             runtime.block_on(async {
                 let hypr = Hyprland::from_env();
+                // NetworkManager, UPower, logind; Quick Settings leaves them
+                // out without it.
+                let system_bus = match zbus::Connection::system().await {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        tracing::warn!("no system bus: {e}");
+                        None
+                    }
+                };
+                let wake = Arc::new(tokio::sync::Notify::new());
                 tokio::select! {
                     () = desktop(&hypr, tx.clone()) => {}
-                    () = act(&hypr, actions, tx.clone()) => {}
+                    () = act(&hypr, system_bus.as_ref(), &wake, actions, tx.clone()) => {}
+                    () = system::watch(&hypr, system_bus.clone(), tx.clone(), wake.clone()) => {}
                     () = kojed_forever(tx) => {}
                 }
             });
@@ -102,9 +115,20 @@ async fn desktop(hypr: &Hyprland, tx: Sender<Update>) {
 }
 
 /// Carry out what clicks ask for.
-async fn act(hypr: &Hyprland, mut actions: UnboundedReceiver<Action>, tx: Sender<Update>) {
+async fn act(
+    hypr: &Hyprland,
+    system_bus: Option<&zbus::Connection>,
+    wake: &tokio::sync::Notify,
+    mut actions: UnboundedReceiver<Action>,
+    tx: Sender<Update>,
+) {
     while let Some(action) = actions.recv().await {
         tracing::debug!(?action, "click");
+        if let Action::Quick(change) = action {
+            system::change(hypr, system_bus, change).await;
+            wake.notify_one();
+            continue;
+        }
         if let Some(command) = action.command() {
             match tokio::time::timeout(TIMEOUT, hypr.apply(&[command])).await {
                 Ok(Ok(())) => {}

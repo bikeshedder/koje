@@ -11,6 +11,9 @@ mod menu;
 mod menu_ui;
 mod model;
 mod overview_ui;
+mod quick;
+mod quick_ui;
+mod system;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -100,6 +103,7 @@ fn start(app: &adw::Application) {
     };
     style(CSS);
     style(&swatch_css());
+    style(quick_ui::CSS);
     let shell = Rc::new(RefCell::new(Shell::default()));
     let accents_css = shell.borrow().accent_css();
     let accents = style(&accents_css);

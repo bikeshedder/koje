@@ -9,6 +9,8 @@ use koje_core::ports::CompositorCommand;
 use std::collections::BTreeMap;
 
 use crate::menu::{HistoryReading, MenuInput, MenuView, NEW_CONTEXT, menu};
+use crate::quick::{QuickView, System, quick};
+use crate::system::Change;
 
 /// Something the shell learned from kojed or Hyprland.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +35,8 @@ pub enum Update {
     },
     /// kojed does not own its bus name (not started, crashed, restarting).
     KojedGone,
+    /// Sound, network, battery, … for Quick Settings.
+    System(System),
 }
 
 /// kojed's `Memory`: the working set, what the cgroup charges and the limits
@@ -205,6 +209,7 @@ pub struct Shell {
     busy: BTreeMap<String, Busy>,
     /// The last failed command per context.
     errors: BTreeMap<String, String>,
+    system: System,
 }
 
 /// Whose color an element shows as its accent: a context's, or the grey of
@@ -257,6 +262,7 @@ pub struct BarView {
     pub tasks_accent: Accent,
     /// The koje menu; `None` while kojed does not answer.
     pub menu: Option<MenuView>,
+    pub quick: QuickView,
     /// A problem worth showing in the bar.
     pub warning: Option<&'static str>,
 }
@@ -289,6 +295,8 @@ pub enum Action {
         name: String,
         color: Option<String>,
     },
+    /// A change in Quick Settings.
+    Quick(Change),
 }
 
 impl Action {
@@ -339,7 +347,10 @@ impl Action {
                     vec![new, cmd(&["up", name])],
                 )
             }
-            Self::FocusWorkspace(_) | Self::FocusWindow(_) | Self::FocusContext(_) => return None,
+            Self::FocusWorkspace(_)
+            | Self::FocusWindow(_)
+            | Self::FocusContext(_)
+            | Self::Quick(_) => return None,
         })
     }
 }
@@ -372,6 +383,7 @@ impl Shell {
                     None => self.errors.remove(&context),
                 };
             }
+            Update::System(system) => self.system = system,
             Update::KojedGone => {
                 self.kojed = Kojed::Gone;
                 self.memory.clear();
@@ -474,6 +486,7 @@ impl Shell {
                     errors: &self.errors,
                 })
             }),
+            quick: quick(&self.system),
             warning: (self.kojed == Kojed::Gone).then_some(KOJED_GONE),
         }
     }

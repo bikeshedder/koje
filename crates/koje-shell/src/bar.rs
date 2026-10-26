@@ -16,6 +16,7 @@ use crate::bar_layout::bar_box;
 use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
 use crate::model::{Accent, Action, BarView, Task, WorkspaceButton};
+use crate::quick_ui::QuickWidget;
 
 /// Widest a task's title gets, in characters.
 const TITLE_CHARS: i32 = 24;
@@ -28,6 +29,7 @@ pub struct Bar {
     workspaces: gtk::Box,
     tasks: gtk::Box,
     menu: MenuWidget,
+    quick: QuickWidget,
     warning: gtk::Box,
     warning_text: gtk::Label,
     /// What the bar shows now: an update that changes nothing redraws nothing.
@@ -78,6 +80,8 @@ impl Bar {
         warning.append(&warning_text);
         let end = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         end.append(menu.widget());
+        let quick = QuickWidget::new(&actions);
+        end.append(quick.widget());
         end.append(&warning);
 
         let clock = Clock::new();
@@ -94,6 +98,7 @@ impl Bar {
             workspaces,
             tasks,
             menu,
+            quick,
             warning,
             warning_text,
             shown: RefCell::new(None),
@@ -123,6 +128,7 @@ impl Bar {
             self.tasks.append(&self.task_button(t));
         }
         self.menu.render(view.menu.as_ref());
+        self.quick.render(&view.quick);
         match view.warning {
             Some(text) => {
                 self.warning_text.set_label(text);
