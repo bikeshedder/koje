@@ -9,6 +9,8 @@ FIFO:
   rclick        right button
   key NAME      Escape, Return, BackSpace, Tab, Up, Down, Left, Right
   type TEXT     letters, digits, space and a little punctuation (US layout)
+  down MOD      hold Alt or Super (until `up MOD`)
+  up MOD
 
 Usage: input.py <fifo> <width> <height>"""
 import os, string, subprocess, sys, tempfile, time
@@ -31,6 +33,9 @@ from smokeproto.virtual_keyboard_unstable_v1 import ZwpVirtualKeyboardManagerV1 
 
 BTN_LEFT, BTN_RIGHT = 0x110, 0x111
 SHIFT = 1  # the Shift modifier's bit in the keymap
+# Held modifiers: evdev code and bit (Mod1, Mod4).
+MODS = {"Alt": (56, 8), "Super": (125, 64)}
+held = 0
 # evdev key codes (US layout).
 KEYS = {"Escape": 1, "BackSpace": 14, "Tab": 15, "Return": 28, "space": 57, "Shift": 42,
         "Up": 103, "Down": 108, "Left": 105, "Right": 106}
@@ -74,14 +79,14 @@ def now():
 def press(code, shift=False):
     if shift:
         keyboard.key(now(), KEYS["Shift"], 1)
-        keyboard.modifiers(SHIFT, 0, 0, 0)
+        keyboard.modifiers(SHIFT | held, 0, 0, 0)
     keyboard.key(now(), code, 1)
     display.flush()
     time.sleep(0.02)
     keyboard.key(now(), code, 0)
     if shift:
         keyboard.key(now(), KEYS["Shift"], 0)
-        keyboard.modifiers(0, 0, 0, 0)
+        keyboard.modifiers(held, 0, 0, 0)
     display.flush()
     time.sleep(0.02)
 
@@ -105,6 +110,11 @@ while True:
                 pointer.frame()
             elif cmd == "key":
                 press(KEYS[rest])
+            elif cmd in ("down", "up"):
+                code, bit = MODS[rest]
+                held = held | bit if cmd == "down" else held & ~bit
+                keyboard.key(now(), code, 1 if cmd == "down" else 0)
+                keyboard.modifiers(held, 0, 0, 0)
             elif cmd == "type":
                 for c in rest:
                     upper = c in string.ascii_uppercase

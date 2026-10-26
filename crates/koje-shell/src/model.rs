@@ -526,6 +526,11 @@ impl Shell {
         }
     }
 
+    /// Every mapped window.
+    pub fn windows(&self) -> &[WindowState] {
+        &self.desktop.windows
+    }
+
     /// The names of the running contexts.
     pub fn running(&self) -> Vec<String> {
         self.contexts().iter().map(|c| c.name.clone()).collect()

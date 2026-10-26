@@ -20,6 +20,8 @@ mod overview_ui;
 mod quick;
 mod quick_ui;
 mod search;
+mod switcher;
+mod switcher_ui;
 mod system;
 
 use std::cell::RefCell;
@@ -107,10 +109,17 @@ fn main() -> glib::ExitCode {
         )
         .init();
     // `koje-shell overview` / `apps`: show or hide the running shell's
-    // overview or app grid (Super, Super+A; ADR 0049).
+    // overview or app grid (Super, Super+A; ADR 0049); `switch
+    // [--backwards] [--windows]`: Alt+Tab (M8.49).
     match std::env::args().nth(1).as_deref() {
         Some("overview") => return remote_action("overview"),
         Some("apps") => return remote_action("app-grid"),
+        Some("switch") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let back = args.iter().any(|a| a == "--backwards");
+            let windows = args.iter().any(|a| a == "--windows");
+            return remote_action(switch_action(back, windows));
+        }
         _ => {}
     }
     let app = adw::Application::builder().application_id(APP_ID).build();
@@ -167,6 +176,7 @@ fn start(app: &adw::Application) {
     style(&swatch_css());
     style(quick_ui::CSS);
     style(overview_ui::CSS);
+    style(switcher_ui::CSS);
     let shell = Rc::new(RefCell::new(Shell::default()));
     let accents_css = shell.borrow().accent_css();
     let accents = style(&accents_css);
@@ -183,6 +193,7 @@ fn start(app: &adw::Application) {
     follow_favorites(&shell, &bars);
     overview_actions(app, &bars, &shell, &actions_for_confirm);
     follow_host_apps(&shell, &bars);
+    switcher_actions(app, &bars, &shell, &actions_for_confirm);
     // GNOME's questions with a countdown: a display change, ending the session.
     let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
     let end_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
@@ -382,6 +393,42 @@ fn overview_actions(
         move |_, _| hide_overviews(&bars)
     });
     app.add_action(&hide);
+}
+
+/// The switcher's action for Alt+Tab, Alt+Shift+Tab, Alt+grave and Alt+Shift+grave.
+fn switch_action(backwards: bool, windows: bool) -> &'static str {
+    match (windows, backwards) {
+        (false, false) => "switch-next",
+        (false, true) => "switch-prev",
+        (true, false) => "switch-windows",
+        (true, true) => "switch-windows-prev",
+    }
+}
+
+/// Alt+Tab (M8.49): the switcher opens on the focused monitor.
+fn switcher_actions(
+    app: &adw::Application,
+    bars: &Bars,
+    shell: &Rc<RefCell<Shell>>,
+    actions: &UnboundedSender<Action>,
+) {
+    let switcher = switcher_ui::Switcher::new(app, actions.clone(), shell.clone());
+    for windows in [false, true] {
+        for backwards in [false, true] {
+            let action = gio::SimpleAction::new(switch_action(backwards, windows), None);
+            let (bars, shell, switcher) = (bars.clone(), shell.clone(), switcher.clone());
+            action.connect_activate(move |_, _| {
+                let focused = shell.borrow().focused_monitor().map(str::to_owned);
+                let monitor = bars
+                    .borrow()
+                    .iter()
+                    .find(|b| b.connector() == focused)
+                    .map(|b| b.monitor().clone());
+                switcher.next(monitor.as_ref(), backwards, windows);
+            });
+            app.add_action(&action);
+        }
+    }
 }
 
 /// Open the overview in `mode`; open in that mode, close it; open in the

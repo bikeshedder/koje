@@ -13,6 +13,7 @@
 #   rclick X Y        right click at X,Y
 #   key KEY           press a key: Escape, Return, BackSpace, Tab, arrows
 #   type TEXT         type letters, digits, space
+#   down MOD / up MOD hold or let go of Alt or Super
 #   pause SECONDS
 # Afterwards <out dir> holds hypr.log (Hyprland requests), kojed.log (kojed
 # calls), koje.log (CLI calls), shell.log. Example:
@@ -67,6 +68,8 @@ dbus-run-session -- bash -c '
   rclick() { echo "move $1 $2" >"$INPUT"; sleep 0.2; echo rclick >"$INPUT"; sleep 0.5; }
   key() { echo "key $1" >"$INPUT"; sleep 0.3; }
   type() { echo "type $1" >"$INPUT"; sleep 0.3; }
+  down() { echo "down $1" >"$INPUT"; sleep 0.2; }
+  up() { echo "up $1" >"$INPUT"; sleep 0.3; }
   pause() { sleep "$1"; }
   '"$steps"'
   kill $shell; wait $shell 2>/dev/null || true
