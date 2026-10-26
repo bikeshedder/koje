@@ -25,7 +25,7 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0018 | [Window colors by tag rule](0018-window-colors-by-tag-rule.md) | Accepted |
 | 0019 | [Host interfaces through a forwarder and a filtered proxy](0019-host-interfaces-via-forwarder.md) | Accepted |
 | 0020 | [Lucide as koje's icon font](0020-lucide-icon-font.md) | Accepted (koje's own UI: 0043) |
-| 0021 | [Installer: what it may change](0021-installer.md) | Accepted |
+| 0021 | [Installer: what it may change](0021-installer.md) | Accepted (installing binaries superseded by 0045) |
 | 0022 | [A security-context Wayland socket per context](0022-wayland-security-context.md) | Accepted |
 | 0023 | [The base image `koje/base`](0023-base-image.md) | Accepted |
 | 0024 | [One koje overlay for sleeping and hanging windows](0024-unresponsive-window-overlay.md) | Accepted |
@@ -49,3 +49,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted |
 | 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted |
 | 0044 | [GNOME Settings for the system, a gsettings bridge in kojed](0044-gnome-settings-and-gsettings-bridge.md) | Accepted |
+| 0045 | [koje ships as one Debian package, built in the dev container](0045-debian-package.md) | Accepted |

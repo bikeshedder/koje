@@ -1,6 +1,7 @@
 # 0021. Installer: what it may change
 
-- Status: Accepted (snippet scope superseded by ADR 0037)
+- Status: Accepted (snippet scope superseded by ADR 0037; `install.sh` and the
+  `~/.local` layout superseded by ADR 0045 – koje ships as a Debian package)
 - Date: 2026-10-18
 - Source: discussion during M2.1
 
