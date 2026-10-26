@@ -106,7 +106,9 @@ window.koje-dialog { background: transparent; }
 type Bars = Rc<RefCell<Vec<Bar>>>;
 
 fn main() -> glib::ExitCode {
+    // stderr: `share-picker`'s stdout is its reply to xdph.
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )

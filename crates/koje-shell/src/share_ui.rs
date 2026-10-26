@@ -66,6 +66,7 @@ pub fn run(args: &[String]) -> glib::ExitCode {
     let answer: Rc<RefCell<Option<String>>> = Rc::default();
     let failed = Rc::new(std::cell::Cell::new(false));
     let loaded = RefCell::new(Some(loaded));
+    let picker: RefCell<Option<Rc<Picker>>> = RefCell::default();
     app.connect_activate({
         let (answer, failed) = (answer.clone(), failed.clone());
         move |app| {
@@ -77,7 +78,9 @@ pub fn run(args: &[String]) -> glib::ExitCode {
                 failed.set(true);
                 return;
             }
-            Picker::show(app, &loaded, answer.clone());
+            // Kept until the process ends: the widgets' handlers only hold
+            // it weakly.
+            picker.replace(Some(Picker::show(app, &loaded, answer.clone())));
         }
     });
     let code = app.run_with_args::<&str>(&[]);
@@ -169,7 +172,11 @@ struct Picker {
 }
 
 impl Picker {
-    fn show(app: &adw::Application, loaded: &Loaded, answer: Rc<RefCell<Option<String>>>) {
+    fn show(
+        app: &adw::Application,
+        loaded: &Loaded,
+        answer: Rc<RefCell<Option<String>>>,
+    ) -> Rc<Self> {
         if let Some(display) = gdk::Display::default() {
             for css in [crate::CSS, CSS, &crate::model::accent_css(&loaded.contexts)] {
                 let provider = gtk::CssProvider::new();
@@ -208,6 +215,7 @@ impl Picker {
         me.build(&loaded.view);
         me.thumbnails(&loaded.view);
         me.window.present();
+        me
     }
 
     fn build(self: &Rc<Self>, view: &ShareView) {
@@ -232,7 +240,7 @@ impl Picker {
         if view.groups.is_empty() {
             windows.append(
                 &adw::StatusPage::builder()
-                    .icon_name("window-symbolic")
+                    .icon_name("focus-windows-symbolic")
                     .title("No Windows")
                     .build(),
             );
@@ -251,7 +259,7 @@ impl Picker {
             screens.insert(&button, -1);
         }
         let windows_page = stack.add_titled(&scrolled(&windows), Some("windows"), "Windows");
-        windows_page.set_icon_name(Some("window-symbolic"));
+        windows_page.set_icon_name(Some("focus-windows-symbolic"));
         let screens_page = stack.add_titled(&scrolled(&screens), Some("screens"), "Screens");
         screens_page.set_icon_name(Some("video-display-symbolic"));
         if view.groups.is_empty() {
@@ -299,16 +307,35 @@ impl Picker {
                 me.finish();
             }
         });
+        self.keys();
+    }
+
+    /// Before the focused widget: Enter on a tile shares it (a toggle
+    /// button would only toggle), Escape cancels.
+    fn keys(self: &Rc<Self>) {
         let keys = gtk::EventControllerKey::new();
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let me = Rc::downgrade(self);
         keys.connect_key_pressed(move |_, key, _, _| {
-            if key == gdk::Key::Escape
-                && let Some(me) = me.upgrade()
-            {
-                me.close();
-                return glib::Propagation::Stop;
+            let Some(me) = me.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            match key {
+                gdk::Key::Escape => me.close(),
+                gdk::Key::Return | gdk::Key::KP_Enter => {
+                    let Some(focused) = gtk::prelude::GtkWindowExt::focus(&me.window)
+                        .and_then(|f| f.ancestor(gtk::ToggleButton::static_type()))
+                        .and_downcast::<gtk::ToggleButton>()
+                        .filter(|b| b.has_css_class("share-tile"))
+                    else {
+                        return glib::Propagation::Proceed;
+                    };
+                    focused.set_active(true);
+                    me.finish();
+                }
+                _ => return glib::Propagation::Proceed,
             }
-            glib::Propagation::Proceed
+            glib::Propagation::Stop
         });
         self.window.add_controller(keys);
     }
