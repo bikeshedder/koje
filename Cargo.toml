@@ -1,11 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/koje-core", "crates/koje-podman", "crates/koje-hyprland", "crates/koje-forward", "crates/koje", "crates/kojed"]
+members = ["crates/koje-core", "crates/koje-podman", "crates/koje-hyprland", "crates/koje-forward", "crates/koje", "crates/kojed", "crates/koje-shell"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88" # let-chains (edition 2024)
+rust-version = "1.92" # gtk4-rs 0.11 (koje-shell)
 authors = ["Michael P. Jung"]
 repository = "https://github.com/bikeshedder/koje"
 # License is still an open question (docs/open-questions.md).
@@ -34,6 +34,12 @@ tracing = "0.1"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# koje-shell (ADR 0042, 0043). Versions of Debian trixie (the dev container),
+# older than Ubuntu 26.04's: GTK 4.18, libadwaita 1.7, gtk4-layer-shell 1.0.
+gtk4 = { version = "0.11", features = ["v4_18"] }
+libadwaita = { version = "0.9", features = ["v1_7"] }
+gtk4-layer-shell = "0.8"
+async-channel = "2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

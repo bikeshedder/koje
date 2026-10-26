@@ -1,0 +1,15 @@
+# koje's UI: the bar, later OSD, overlays and notifications (ADR 0042). Holds
+# no state of its own, so a restart after a crash costs only a moment without
+# a bar. Not installed yet: Waybar stays the session's bar until M8.32.
+[Unit]
+Description=koje shell (bar)
+Documentation=https://github.com/bikeshedder/koje
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=io.koje.Shell
+ExecStart=%h/.local/bin/koje-shell
+Restart=on-failure
+RestartSec=1

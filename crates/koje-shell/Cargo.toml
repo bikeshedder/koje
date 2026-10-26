@@ -1,0 +1,26 @@
+[package]
+name = "koje-shell"
+description = "koje's UI: the bar, later the OSD, window overlays, notifications and the settings app (ADR 0042)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+koje-core.workspace = true
+koje-hyprland.workspace = true
+anyhow.workspace = true
+async-channel.workspace = true
+futures-util.workspace = true
+gtk4.workspace = true
+gtk4-layer-shell.workspace = true
+libadwaita.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zbus.workspace = true
+
+[lints]
+workspace = true

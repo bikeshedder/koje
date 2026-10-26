@@ -37,6 +37,10 @@ koje *ARGS:
 kojed:
     RUST_LOG=${RUST_LOG:-debug} cargo run -p kojed
 
+# Run the shell (bar) in the foreground with debug logging; needs a Wayland session
+shell:
+    RUST_LOG=${RUST_LOG:-koje_shell=debug} cargo run -p koje-shell
+
 # Build docs for all crates
 doc:
     cargo doc --workspace --no-deps

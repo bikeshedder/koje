@@ -37,7 +37,8 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 ```
 crates/koje-core   pure domain logic: names, config, states, layouts, limits, paths, ports (traits)
 crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
-crates/kojed       background service (Hyprland events, colors, memory watch) – stub until M4
+crates/kojed       background service (Hyprland events, colors, memory watch)
+crates/koje-shell  koje's GTK4 UI (ADR 0042): the bar; later OSD, overlays, notifications, settings app
 assets            files koje ships besides binaries: icon font, Hyprland snippet, Waybar config
 install.sh        installer for users (ADR 0021); `just install` runs it
 scripts           host helpers outside koje itself (e.g. build-waybar-deb.sh: a newer Waybar)
@@ -97,7 +98,7 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 
 ## Rust conventions
 
-- Edition 2024, MSRV 1.88 (let-chains). Stable toolchain from `rust-toolchain.toml`.
+- Edition 2024, MSRV 1.92 (gtk4-rs 0.11; let-chains need 1.88). Stable toolchain from `rust-toolchain.toml`.
 - Libraries: typed errors with `thiserror`. Binaries: `anyhow` with context
   (`.with_context(|| …)`). No `unwrap`/`expect` outside tests (clippy warns; CI denies).
 - Validate at the edges: config and state files are parsed into validated types

@@ -128,6 +128,11 @@ impl Hyprland {
     pub async fn monitors(&self) -> Result<Vec<clients::Monitor>> {
         self.json("j/monitors").await
     }
+
+    /// The focused workspace.
+    pub async fn active_workspace(&self) -> Result<clients::Workspace> {
+        self.json("j/activeworkspace").await
+    }
 }
 
 async fn send(dir: &Path, request: &str) -> Result<String> {

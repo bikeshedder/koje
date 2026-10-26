@@ -1,7 +1,8 @@
 # Development container for koje.
 #
 # Rust toolchain from the official dev container image (Debian 13 "trixie"),
-# plus just and Podman. Podman runs the container integration tests inside the
+# plus just, Podman and the GTK4, libadwaita and gtk4-layer-shell development
+# packages for koje-shell. Podman runs the container integration tests inside the
 # dev container (nested Podman, see docs/development.md), set up like nested
 # Podman in contexts (ADR 0014).
 FROM mcr.microsoft.com/devcontainers/rust:1-trixie
@@ -19,6 +20,9 @@ RUN apt-get update \
         passt \
         jq \
         ripgrep \
+        libgtk-4-dev \
+        libadwaita-1-dev \
+        libgtk4-layer-shell-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
