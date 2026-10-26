@@ -4,6 +4,8 @@
 
 mod backend;
 mod bar;
+mod bar_layout;
+mod clock;
 mod hypr;
 mod menu;
 mod menu_ui;
@@ -53,6 +55,7 @@ const CSS: &str = "
 }
 .koje-bar .koje-icon { color: var(--accent-color); }
 .koje-graph { color: var(--accent-color); }
+.koje-bar .clock-button { font-weight: bold; }
 .koje-bar .warning { color: var(--warning-color); }
 ";
 

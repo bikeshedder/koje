@@ -12,6 +12,8 @@ use gtk4_layer_shell::{Edge, Layer, LayerShell as _};
 use libadwaita as adw;
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::bar_layout::bar_box;
+use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
 use crate::model::{Accent, Action, BarView, Task, WorkspaceButton};
 
@@ -78,12 +80,10 @@ impl Bar {
         end.append(menu.widget());
         end.append(&warning);
 
-        let layout = gtk::CenterBox::builder()
-            .start_widget(&start)
-            .end_widget(&end)
-            .margin_start(6)
-            .margin_end(12)
-            .build();
+        let clock = Clock::new();
+        let layout = bar_box(&start, clock.widget(), &end);
+        layout.set_margin_start(6);
+        layout.set_margin_end(12);
         window.set_child(Some(&layout));
         window.present();
 
