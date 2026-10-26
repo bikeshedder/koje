@@ -1,9 +1,9 @@
 #!/bin/sh
 # koje context picker (click on koje's bar module, Super+D outside a context):
 # the running contexts with their memory in fuzzel, Enter switches to one.
-# Installed by koje setup to ~/.local/lib/koje/. Until koje's own panel (M8).
+# Installed by the koje package to /usr/lib/koje/. Until koje's own panel (M8).
 set -eu
-koje=${KOJE:-$HOME/.local/bin/koje}
+koje=${KOJE:-koje}
 line=$("$koje" bar --names --memory |
   fuzzel --dmenu --prompt 'context  ' --width 50 --lines 10) || exit 0
 # "<context>  <memory>": the name is the first word.

@@ -28,7 +28,7 @@ VS Code user setting (once): `"dev.containers.dockerPath": "podman"`.
 | Unit tests, CLI tests | anywhere (dev container, CI) | `just check` |
 | Hyprland adapter against a real session | host, or dev container with the Hyprland mount | `just test -- --ignored hypr` |
 | Context containers, nested Podman | host; dev container without cgroups | host: `cargo test -p koje-podman -- --ignored`; dev container: add `--skip cgroups` |
-| Full end-to-end (windows from contexts, colors, layouts) | host only | `just install`, then use `koje` |
+| Full end-to-end (windows from contexts, colors, layouts) | host only | `just deb`, install the package, `koje setup` |
 
 Tests needing real systems are `#[ignore]`d so `just check` stays hermetic.
 
@@ -58,13 +58,18 @@ them have `cgroups` in their name and run on the host only.
 ## Running koje for real
 
 Contexts must run on the host (they need the host's Wayland, PipeWire and GPU).
-Build inside the container, install on the host:
+Build the package inside the container, install it on the host (ADR 0045):
 
 ```sh
-# on the host, in the repository
-just install          # cargo install into ~/.cargo/bin
-koje list
+just deb                                            # dev container
+sudo apt install ./target/debian/koje_*_amd64.deb   # host, in the repository
+koje setup && koje list
 ```
+
+The version carries the commit (`0.1.0+git<date>.<time>.<commit>`, `.dirty` with
+uncommitted changes), so each commit's package is newer than the last. Two
+builds of the same commit have the same version: reinstall with
+`sudo apt install --reinstall ./…deb`.
 
 Use throwaway contexts for experiments and keep them labelled
 (`io.koje.test=true`) so they are easy to clean up.

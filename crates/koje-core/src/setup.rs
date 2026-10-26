@@ -1,5 +1,6 @@
-//! The plan of `koje setup` (ADR 0021): which of koje's files go where, and
-//! what happens to files that exist already. Pure: the CLI reads the current
+//! The plan of `koje setup` (ADR 0021, 0045): which of koje's per-user files
+//! go where, what happens to files that exist already, and which files of the
+//! old `install.sh` layout go away. Pure: the CLI reads the current
 //! files, this module decides, the CLI prints, asks once and executes.
 
 use std::collections::BTreeMap;
@@ -20,6 +21,8 @@ pub enum Mark {
     Unchanged,
     /// Deliberately not done (e.g. the user has an own Waybar config).
     Skipped,
+    /// One of koje's old files is removed (warned about).
+    Remove,
 }
 
 impl Mark {
@@ -30,17 +33,21 @@ impl Mark {
             Self::Append => '~',
             Self::Unchanged => '=',
             Self::Skipped => '-',
+            Self::Remove => 'x',
         }
     }
 
     /// The step changes something.
     pub fn changes(self) -> bool {
-        matches!(self, Self::New | Self::Overwrite | Self::Append)
+        matches!(
+            self,
+            Self::New | Self::Overwrite | Self::Append | Self::Remove
+        )
     }
 
     /// The step changes something that exists.
     pub fn warns(self) -> bool {
-        matches!(self, Self::Overwrite | Self::Append)
+        matches!(self, Self::Overwrite | Self::Append | Self::Remove)
     }
 }
 
@@ -64,6 +71,10 @@ pub enum Action {
     HyprlandConf {
         path: PathBuf,
         contents: String,
+    },
+    /// Remove one of koje's old files.
+    Remove {
+        path: PathBuf,
     },
     /// Build the base image (last; a failure does not undo the rest).
     BuildImage,
@@ -113,6 +124,68 @@ pub fn file(
             action: write,
         },
     }
+}
+
+/// What `install.sh` installed below the home that the package now installs
+/// system-wide (ADR 0045), with a label for the plan. `hyprbars.so` in
+/// `~/.local/lib/koje/` is not among them: `scripts/setup-hyprbars.sh` builds
+/// it per user.
+pub fn old_install(
+    home: &Path,
+    font_dir: &Path,
+    kojed_unit: &Path,
+) -> Vec<(&'static str, PathBuf)> {
+    let bin = home.join(".local/bin");
+    let lib = home.join(".local/lib/koje");
+    vec![
+        ("old koje", bin.join("koje")),
+        ("old kojed", bin.join("kojed")),
+        ("old forwarder", lib.join("koje-forward")),
+        ("old window picker", lib.join("koje-window-picker")),
+        ("old context picker", lib.join("koje-context-picker")),
+        ("old application menu", lib.join("koje-app-menu")),
+        ("old keyboard shortcuts", lib.join("koje-keys")),
+        ("old icon font", font_dir.join("lucide.ttf")),
+        ("old icon font license", font_dir.join("LICENSE")),
+        ("old kojed unit", kojed_unit.to_owned()),
+    ]
+}
+
+/// The kojed unit `install.sh` installed: it starts `~/.local/bin/kojed`.
+pub fn is_old_kojed_unit(contents: &[u8]) -> bool {
+    String::from_utf8_lossy(contents)
+        .lines()
+        .any(|l| l.trim() == "ExecStart=%h/.local/bin/kojed")
+}
+
+/// Remove an old file of koje's: `None` when it is gone already. A kojed
+/// unit that is not koje's old one stays, but the plan says that it hides
+/// the package's.
+pub fn remove_old(label: &str, path: &Path, current: Option<&[u8]>, unit: bool) -> Option<Step> {
+    let current = current?;
+    let what = format!("{label}: {}", path.display());
+    Some(if unit && !is_old_kojed_unit(current) {
+        Step {
+            mark: Mark::Skipped,
+            what: format!("{what} (your own – it hides the package's unit)"),
+            action: Action::Nothing,
+        }
+    } else {
+        Step {
+            mark: Mark::Remove,
+            what,
+            action: Action::Remove {
+                path: path.to_owned(),
+            },
+        }
+    })
+}
+
+/// A running kojed whose executable is not the package's is restarted after
+/// setup: it is the old one from `~/.local/bin`, or the package was upgraded
+/// under it (`/usr/bin/kojed (deleted)`).
+pub fn kojed_outdated(exe: &Path) -> bool {
+    exe != Path::new(crate::paths::BIN_DIR).join("kojed")
 }
 
 /// Keyboard layouts for Hyprland's `input` section.
@@ -435,6 +508,8 @@ pub enum Refresh {
     Waybar,
     /// Start a service that is not running (`exec-once` runs only at login).
     Start(Service),
+    /// Restart kojed: it runs an old binary ([`kojed_outdated`]).
+    Kojed,
 }
 
 impl fmt::Display for Refresh {
@@ -443,6 +518,7 @@ impl fmt::Display for Refresh {
             Self::Hyprland => write!(f, "reload Hyprland's config"),
             Self::Waybar => write!(f, "reload Waybar's config"),
             Self::Start(s) => write!(f, "start {}", s.name),
+            Self::Kojed => write!(f, "restart kojed (it runs an old binary)"),
         }
     }
 }
@@ -503,6 +579,53 @@ mod tests {
             other.to_string(),
             "! snippet: /h/.local/share/koje/hyprland/koje.conf"
         );
+    }
+
+    #[test]
+    fn old_files_are_removed_when_present() {
+        let p = Path::new("/h/.local/bin/kojed");
+        assert_eq!(remove_old("old kojed", p, None, false), None);
+        let step = remove_old("old kojed", p, Some(b"\x7fELF"), false).unwrap();
+        assert_eq!(step.mark, Mark::Remove);
+        assert!(step.mark.warns() && step.mark.changes());
+        assert_eq!(step.action, Action::Remove { path: p.into() });
+        assert_eq!(step.to_string(), "x old kojed: /h/.local/bin/kojed");
+    }
+
+    #[test]
+    fn only_kojes_old_unit_is_removed() {
+        let p = Path::new("/h/.config/systemd/user/kojed.service");
+        let old = b"[Service]\nType=dbus\nExecStart=%h/.local/bin/kojed\n";
+        assert_eq!(
+            remove_old("old kojed unit", p, Some(old), true)
+                .unwrap()
+                .mark,
+            Mark::Remove
+        );
+        let own = b"[Service]\nExecStart=/opt/kojed --debug\n";
+        let kept = remove_old("old kojed unit", p, Some(own), true).unwrap();
+        assert_eq!((kept.mark, kept.action), (Mark::Skipped, Action::Nothing));
+    }
+
+    #[test]
+    fn old_install_lists_kojes_files_but_not_hyprbars() {
+        let files = old_install(
+            Path::new("/h"),
+            Path::new("/h/.local/share/fonts/koje"),
+            Path::new("/h/.config/systemd/user/kojed.service"),
+        );
+        let paths: Vec<_> = files.iter().map(|(_, p)| p.display().to_string()).collect();
+        assert!(paths.contains(&"/h/.local/bin/koje".to_owned()));
+        assert!(paths.contains(&"/h/.local/lib/koje/koje-forward".to_owned()));
+        assert!(paths.contains(&"/h/.config/systemd/user/kojed.service".to_owned()));
+        assert!(!paths.iter().any(|p| p.ends_with("hyprbars.so")));
+    }
+
+    #[test]
+    fn kojed_is_outdated_unless_it_runs_the_packages_binary() {
+        assert!(!kojed_outdated(Path::new("/usr/bin/kojed")));
+        assert!(kojed_outdated(Path::new("/usr/bin/kojed (deleted)")));
+        assert!(kojed_outdated(Path::new("/home/mj/.local/bin/kojed")));
     }
 
     fn us() -> Keyboard {

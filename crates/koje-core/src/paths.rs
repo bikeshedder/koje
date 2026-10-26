@@ -7,12 +7,20 @@
 //! | `~/.config/koje/integrations/*.toml` | user integrations |
 //! | `~/.local/share/koje/<context>/states/<state>.toml` | states incl. layouts |
 //! | `~/.local/state/koje/<context>/recovery.toml` | crash recovery |
+//!
+//! The package installs koje's own files system-wide (ADR 0045): [`BIN_DIR`],
+//! [`LIB_DIR`], the user units in `/usr/lib/systemd/user/`.
 
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 use crate::mount::HostDirs;
 use crate::name::{ContextName, StateName};
+
+/// The package's binaries: `koje`, `kojed`, `koje-shell` (ADR 0045).
+pub const BIN_DIR: &str = "/usr/bin";
+/// The package's forwarder and helper scripts (ADR 0045).
+pub const LIB_DIR: &str = "/usr/lib/koje";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
@@ -91,12 +99,14 @@ impl Paths {
         self.config_home().join("hypr/hyprland.conf")
     }
 
-    /// The icon font's directory (ADR 0020).
+    /// Where `install.sh` put the icon font (ADR 0020, 0021); the package
+    /// installs it system-wide (ADR 0045).
     pub fn font_dir(&self) -> PathBuf {
         self.data_home().join("fonts/koje")
     }
 
-    /// kojed's systemd user unit.
+    /// Where `install.sh` put kojed's systemd user unit (ADR 0021); it hides
+    /// the package's in `/usr/lib/systemd/user/` (ADR 0045).
     pub fn kojed_unit(&self) -> PathBuf {
         self.config_home().join("systemd/user/kojed.service")
     }

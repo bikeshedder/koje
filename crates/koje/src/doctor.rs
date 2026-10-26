@@ -156,6 +156,10 @@ fn installed(paths: &Paths) -> Vec<Check> {
                     format!("{what}: differs from this koje version"),
                     "koje setup",
                 ),
+                (Mark::Remove, _) => Check::warn(
+                    format!("{what}: left by install.sh, the package replaces it"),
+                    "koje setup",
+                ),
             }
         })
         .collect()
@@ -189,12 +193,34 @@ fn image() -> Check {
     }
 }
 
+/// The koje package (ADR 0045).
+fn package() -> Check {
+    let version = std::process::Command::new("dpkg-query")
+        .args(["-W", "-f=${Status} ${Version}", "koje"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    match version
+        .as_deref()
+        .and_then(|v| v.strip_prefix("install ok installed "))
+    {
+        Some(v) => Check::ok(format!("koje package {v}")),
+        None => Check::warn(
+            "koje package: not installed",
+            "build it in the dev container with `just deb`, then: sudo apt install ./target/debian/koje_*.deb",
+        ),
+    }
+}
+
 fn forwarder() -> Check {
     match crate::hostbus::forwarder_binary() {
         Some(p) => Check::ok(format!("forwarder {}", p.display())),
         None => Check::warn(
-            "forwarder ~/.local/lib/koje/koje-forward: missing",
-            "./install.sh builds it; without it contexts get no host interfaces",
+            format!(
+                "forwarder {}/koje-forward: missing",
+                koje_core::paths::LIB_DIR
+            ),
+            "the koje package installs it; without it contexts get no host interfaces",
         ),
     }
 }
@@ -242,7 +268,7 @@ fn nvidia() -> Option<Check> {
 }
 
 pub fn run(paths: &Paths) -> Result<()> {
-    let mut checks = vec![packages(), hyprland()];
+    let mut checks = vec![package(), packages(), hyprland()];
     checks.extend(installed(paths));
     checks.extend(kojed());
     checks.extend([image(), forwarder(), subids()]);

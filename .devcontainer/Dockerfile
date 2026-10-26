@@ -34,6 +34,9 @@ RUN apt-get update \
 COPY rust-toolchain.toml /tmp/toolchain/
 USER ${USERNAME}
 RUN cd /tmp/toolchain && rustup toolchain install && rustc --version
+# The Debian package (ADR 0045): the static koje-forward and cargo-deb.
+RUN cd /tmp/toolchain && rustup target add x86_64-unknown-linux-musl \
+    && cargo install cargo-deb --locked
 USER root
 
 # Nested Podman (ADR 0014). newuidmap/newgidmap need file capabilities: setuid

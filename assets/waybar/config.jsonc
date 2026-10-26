@@ -13,7 +13,7 @@
   // The active context's memory (koje bar --memory, M8.21): used against the
   // hard (else soft) limit, amber over the soft limit, details on hover.
   "custom/koje-memory": {
-    "exec": "~/.local/bin/koje bar --memory",
+    "exec": "koje bar --memory",
     "return-type": "json",
     "escape": false
   },

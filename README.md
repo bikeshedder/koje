@@ -17,25 +17,33 @@ left it. The programs themselves stay unchanged.
 
 ## Install (on the host)
 
+koje ships as a Debian package for Debian/Ubuntu on amd64
+([ADR 0045](docs/decisions/0045-debian-package.md)). Build it in the dev
+container, install it on the host, then run setup as your user:
+
 ```sh
-./install.sh --dry-run    # show what would be installed or changed
-./install.sh              # install (asks once before changing anything)
+just deb                                            # in the dev container
+sudo apt install ./target/debian/koje_*_amd64.deb   # on the host
+koje setup --dry-run                                # show what setup would change
+koje setup                                          # asks once before changing anything
 ```
 
-The installer builds `koje` and `kojed` into `~/.local/bin` and the static
-`koje-forward` into `~/.local/lib/koje/`, then runs `koje setup`: it shows its
-plan and asks once, installs koje's icon font and Hyprland snippet below
-`~/.local/share` and kojed's systemd user unit, adds one `source` line to
-`~/.config/hypr/hyprland.conf` – or writes that file, with your system's keyboard
-layout, if you have no own config (the snippet is a complete session: bar,
-notifications, lock, Super+Return terminal in the active context, workspaces –
-[ADR 0037](docs/decisions/0037-koje-ships-the-session.md); put your monitor and
-keyboard settings below that line), installs koje's Waybar config only if you have
-none, and builds the base image. Inside Hyprland it then reloads the config and
-starts the session's services (Waybar, mako, …) that do not run yet. Running it
-again updates koje's files and leaves yours alone. `koje doctor` checks the result and lists missing system
-packages with the `apt install` line (koje never runs `sudo`). Details:
-[ADR 0021](docs/decisions/0021-installer.md).
+The package puts `koje`, `kojed` and `koje-shell` into `/usr/bin`, the static
+`koje-forward` and koje's helper scripts into `/usr/lib/koje/`, the systemd user
+units and the icon font into their system folders, and pulls in Podman and the
+libraries koje needs. `koje setup` does the per-user part: it shows its plan and
+asks once, installs koje's Hyprland snippet below `~/.local/share`, adds one
+`source` line to `~/.config/hypr/hyprland.conf` – or writes that file, with your
+system's keyboard layout, if you have no own config (the snippet is a complete
+session: bar, notifications, lock, Super+Return terminal in the active context,
+workspaces – [ADR 0037](docs/decisions/0037-koje-ships-the-session.md); put your
+monitor and keyboard settings below that line), installs koje's Waybar config
+only if you have none, builds the base image, removes what the old `install.sh`
+left in `~/.local`, and restarts kojed when it runs an old binary. Inside
+Hyprland it then reloads the config and starts the session's services (Waybar,
+mako, …) that do not run yet. Run it again after every upgrade; it updates
+koje's files and leaves yours alone. `koje doctor` checks the result and lists
+missing system packages. Details: [ADR 0021](docs/decisions/0021-installer.md).
 
 koje's bar lists the current workspace's windows; clicking one needs a Waybar
 newer than 0.15.0, which no release has yet. `scripts/build-waybar-deb.sh`

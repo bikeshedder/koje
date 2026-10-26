@@ -5,7 +5,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::io::Write as _;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -818,6 +817,22 @@ fn usage_errors_exit_with_code_2() {
 
 /// `koje setup` in a temporary home (fake podman: the image exists).
 fn setup_cmd(tmp: &Path, path: &str, args: &[&str]) -> Output {
+    setup_with_kojed(tmp, path, args, 0)
+}
+
+/// [`setup_cmd`] with a fake `systemctl` that logs its calls to
+/// `systemctl.log` and reports `kojed_pid` as kojed's main process (0: not
+/// running) – never the real user services.
+fn setup_with_kojed(tmp: &Path, path: &str, args: &[&str], kojed_pid: u32) -> Output {
+    let log = tmp.join("systemctl.log");
+    write_tool(
+        &tmp.join("bin"),
+        "systemctl",
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\ncase \"$*\" in *MainPID*) echo {kojed_pid} ;; esac\n",
+            log.display()
+        ),
+    );
     let mut all = vec!["setup"];
     all.extend_from_slice(args);
     command(tmp, &all)
@@ -853,13 +868,10 @@ fn setup_installs_then_has_nothing_to_do() {
     ] {
         assert!(snippet.contains(&format!(", {key},")), "{key}");
     }
-    assert!(t.join("data/fonts/koje/lucide.ttf").exists());
-    assert!(t.join("config/systemd/user/kojed.service").exists());
-    let picker = t.join(".local/lib/koje/koje-window-picker");
-    assert_eq!(
-        std::fs::metadata(&picker).unwrap().permissions().mode() & 0o777,
-        0o755
-    );
+    // The package installs these (ADR 0045).
+    assert!(!t.join("data/fonts/koje").exists());
+    assert!(!t.join("config/systemd/user/kojed.service").exists());
+    assert!(!t.join(".local/lib/koje").exists());
     let conf = std::fs::read_to_string(t.join("config/hypr/hyprland.conf")).unwrap();
     assert!(
         conf.contains(&format!(
@@ -872,6 +884,70 @@ fn setup_installs_then_has_nothing_to_do() {
 
     let out = stdout(&setup_cmd(t, &path, &["--yes"]));
     assert!(out.contains("nothing to do"), "{out}");
+}
+
+#[test]
+fn setup_removes_what_install_sh_left() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = fake_podman(t);
+    let put = |rel: &str, contents: &str| {
+        let p = t.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, contents).unwrap();
+    };
+    put(".local/bin/kojed", "old binary");
+    put(".local/bin/other", "not koje's");
+    put(".local/lib/koje/koje-forward", "old forwarder");
+    put(".local/lib/koje/hyprbars.so", "built per user");
+    put("data/fonts/koje/lucide.ttf", "old font");
+    put(
+        "config/systemd/user/kojed.service",
+        "[Service]\nExecStart=%h/.local/bin/kojed\n",
+    );
+
+    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
+    assert!(out.contains("x old kojed: ~/.local/bin/kojed"), "{out}");
+    assert!(!t.join(".local/bin/kojed").exists());
+    assert!(!t.join(".local/lib/koje/koje-forward").exists());
+    assert!(!t.join("data/fonts/koje").exists(), "empty folder removed");
+    assert!(!t.join("config/systemd/user/kojed.service").exists());
+    assert!(t.join(".local/bin/other").exists());
+    assert!(t.join(".local/lib/koje/hyprbars.so").exists());
+    let log = std::fs::read_to_string(t.join("systemctl.log")).unwrap();
+    assert!(log.contains("--user daemon-reload"), "{log}");
+}
+
+#[test]
+fn setup_keeps_an_own_kojed_unit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = fake_podman(t);
+    let unit = t.join("config/systemd/user/kojed.service");
+    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    std::fs::write(&unit, "[Service]\nExecStart=/opt/kojed\n").unwrap();
+    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
+    assert!(
+        out.contains("your own – it hides the package's unit"),
+        "{out}"
+    );
+    assert!(unit.exists());
+}
+
+#[test]
+fn setup_restarts_a_kojed_with_an_old_binary() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = fake_podman(t);
+    stdout(&setup_cmd(t, &path, &["--yes"]));
+    // This test's own process stands in for a kojed outside /usr/bin.
+    let out = stdout(&setup_with_kojed(t, &path, &["--yes"], std::process::id()));
+    assert!(
+        out.contains("restart kojed (it runs an old binary)"),
+        "{out}"
+    );
+    let log = std::fs::read_to_string(t.join("systemctl.log")).unwrap();
+    assert!(log.contains("--user restart kojed"), "{log}");
 }
 
 #[test]

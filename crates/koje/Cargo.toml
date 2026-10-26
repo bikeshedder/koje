@@ -32,3 +32,35 @@ tempfile = "3"
 
 [lints]
 workspace = true
+
+# The koje package (ADR 0045): `just deb` builds the binaries first, then runs
+# cargo-deb with --no-build. Paths are relative to this crate; target/release
+# is the workspace's. cargo-deb refuses other target directories, so `just deb`
+# copies the static koje-forward (musl) to target/deb-staging/; it warns that
+# it finds no library dependencies there – right for a static binary.
+[package.metadata.deb]
+name = "koje"
+maintainer = "Michael P. Jung <michael.jung@terreon.de>"
+extended-description = """\
+koje isolates projects into contexts on Hyprland: each context is a rootless \
+Podman container that runs all programs for that work, with its own color, \
+layouts, states and memory limits. Run `koje setup` as your user after \
+installing or upgrading."""
+section = "utils"
+priority = "optional"
+depends = "$auto, podman, uidmap, passt, fuse-overlayfs, xdg-dbus-proxy, fontconfig, fuzzel, jq"
+recommends = "hyprland, waybar, foot, mako-notifier, hypridle, hyprlock, grim, slurp, wl-clipboard, wireplumber, xdg-desktop-portal-hyprland, xdg-desktop-portal-gtk"
+assets = [
+    ["target/release/koje", "usr/bin/", "755"],
+    ["target/release/kojed", "usr/bin/", "755"],
+    ["target/release/koje-shell", "usr/bin/", "755"],
+    ["../../target/deb-staging/koje-forward", "usr/lib/koje/", "755"],
+    ["../../assets/bin/koje-window-picker", "usr/lib/koje/", "755"],
+    ["../../assets/bin/koje-context-picker", "usr/lib/koje/", "755"],
+    ["../../assets/bin/koje-app-menu", "usr/lib/koje/", "755"],
+    ["../../assets/bin/koje-keys", "usr/lib/koje/", "755"],
+    ["../../assets/systemd/kojed.service", "usr/lib/systemd/user/", "644"],
+    ["../../assets/systemd/koje-shell.service", "usr/lib/systemd/user/", "644"],
+    ["../../assets/fonts/lucide/lucide.ttf", "usr/share/fonts/truetype/koje/", "644"],
+    ["../../assets/fonts/lucide/LICENSE", "usr/share/doc/koje/lucide-LICENSE", "644"],
+]

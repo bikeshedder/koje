@@ -1,6 +1,8 @@
-//! `koje setup` (ADR 0021): install koje's files for the current user. Shows
-//! the plan, warns about files it changes, asks once. The files are embedded,
-//! so the installed binary needs no checkout. Decisions: `koje_core::setup`.
+//! `koje setup` (ADR 0021, 0045): install koje's per-user files – the package
+//! installs the rest – and remove what the old `install.sh` left in
+//! `~/.local`. Shows the plan, warns about files it changes, asks once. The
+//! files are embedded, so the binary needs no checkout. Decisions:
+//! `koje_core::setup`.
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -11,15 +13,8 @@ use koje_core::setup::{self, Action, Mark, Refresh, Service, Step, WaybarFile};
 
 use crate::prompt::confirm;
 
-const FONT: &[u8] = include_bytes!("../../../assets/fonts/lucide/lucide.ttf");
-const FONT_LICENSE: &[u8] = include_bytes!("../../../assets/fonts/lucide/LICENSE");
 const SNIPPET: &[u8] = include_bytes!("../../../assets/hyprland/koje.conf");
 const HYPRBARS: &[u8] = include_bytes!("../../../assets/hyprland/hyprbars.conf");
-const PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-window-picker");
-const CONTEXT_PICKER: &[u8] = include_bytes!("../../../assets/bin/koje-context-picker");
-const APP_MENU: &[u8] = include_bytes!("../../../assets/bin/koje-app-menu");
-const KEYS: &[u8] = include_bytes!("../../../assets/bin/koje-keys");
-const UNIT: &[u8] = include_bytes!("../../../assets/systemd/kojed.service");
 const WAYBAR: [(&str, &[u8]); 2] = [
     (
         "config.jsonc",
@@ -57,11 +52,6 @@ pub const DEPENDENCIES: [(&str, &str); 18] = [
 ];
 /// Portal backends (packages, checked with `dpkg-query` where it exists).
 pub const PORTALS: [&str; 2] = ["xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk"];
-
-/// `~/.local/lib/koje` (the snippet refers to the picker there).
-pub fn lib_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/lib/koje"))
-}
 
 pub fn on_path(command: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|path| {
@@ -134,19 +124,10 @@ fn waybar_state(path: &Path) -> WaybarFile {
 
 /// Everything setup would do, in order (the image last).
 pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
-    let lib = lib_dir().context("HOME is not set")?;
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
-        .unwrap_or_default();
-    let fonts = paths.font_dir();
+        .context("HOME is not set")?;
     let mut steps = vec![
-        file("icon font", &fonts.join("lucide.ttf"), FONT, 0o644),
-        file(
-            "icon font license",
-            &fonts.join("LICENSE"),
-            FONT_LICENSE,
-            0o644,
-        ),
         file(
             "Hyprland snippet",
             &paths.hyprland_snippet(),
@@ -158,31 +139,6 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
             &paths.hyprbars_snippet(),
             HYPRBARS,
             0o644,
-        ),
-        file("systemd user unit", &paths.kojed_unit(), UNIT, 0o644),
-        file(
-            "window picker (Super+Tab)",
-            &lib.join("koje-window-picker"),
-            PICKER,
-            0o755,
-        ),
-        file(
-            "context picker (bar)",
-            &lib.join("koje-context-picker"),
-            CONTEXT_PICKER,
-            0o755,
-        ),
-        file(
-            "application menu (Super+D)",
-            &lib.join("koje-app-menu"),
-            APP_MENU,
-            0o755,
-        ),
-        file(
-            "keyboard shortcuts (Super+F1)",
-            &lib.join("koje-keys"),
-            KEYS,
-            0o755,
         ),
     ];
     let conf = paths.hyprland_conf();
@@ -205,6 +161,15 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
         .collect();
     let colors_present = waybar.join(setup::WAYBAR_COLORS).exists();
     steps.extend(setup::waybar(&waybar, &WAYBAR, &present, colors_present));
+    let unit = paths.kojed_unit();
+    for (label, path) in setup::old_install(&home, &paths.font_dir(), &unit) {
+        steps.extend(setup::remove_old(
+            label,
+            &path,
+            read(&path).as_deref(),
+            path == unit,
+        ));
+    }
     let image = on_path("podman").then(|| {
         koje_podman::Podman::new()
             .image_exists(koje_podman::image::BASE_IMAGE)
@@ -255,6 +220,13 @@ fn execute(action: &Action) -> Result<()> {
             }
             koje_core::fsutil::write_atomic(path, contents.as_bytes())?;
         }
+        Action::Remove { path } => {
+            std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+            // The old folders go too once empty (`hyprbars.so` keeps its own).
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::remove_dir(dir);
+            }
+        }
         Action::BuildImage => {
             // Last step; a failure does not undo the rest.
             if let Err(e) = crate::commands::image_build(false) {
@@ -285,14 +257,14 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
     }
 
     let steps = plan(paths)?;
-    println!("\nPlan  (+ new  ! overwrite  ~ append  = unchanged  - skipped)");
+    println!("\nPlan  (+ new  ! overwrite  ~ append  x remove  = unchanged  - skipped)");
     for s in &steps {
         println!("  {}", tilde(&s.to_string()));
     }
     let warnings = steps.iter().filter(|s| s.mark.warns()).count();
     if warnings > 0 {
         println!(
-            "\n  {warnings} existing file(s) will be overwritten or changed (marked ! and ~)."
+            "\n  {warnings} existing file(s) will be overwritten, changed or removed (marked !, ~ and x)."
         );
     }
     if steps
@@ -303,7 +275,7 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
             "  To use koje's bar instead: move your Waybar config away and run koje setup again."
         );
     }
-    let refresh = if in_hyprland() {
+    let mut refresh = if in_hyprland() {
         setup::refresh(
             &steps,
             &paths.hyprland_snippet(),
@@ -313,8 +285,11 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
     } else {
         Vec::new()
     };
+    if kojed_exe().is_some_and(|exe| setup::kojed_outdated(&exe)) {
+        refresh.push(Refresh::Kojed);
+    }
     if !refresh.is_empty() {
-        println!("\nThen, in this Hyprland session");
+        println!("\nThen");
         for r in &refresh {
             println!("  {r}");
         }
@@ -323,7 +298,7 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
         println!("\ndry run – nothing changed");
         return Ok(());
     }
-    if !steps.iter().any(|s| s.mark.changes()) {
+    if !steps.iter().any(|s| s.mark.changes()) && refresh.is_empty() {
         println!("\nnothing to do");
         return Ok(());
     }
@@ -336,18 +311,15 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
         execute(&s.action)?;
         println!("  done: {}", tilde(&s.what));
     }
-    let wrote = |p: &Path| {
+    let removed = |p: &Path| {
         steps
             .iter()
-            .any(|s| matches!(&s.action, Action::Write { path, .. } if path.starts_with(p)))
+            .any(|s| matches!(&s.action, Action::Remove { path } if path.starts_with(p)))
     };
-    if wrote(&paths.font_dir()) && on_path("fc-cache") {
-        let _ = std::process::Command::new("fc-cache")
-            .arg("-f")
-            .arg(paths.font_dir())
-            .output();
+    if removed(&paths.font_dir()) && on_path("fc-cache") {
+        let _ = std::process::Command::new("fc-cache").output();
     }
-    if wrote(&paths.kojed_unit()) {
+    if removed(&paths.kojed_unit()) {
         let ok = std::process::Command::new("systemctl")
             .args(["--user", "daemon-reload"])
             .status()
@@ -375,6 +347,19 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
     Ok(())
 }
 
+/// The executable of the running kojed (its unit's main process).
+fn kojed_exe() -> Option<PathBuf> {
+    let out = std::process::Command::new("systemctl")
+        .args(["--user", "show", "--property=MainPID", "--value", "kojed"])
+        .output()
+        .ok()?;
+    let pid: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    if pid == 0 {
+        return None; // not running
+    }
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
 /// Setup runs inside a Hyprland session it can refresh.
 fn in_hyprland() -> bool {
     std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some_and(|s| !s.is_empty())
@@ -395,6 +380,7 @@ fn refresh_session(r: &Refresh) -> Result<()> {
         Refresh::Waybar => ("pkill", vec!["-USR2", "-x", "waybar"]),
         // Started by Hyprland, so it gets the session's environment as at login.
         Refresh::Start(s) => ("hyprctl", vec!["dispatch", "exec", s.command]),
+        Refresh::Kojed => ("systemctl", vec!["--user", "restart", "kojed"]),
     };
     let out = std::process::Command::new(program)
         .args(&args)

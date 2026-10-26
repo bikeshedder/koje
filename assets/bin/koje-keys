@@ -1,8 +1,8 @@
 #!/bin/sh
 # koje keyboard shortcuts (Super+F1): every binding of the running Hyprland in
 # fuzzel – koje's and the user's own – with its description (`bindd`), or the
-# command for bindings without one. Type to filter. Installed by koje setup to
-# ~/.local/lib/koje/.
+# command for bindings without one. Type to filter. Installed by the koje package
+# to /usr/lib/koje/.
 set -eu
 hyprctl -j binds |
   jq -r '

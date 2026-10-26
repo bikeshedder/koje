@@ -2,7 +2,7 @@
 //! transient systemd user unit on the host, the forwarder inside the context.
 //! Rules and names come from `koje_core::hostbus`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -27,14 +27,13 @@ pub fn dir(ctx: &ContextName) -> Result<PathBuf> {
         .join("host-bus"))
 }
 
-/// The static forwarder on the host: `$KOJE_FORWARD`, else the one `install.sh`
-/// put into `~/.local/lib/koje/`.
+/// The static forwarder on the host: `$KOJE_FORWARD`, else the package's in
+/// `/usr/lib/koje/` (ADR 0045).
 pub fn forwarder_binary() -> Option<PathBuf> {
-    let path = std::env::var_os("KOJE_FORWARD")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/lib/koje/koje-forward"))
-        })?;
+    let path = std::env::var_os("KOJE_FORWARD").map_or_else(
+        || Path::new(koje_core::paths::LIB_DIR).join("koje-forward"),
+        PathBuf::from,
+    );
     path.is_file().then_some(path)
 }
 

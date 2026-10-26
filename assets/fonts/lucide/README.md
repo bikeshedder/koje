@@ -10,8 +10,8 @@ Icon font for koje's bar configuration and UI ([ADR 0020](../../../docs/decision
 | `codepoints.json` | icon name → code point (Private Use Area, e.g. `wifi` = U+E1AE) |
 | License | `LICENSE`: ISC (Lucide), MIT for icons derived from Feather |
 
-Installed by `./install.sh` to `$XDG_DATA_HOME/fonts/koje/` (default
-`~/.local/share/fonts/koje/`).
+Installed by the koje package to `/usr/share/fonts/truetype/koje/`, the
+license to `/usr/share/doc/koje/lucide-LICENSE` (ADR 0045).
 
 ## Updating
 

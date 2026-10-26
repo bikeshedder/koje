@@ -231,8 +231,9 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Install koje's files for this user (font, Hyprland snippet, kojed's
-    /// unit, Waybar if you have none, base image); shows the plan first.
+    /// Install koje's files for this user (Hyprland snippet, Waybar if you
+    /// have none, base image) and remove the old install.sh's; run after
+    /// every package install or upgrade. Shows the plan first.
     Setup {
         /// Only show the plan.
         #[arg(long)]

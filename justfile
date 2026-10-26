@@ -45,9 +45,14 @@ shell:
 doc:
     cargo doc --workspace --no-deps
 
-# Install koje on this machine (run on the HOST; see install.sh --help)
-install *ARGS:
-    ./install.sh {{ARGS}}
+# Build the koje package into target/debian/ (ADR 0045); on the host:
+# sudo apt install ./target/debian/koje_<version>_amd64.deb && koje setup
+deb:
+    cargo build --release --locked -p koje -p kojed -p koje-shell
+    cargo build --release --locked -p koje-forward --target x86_64-unknown-linux-musl
+    mkdir -p target/deb-staging
+    cp target/x86_64-unknown-linux-musl/release/koje-forward target/deb-staging/
+    cargo deb -p koje --no-build --deb-version "$(scripts/deb-version.sh)"
 
 # Render the concept document (needs the `typst` CLI; Tinymist in VS Code can preview too)
 concept:

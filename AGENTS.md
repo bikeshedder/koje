@@ -39,8 +39,7 @@ crates/koje-core   pure domain logic: names, config, states, layouts, limits, pa
 crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
 crates/kojed       background service (Hyprland events, colors, memory watch)
 crates/koje-shell  koje's GTK4 UI (ADR 0042): the bar; later OSD, overlays, notifications, settings app
-assets            files koje ships besides binaries: icon font, Hyprland snippet, Waybar config
-install.sh        installer for users (ADR 0021); `just install` runs it
+assets            files koje ships besides binaries: icon font, Hyprland snippet, Waybar config, units
 scripts           host helpers outside koje itself (e.g. build-waybar-deb.sh: a newer Waybar)
 docs/plan          roadmap + one file per milestone with task checkboxes
 docs/decisions     ADRs (numbered); docs/open-questions.md for undecided items
@@ -61,6 +60,7 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 | tests (filter) | `just test layout` |
 | run CLI | `just koje list` |
 | format | `just fmt` |
+| Debian package (ADR 0045) | `just deb` |
 
 ## How to work here
 
