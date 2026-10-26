@@ -117,6 +117,10 @@ pub trait Compositor {
     fn windows(&self) -> impl Future<Output = Result<Vec<WindowInfo>, Self::Error>> + Send;
     /// The name of the focused workspace.
     fn active_workspace(&self) -> impl Future<Output = Result<String, Self::Error>> + Send;
+    /// The monitors with the room bars reserve (snapping, M8.41).
+    fn monitors(
+        &self,
+    ) -> impl Future<Output = Result<Vec<crate::snap::MonitorArea>, Self::Error>> + Send;
     /// Apply all commands in one request.
     fn apply(
         &self,

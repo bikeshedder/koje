@@ -108,8 +108,13 @@ pub enum Command {
     },
     /// Switch to a context.
     Focus(Ctx),
-    /// Place the focused window into a snap zone.
-    Snap { zone: String },
+    /// Put the focused window into a zone: the left or right half of its
+    /// monitor below the bar, all of it (`maximize`), or back where it was
+    /// (`restore`) – GNOME's Super+arrows.
+    Snap {
+        /// left, right, maximize or restore
+        zone: String,
+    },
     /// Toggle an overlay (e.g. `mail`, `chat`).
     Overlay { name: String },
     /// Pin the focused overlay window onto the current workspace.

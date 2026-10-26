@@ -477,6 +477,20 @@ impl Api {
         shown.map_err(|e| failed(&e))
     }
 
+    /// `snap <zone>`: the focused window to `left`, `right`, `maximize` or
+    /// back (`restore`), below the bar (M8.41).
+    async fn snap(&self, zone: &str) -> fdo::Result<()> {
+        let zone = zone
+            .parse::<koje_core::snap::Zone>()
+            .map_err(fdo::Error::InvalidArgs)?;
+        self.daemon
+            .lock()
+            .await
+            .snap(zone)
+            .await
+            .map_err(|e| failed(&e))
+    }
+
     /// `stash --show`: show or hide the context's stash.
     async fn toggle_stash(&self, context: &str) -> fdo::Result<()> {
         let mut d = self.daemon.lock().await;

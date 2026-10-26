@@ -152,7 +152,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje layout new \| save \| autosave \| list \| mv \| rm` | manage layouts |
 | `koje stash [--show]` / `koje unstash [<window>] [--to <layout>]` | stash the focused window / show the stash / bring a window back – by id or Hyprland address (default: the focused one); `-c <context>`, default the active one |
 | `koje focus <context>` | switch to a context |
-| `koje snap <zone>` | put focused window into a zone |
+| `koje snap <left\|right\|maximize\|restore>` | the focused window to a half of its monitor below the bar, all of it, or back where it was (Super+arrows, M8.41); zones from `config.toml` later (M7.3) |
 | `koje overlay <name>` / `pin` / `unpin` | overlays |
 | `koje sleep \| wake <context>` | pause / resume (CPU 0, memory kept) |
 | `koje stats` / `koje limit <context>` | memory per context / change limits |

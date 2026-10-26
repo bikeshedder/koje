@@ -98,6 +98,13 @@ pub fn stash(show: bool, active: &ActiveCtx) -> Result<()> {
     Ok(())
 }
 
+/// `koje snap <zone>`: kojed moves the focused window (Super+arrows).
+pub fn snap(zone: &str) -> Result<()> {
+    zone.parse::<koje_core::snap::Zone>()
+        .map_err(anyhow::Error::msg)?;
+    call::<_, ()>("Snap", &(zone,))
+}
+
 pub fn unstash(window: Option<&str>, to: Option<&str>, active: &ActiveCtx) -> Result<()> {
     let c = ctx(active)?;
     let id: String = call(

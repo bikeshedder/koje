@@ -164,6 +164,11 @@ impl Compositor for Hyprland {
         Ok(clients::windows(&clients, &monitors))
     }
 
+    async fn monitors(&self) -> Result<Vec<koje_core::snap::MonitorArea>> {
+        let sizes: Vec<clients::MonitorSize> = self.json("j/monitors").await?;
+        Ok(clients::areas(&sizes))
+    }
+
     async fn active_workspace(&self) -> Result<String> {
         #[derive(serde::Deserialize)]
         struct Active {

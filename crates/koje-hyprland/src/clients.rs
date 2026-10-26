@@ -14,6 +14,49 @@ pub struct Monitor {
     pub y: i32,
 }
 
+/// A monitor's size from `j/monitors`: its mode in pixels, scale, rotation
+/// and the room layer surfaces reserve (logical pixels).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MonitorSize {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    #[serde(default)]
+    pub transform: u32,
+    /// `[left, top, right, bottom]`
+    #[serde(default)]
+    pub reserved: [i64; 4],
+}
+
+/// A size in pixels at `scale` in logical pixels.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn logical(v: u32, scale: f64) -> u32 {
+    (f64::from(v) / scale)
+        .round()
+        .clamp(0.0, f64::from(u32::MAX)) as u32
+}
+
+/// Monitors in logical pixels: the mode divided by the scale, turned for
+/// rotated ones (odd transforms).
+pub fn areas(monitors: &[MonitorSize]) -> Vec<koje_core::snap::MonitorArea> {
+    monitors
+        .iter()
+        .map(|m| {
+            let scale = if m.scale > 0.0 { m.scale } else { 1.0 };
+            let logical = |v: u32| logical(v, scale);
+            let (w, h) = (logical(m.width), logical(m.height));
+            let (width, height) = if m.transform % 2 == 1 { (h, w) } else { (w, h) };
+            koje_core::snap::MonitorArea {
+                name: m.name.clone(),
+                width,
+                height,
+                reserved: m.reserved.map(|r| u32::try_from(r).unwrap_or(0)),
+            }
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
     pub name: String,
@@ -78,6 +121,21 @@ pub fn windows(clients: &[Client], monitors: &[Monitor]) -> Vec<WindowInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monitor_areas_are_logical_and_turned() {
+        let sizes: Vec<MonitorSize> = serde_json::from_str(
+            r#"[{"id":0,"name":"DP-1","width":5120,"height":2160,"scale":1.25,"transform":0,"reserved":[0,32,0,0],"x":0,"y":0},
+                {"id":1,"name":"eDP-1","width":2880,"height":1800,"scale":2.0,"transform":1,"reserved":[0,0,0,0],"x":0,"y":0}]"#,
+        )
+        .unwrap();
+        let a = areas(&sizes);
+        assert_eq!(
+            (a[0].width, a[0].height, a[0].reserved),
+            (4096, 1728, [0, 32, 0, 0])
+        );
+        assert_eq!((a[1].width, a[1].height), (900, 1440));
+    }
 
     /// Trimmed from a Hyprland 0.53.3 reply (M2.2).
     const CLIENTS: &str = r#"[{

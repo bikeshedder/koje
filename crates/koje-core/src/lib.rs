@@ -43,6 +43,7 @@ pub mod screenshot;
 pub mod session;
 pub mod setup;
 pub mod size;
+pub mod snap;
 pub mod spec;
 pub mod state;
 pub mod states;

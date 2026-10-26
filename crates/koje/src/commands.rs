@@ -106,9 +106,8 @@ pub fn run(command: &Command) -> Result<()> {
             crate::memory::limit(&paths, &ctx.context, soft.as_deref(), hard.as_deref())
         }
 
-        Command::Snap { .. } | Command::Overlay { .. } | Command::Pin | Command::Unpin => {
-            todo_in("M7")
-        }
+        Command::Snap { zone } => crate::layout::snap(zone),
+        Command::Overlay { .. } | Command::Pin | Command::Unpin => todo_in("M7"),
     }
 }
 

@@ -10,6 +10,7 @@ use anyhow::{Context as _, Result};
 use koje_core::capture::{Live, Observed};
 use koje_core::color::Color;
 use koje_core::integration::Integration;
+use koje_core::layout::{Placement, Rect};
 use koje_core::live_layouts::{self, LayoutInfo, Shown};
 use koje_core::name::ContextName;
 use koje_core::name::{LayoutName, StateName, WindowId};
@@ -90,6 +91,8 @@ pub struct Daemon<C, R> {
     /// A window whose border flashes since it got focus (M8.19); the event
     /// loop takes it and calls [`Daemon::unblip`] a moment later.
     blipped: Option<String>,
+    /// Where snapped windows were before (Super+Down puts them back, M8.41).
+    snapped: BTreeMap<String, Rect>,
 }
 
 /// Memory readings kept per context for the shell's graph: ten minutes at
@@ -134,6 +137,7 @@ where
             lost: BTreeMap::new(),
             watches: BTreeMap::new(),
             blipped: None,
+            snapped: BTreeMap::new(),
             memory: BTreeMap::new(),
             history: BTreeMap::new(),
         }
@@ -303,6 +307,49 @@ where
             .unwrap_or_default();
         self.apply(&commands).await?;
         Ok((ctx, id))
+    }
+
+    /// `koje snap <zone>` (Super+arrows, M8.41): the focused window to a
+    /// half of its monitor, all of it, or back.
+    pub async fn snap(&mut self, zone: koje_core::snap::Zone) -> Result<()> {
+        let address = self.focused.clone().context("no window has focus")?;
+        let windows = self
+            .compositor
+            .windows()
+            .await
+            .map_err(anyhow::Error::new)?;
+        let window = windows
+            .into_iter()
+            .find(|w| w.address == address)
+            .context("the focused window is gone")?;
+        let monitors = self
+            .compositor
+            .monitors()
+            .await
+            .map_err(anyhow::Error::new)?;
+        let monitor = monitors
+            .iter()
+            .find(|m| m.name == window.placement.monitor)
+            .with_context(|| format!("no monitor {}", window.placement.monitor))?;
+        let area = koje_core::snap::usable(monitor);
+        let before = self.snapped.get(&address).copied();
+        let Some((target, remember)) =
+            koje_core::snap::snap(zone, area, window.placement.rect, before)
+        else {
+            return Ok(());
+        };
+        match remember {
+            Some(r) => self.snapped.insert(address.clone(), r),
+            None => self.snapped.remove(&address),
+        };
+        self.apply(&[CompositorCommand::Place {
+            address,
+            placement: Placement {
+                monitor: monitor.name.clone(),
+                rect: target,
+            },
+        }])
+        .await
     }
 
     /// `koje unstash [<window>] [--to <layout>]`: a window by its id or its
@@ -942,6 +989,7 @@ where
             }
             CompositorEvent::WindowOpened { address, .. } => self.opened(&address).await,
             CompositorEvent::WindowClosed { address } => {
+                self.snapped.remove(&address);
                 let context = self.windows.remove(&address);
                 if let Some(ctx) = &context {
                     self.untrack(ctx, &address);
@@ -1282,6 +1330,18 @@ mod tests {
 
         fn active_workspace(&self) -> impl Future<Output = Result<String, Self::Error>> + Send {
             std::future::ready(Ok("1".to_owned()))
+        }
+
+        fn monitors(
+            &self,
+        ) -> impl Future<Output = Result<Vec<koje_core::snap::MonitorArea>, Self::Error>> + Send
+        {
+            std::future::ready(Ok(vec![koje_core::snap::MonitorArea {
+                name: "DP-1".into(),
+                width: 2560,
+                height: 1440,
+                reserved: [0, 32, 0, 0],
+            }]))
         }
 
         fn apply(
@@ -1947,6 +2007,47 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
                 .all(|c| matches!(c, CompositorCommand::ContextRule { .. })),
             "only the sync's rules – no workspace commands"
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn snapping_the_focused_window_and_back() {
+        let s = setup();
+        let comp = FakeCompositor::default();
+        comp.open("0xa", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        d.handle(CompositorEvent::WindowFocused {
+            address: Some("0xa".into()),
+        })
+        .await
+        .unwrap();
+        comp.take();
+        let place = |x, y, w, h| CompositorCommand::Place {
+            address: "0xa".into(),
+            placement: Placement {
+                monitor: "DP-1".into(),
+                rect: Rect { x, y, w, h },
+            },
+        };
+        d.snap(koje_core::snap::Zone::Left).await.unwrap();
+        // The left half of the fake 2560×1440 monitor, below its 32 px bar.
+        assert_eq!(comp.take(), [place(0, 32, 1280, 1408)]);
+        comp.windows.lock().unwrap()[0].placement.rect = Rect {
+            x: 0,
+            y: 32,
+            w: 1280,
+            h: 1408,
+        };
+        d.snap(koje_core::snap::Zone::Restore).await.unwrap();
+        assert_eq!(comp.take(), [place(0, 0, 1, 1)]);
+        // Closed: forgotten.
+        d.snap(koje_core::snap::Zone::Maximize).await.unwrap();
+        d.handle(CompositorEvent::WindowClosed {
+            address: "0xa".into(),
+        })
+        .await
+        .unwrap();
+        assert!(d.snapped.is_empty());
     }
 
     #[tokio::test(flavor = "current_thread")]
