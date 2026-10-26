@@ -119,6 +119,12 @@ impl Paths {
         self.config.join("config.toml")
     }
 
+    /// The user's settings for the koje session, sourced last by koje's
+    /// Hyprland config (ADR 0048).
+    pub fn session_hyprland_conf(&self) -> PathBuf {
+        self.config.join("hyprland.conf")
+    }
+
     pub fn contexts_dir(&self) -> PathBuf {
         self.config.join("contexts")
     }

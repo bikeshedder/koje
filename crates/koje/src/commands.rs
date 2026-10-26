@@ -40,6 +40,7 @@ pub fn run(command: &Command) -> Result<()> {
 
         Command::State(cmd) => state(&paths, cmd),
         Command::Image(ImageCmd::Build { no_cache }) => image_build(*no_cache),
+        Command::Session(cmd) => crate::session::run(&paths, cmd),
 
         Command::Up {
             ctx,

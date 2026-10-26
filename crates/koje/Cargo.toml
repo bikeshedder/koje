@@ -20,7 +20,7 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process", "signal"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 zbus.workspace = true
@@ -61,6 +61,11 @@ assets = [
     ["../../assets/bin/koje-keys", "usr/lib/koje/", "755"],
     ["../../assets/systemd/kojed.service", "usr/lib/systemd/user/", "644"],
     ["../../assets/systemd/koje-shell.service", "usr/lib/systemd/user/", "644"],
+    ["../../assets/systemd/koje-session.target", "usr/lib/systemd/user/", "644"],
+    ["../../assets/session/koje.desktop", "usr/share/wayland-sessions/", "644"],
+    ["../../assets/hyprland/session.conf", "usr/share/koje/hyprland/", "644"],
+    ["../../assets/hyprland/koje.conf", "usr/share/koje/hyprland/", "644"],
+    ["../../assets/hyprland/hyprbars.conf", "usr/share/koje/hyprland/", "644"],
     ["../../assets/fonts/lucide/lucide.ttf", "usr/share/fonts/truetype/koje/", "644"],
     ["../../assets/icons/io.koje.Koje-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../../assets/fonts/lucide/LICENSE", "usr/share/doc/koje/lucide-LICENSE", "644"],

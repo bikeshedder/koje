@@ -1197,3 +1197,165 @@ fn stats_and_limit() {
     ));
     assert!(out.contains("soft 6G, hard none"), "{out}");
 }
+
+/// Fakes for the session's programs (Hyprland, systemctl,
+/// dbus-update-activation-environment) that log what they get; `PATH` with
+/// them first, the real one after (sh, kill).
+fn session_fakes(tmp: &Path, hyprland_exit: u8) -> String {
+    let bin = tmp.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = tmp.join("session.log");
+    write_tool(
+        &bin,
+        "Hyprland",
+        &format!(
+            "#!/bin/sh\necho \"Hyprland $* desktop=$XDG_CURRENT_DESKTOP session=$XDG_SESSION_DESKTOP\" >> {log}\nexit {hyprland_exit}\n",
+            log = log.display()
+        ),
+    );
+    for tool in ["systemctl", "dbus-update-activation-environment"] {
+        write_tool(
+            &bin,
+            tool,
+            &format!("#!/bin/sh\necho \"{tool} $*\" >> {}\n", log.display()),
+        );
+    }
+    format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
+#[test]
+fn session_start_runs_hyprland_with_kojes_config_and_cleans_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = session_fakes(t, 0);
+    let out = command(t, &["session", "start"])
+        .env("PATH", &path)
+        .env_remove("XDG_CURRENT_DESKTOP")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let log = std::fs::read_to_string(t.join("session.log")).unwrap();
+    let lines: Vec<&str> = log.lines().collect();
+    assert_eq!(
+        lines[0],
+        "Hyprland --config /usr/share/koje/hyprland/session.conf desktop=koje:GNOME session=koje"
+    );
+    assert_eq!(lines[1], "systemctl --user stop koje-session.target");
+    assert!(lines[2].starts_with("systemctl --user unset-environment WAYLAND_DISPLAY"));
+    // The user's own file exists for Hyprland to source; a second start keeps it.
+    let conf = t.join("config/koje/hyprland.conf");
+    assert!(
+        std::fs::read_to_string(&conf)
+            .unwrap()
+            .contains("koje session")
+    );
+    std::fs::write(&conf, "monitor = DP-1, 5120x2160@120, 0x0, 1\n").unwrap();
+    command(t, &["session", "start"])
+        .env("PATH", &path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&conf).unwrap(),
+        "monitor = DP-1, 5120x2160@120, 0x0, 1\n"
+    );
+}
+
+#[test]
+fn session_start_cleans_up_after_a_crash_too() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = session_fakes(t, 3);
+    let out = command(t, &["session", "start"])
+        .env("PATH", &path)
+        .env("XDG_CURRENT_DESKTOP", "koje:GNOME")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Hyprland exited"));
+    let log = std::fs::read_to_string(t.join("session.log")).unwrap();
+    assert!(
+        log.contains("systemctl --user stop koje-session.target"),
+        "{log}"
+    );
+}
+
+#[test]
+fn session_ready_hands_over_the_environment_then_starts_the_services() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = session_fakes(t, 0);
+    let out = command(t, &["session", "ready"])
+        .env("PATH", &path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let log = std::fs::read_to_string(t.join("session.log")).unwrap();
+    let lines: Vec<&str> = log.lines().collect();
+    assert!(lines[0].starts_with("dbus-update-activation-environment --systemd WAYLAND_DISPLAY"));
+    assert!(lines[0].contains("HYPRLAND_INSTANCE_SIGNATURE"));
+    assert_eq!(
+        lines[1],
+        "systemctl --user start --no-block koje-session.target"
+    );
+}
+
+#[test]
+fn ending_the_session_reaches_hyprland() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = session_fakes(t, 0);
+    let log = t.join("session.log");
+    // A Hyprland that runs until it gets SIGTERM.
+    write_tool(
+        &t.join("bin"),
+        "Hyprland",
+        &format!(
+            "#!/bin/sh\ntrap 'echo \"Hyprland got TERM\" >> {log}; exit 0' TERM\necho started >> {log}\nwhile :; do sleep 0.05; done\n",
+            log = log.display()
+        ),
+    );
+    let mut child = command(t, &["session", "start"])
+        .env("PATH", &path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = || std::fs::read_to_string(&log).is_ok_and(|l| l.contains("started"));
+    for _ in 0..100 {
+        if started() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(started(), "the fake Hyprland did not start");
+    // As a display manager ending the session does.
+    Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    let status = child.wait().unwrap();
+    assert!(status.success());
+    let log = std::fs::read_to_string(&log).unwrap();
+    assert!(log.contains("Hyprland got TERM"), "{log}");
+    assert!(
+        log.contains("systemctl --user stop koje-session.target"),
+        "{log}"
+    );
+}

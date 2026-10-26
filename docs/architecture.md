@@ -169,6 +169,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje bar [--memory] [--names]` | Waybar module: running contexts in their colors, the active one marked; `--memory`: the active context's memory as a meter against its limits; `--names`: list the running contexts once (with `--memory`: with use and limit) |
 | `koje media <action>` | volume, microphone, brightness and media keys (ADR 0041): `volume-up`, `volume-down`, `mute`, `mic-mute`, `brightness-up`, `brightness-down` with an OSD; `play-pause`, `next`, `previous` for the most recently active player on the host or in any context |
 | `koje doctor` | check packages, Hyprland, installed files, kojed, security contexts, image, sub-ids, NVIDIA |
+| `koje session start \| restart` | the koje session (ADR 0048): `start` runs Hyprland with koje's config (the login screen's "koje" entry) and stops koje's services when it exits; `restart` restarts koje's services, the session goes on |
 
 **States:** `default` (read by a plain `up`), `fresh`
 (curated start), `empty` (reserved, virtual, read-only), any other name. Missing

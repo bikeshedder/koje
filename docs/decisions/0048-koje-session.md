@@ -32,11 +32,12 @@ ship.
 ## Decision
 
 - **koje is a session of its own.** The package installs
-  `/usr/share/wayland-sessions/koje.desktop` with `Exec=koje-session` and
+  `/usr/share/wayland-sessions/koje.desktop` with `Exec=koje session start` and
   `DesktopNames=koje;GNOME`: the display manager sets
   `XDG_CURRENT_DESKTOP=koje:GNOME` for everything in it. "koje" is what the
   user picks on the login screen.
-- **`koje-session` starts Hyprland with koje's own config**,
+- **`koje session start` (called `koje-session` below) starts Hyprland with
+  koje's own config**,
   `/usr/share/koje/hyprland/session.conf`, which sources in this order: koje's
   snippet (the session as of ADR 0037), the generated monitor config
   (ADR 0046), then the user's optional `~/.config/koje/hyprland.conf` for
@@ -59,7 +60,8 @@ ship.
   `~/.config/hypr/hyprland.conf`; for an existing install it offers to move the
   user's machine settings into `~/.config/koje/hyprland.conf` and to remove its
   own `source` line (shown in the plan first, ADR 0021).
-- `koje-session` is a small Rust program in the package; how exactly it starts
+- `koje-session` is part of the CLI (`koje session start`, and `koje session
+  ready` from Hyprland's `exec-once` for the systemd part); how exactly it starts
   Hyprland (directly or through Hyprland's `start-hyprland` watchdog) is
   settled by the host spike.
 

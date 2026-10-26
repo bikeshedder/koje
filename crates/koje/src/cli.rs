@@ -225,6 +225,9 @@ pub enum Command {
     /// Manage koje's base image `koje/base`.
     #[command(subcommand)]
     Image(ImageCmd),
+    /// The koje session (ADR 0048): started from the login screen.
+    #[command(subcommand)]
+    Session(SessionCmd),
     /// List contexts.
     List {
         /// Machine-readable output (JSON array).
@@ -283,6 +286,20 @@ pub enum ImageCmd {
         #[arg(long)]
         no_cache: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SessionCmd {
+    /// Start the session: Hyprland with koje's config; when it exits, stop
+    /// koje's services. The login screen's "koje" entry runs this.
+    Start,
+    /// Hand the session's environment to systemd and start koje's services
+    /// (from Hyprland's `exec-once`).
+    #[command(hide = true)]
+    Ready,
+    /// Restart koje's services (kojed, the shell, …); the session and its
+    /// windows go on.
+    Restart,
 }
 
 #[derive(Debug, Subcommand)]
@@ -353,6 +370,19 @@ mod tests {
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once("koje").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn session_commands() {
+        assert!(matches!(
+            parse(&["session", "start"]).unwrap().command,
+            Command::Session(SessionCmd::Start)
+        ));
+        assert!(matches!(
+            parse(&["session", "ready"]).unwrap().command,
+            Command::Session(SessionCmd::Ready)
+        ));
+        assert!(parse(&["session"]).is_err());
     }
 
     #[test]
