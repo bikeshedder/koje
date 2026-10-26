@@ -1,6 +1,7 @@
 # 0045. koje ships as one Debian package, built in the dev container
 
-- Status: Accepted
+- Status: Accepted (amended 2026-10-26: built in an Ubuntu 26.04 container, on
+  the host or in the dev container – see the decision)
 - Date: 2026-10-26
 - Source: discussion (the host cannot build koje-shell without GTK's
   development packages, M8.27); revises ADR 0021
@@ -29,9 +30,15 @@ out the runtime libraries a binary needs.
   | `/usr/lib/systemd/user/kojed.service`, `koje-shell.service` | the user units |
   | `/usr/share/fonts/truetype/koje/lucide.ttf` | the icon font (ADR 0020) |
 
-- **Built in the dev container:** `just deb` builds the release binaries
-  (`koje-forward` for musl) and packages them with `cargo-deb` into
-  `target/debian/`. The workspace is shared with the host, which installs it
+- **Built in an Ubuntu 26.04 container** (amended): `just deb`
+  (`scripts/build-deb.sh`) builds the release binaries (`koje-forward` for
+  musl), the Hyprland plugin (ADR 0051) and the package with `cargo-deb` in a
+  Podman container of `build/Containerfile` – against the libraries of the
+  distribution koje runs on, the same on the host and in the dev container
+  (only Podman and git needed). It writes `target/debian/`; the container's
+  own target directory is `target/ubuntu`. (First version: built directly in
+  the dev container, against Debian trixie's libraries – the host could not
+  run `just deb`, and the plugin had to match Ubuntu's Hyprland anyway.) The workspace is shared with the host, which installs it
   with `sudo apt install ./target/debian/koje_<version>_amd64.deb`. The version
   is the workspace version plus the commit (`0.1.0+git<date>.<commit>`), so
   every build is newer than the last.
@@ -71,7 +78,7 @@ out the runtime libraries a binary needs.
   cannot change the user's files or restart user services.
 - Packages for amd64 and Debian/Ubuntu only; other distributions build from
   source with cargo by hand.
-- The package is built against Debian trixie's libraries; when koje needs
-  newer GTK or libadwaita than trixie has, the dev container moves on.
+- The build image (Ubuntu 26.04, Rust, cargo-deb) is built once per change of
+  its Containerfile or the toolchain; crates are cached in a Podman volume.
 - Follow-ups: plan tasks M0.9 (the package, `just deb`, `koje setup`'s
   cleanup) and M0.10 (CI release); M8.32 adds `koje-shell` to the session.

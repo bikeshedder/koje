@@ -62,12 +62,12 @@ Contexts must run on the host (they need the host's Wayland, PipeWire and GPU).
 Build the package inside the container, install it on the host (ADR 0045):
 
 ```sh
-just deb                                            # dev container
+just deb                                            # host or dev container (Podman)
 sudo apt install ./target/debian/koje_*_amd64.deb   # host, in the repository
 koje setup && koje list
 ```
 
-After a change: `just deb` in the dev container, then `just install` on the host
+After a change: `just deb` (an Ubuntu 26.04 container builds the package – on the host or in the dev container), then `just install` on the host
 (`scripts/install-deb.sh`: the newest package, reinstalled if the version is the
 same, then `koje setup`; `--yes` asks nothing). It warns when the package is
 older than the checkout.

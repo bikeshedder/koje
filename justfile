@@ -45,15 +45,11 @@ shell:
 doc:
     cargo doc --workspace --no-deps
 
-# Build the koje package into target/debian/ (ADR 0045); on the host:
+# Build the koje package into target/debian/ in an Ubuntu 26.04 container
+# (ADR 0045; Podman, on the host or here); on the host:
 # sudo apt install ./target/debian/koje_<version>_amd64.deb && koje setup
 deb:
-    scripts/build-plugin.sh
-    cargo build --release --locked -p koje -p kojed -p koje-shell
-    cargo build --release --locked -p koje-forward --target x86_64-unknown-linux-musl
-    mkdir -p target/deb-staging
-    cp target/x86_64-unknown-linux-musl/release/koje-forward target/deb-staging/
-    cargo deb -p koje --no-build --deb-version "$(scripts/deb-version.sh)"
+    scripts/build-deb.sh
 
 # On the HOST: install the newest package from target/debian/ and run koje setup
 install *ARGS:

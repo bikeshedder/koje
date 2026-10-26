@@ -71,7 +71,7 @@ assets = [
     ["../../assets/portals/koje-portals.conf", "usr/share/xdg-desktop-portal/", "644"],
     ["../../assets/hyprland/koje.conf", "usr/share/koje/hyprland/", "644"],
     # koje's Hyprland plugin (ADR 0051), built for exactly the Hyprland the
-    # package depends on (scripts/build-plugin.sh).
+    # package depends on (scripts/build-deb.sh).
     ["../../target/plugin/koje-hyprland.so", "usr/lib/koje/", "644"],
     ["../../assets/hyprland/hyprbars.conf", "usr/share/koje/hyprland/", "644"],
     ["../../assets/lock/hypridle.conf", "usr/share/koje/lock/", "644"],

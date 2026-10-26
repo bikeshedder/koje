@@ -1,5 +1,5 @@
-# koje's Hyprland plugin (ADR 0051). Built in the container of Containerfile
-# by scripts/build-plugin.sh; `make` there writes $(OUT).
+# koje's Hyprland plugin (ADR 0051). Built in the package's Ubuntu container
+# (build/Containerfile) by scripts/build-deb.sh; `make` there writes $(OUT).
 OUT ?= koje-hyprland.so
 SRC = $(wildcard src/*.cpp)
 

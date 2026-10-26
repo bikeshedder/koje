@@ -32,7 +32,7 @@ way for that is a plugin – which must match the running Hyprland exactly
   layer surface above. Clicks still go to the shell.
 - **Built with the package for the distribution's Hyprland:** `just deb`
   compiles the plugin in an Ubuntu 26.04 container (nested Podman, M0.8)
-  against `hyprland-dev` (`scripts/build-plugin.sh`), and the package depends
+  against `hyprland-dev` (`scripts/build-deb.sh`), and the package depends
   on that upstream Hyprland version (`>= 0.53.3, << 0.53.4~`; the script
   stops when Ubuntu's differs). The koje session loads it (`plugin =` in the
   generated session config, ADR 0048). No hyprpm, no build on the host.

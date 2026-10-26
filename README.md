@@ -22,7 +22,7 @@ koje ships as a Debian package for Debian/Ubuntu on amd64
 container, install it on the host, then run setup as your user:
 
 ```sh
-just deb                                            # in the dev container
+just deb                                            # host or dev container (Podman)
 sudo apt install ./target/debian/koje_*_amd64.deb   # on the host
 koje setup --dry-run                                # show what setup would change
 koje setup                                          # asks once before changing anything
