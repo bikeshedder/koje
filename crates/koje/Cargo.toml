@@ -67,6 +67,8 @@ assets = [
     ["../../assets/session/koje.desktop", "usr/share/wayland-sessions/", "644"],
     ["../../assets/hyprland/koje.conf", "usr/share/koje/hyprland/", "644"],
     ["../../assets/hyprland/hyprbars.conf", "usr/share/koje/hyprland/", "644"],
+    ["../../assets/lock/hypridle.conf", "usr/share/koje/lock/", "644"],
+    ["../../assets/lock/hyprlock.conf", "usr/share/koje/lock/", "644"],
     ["../../assets/fonts/lucide/lucide.ttf", "usr/share/fonts/truetype/koje/", "644"],
     ["../../assets/icons/io.koje.Koje-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../../assets/fonts/lucide/LICENSE", "usr/share/doc/koje/lucide-LICENSE", "644"],

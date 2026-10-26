@@ -180,7 +180,7 @@ pub fn duplicate_bindings(json: &str) -> Vec<Duplicate> {
     }
     groups
         .into_values()
-        .filter(|g| g.len() > 1)
+        .filter(|g| clashes(g))
         .map(|g| Duplicate {
             combo: combo(g[0].modmask, &g[0].key),
             what: g
@@ -195,6 +195,19 @@ pub fn duplicate_bindings(json: &str) -> Vec<Duplicate> {
                 .collect(),
         })
         .collect()
+}
+
+/// One key's bindings clash unless they are one binding in several lines:
+/// koje's Alt+Tab runs `cyclenext` and `alterzorder` under one description.
+/// The same line twice – a snippet sourced twice – clashes.
+fn clashes(binds: &[&Bind]) -> bool {
+    let mut seen = std::collections::BTreeSet::new();
+    let repeated = binds
+        .iter()
+        .any(|b| !seen.insert((&b.description, &b.dispatcher, &b.arg)));
+    let one = !binds[0].description.is_empty()
+        && binds.iter().all(|b| b.description == binds[0].description);
+    binds.len() > 1 && (repeated || !one)
 }
 
 /// The doctor line: what each binding does while that stays short, else
@@ -501,6 +514,31 @@ mod tests {
             "key bindings bound twice: Super+Return (Terminal in the context; exec foot)"
         );
         assert_eq!(duplicate_bindings("not json"), []);
+    }
+
+    #[test]
+    fn one_binding_in_several_lines_is_not_bound_twice() {
+        let bind = |dispatcher: &str, arg: &str| {
+            format!(
+                r#"{{"modmask": 8, "submap": "", "key": "Tab", "keycode": 0, "mouse": false, "release": false,
+                    "description": "Next window on the workspace", "dispatcher": "{dispatcher}", "arg": "{arg}"}}"#
+            )
+        };
+        let koje = format!(
+            "[{}, {}]",
+            bind("cyclenext", ""),
+            bind("alterzorder", "top")
+        );
+        assert_eq!(duplicate_bindings(&koje), []);
+        // koje's snippet sourced twice.
+        let twice = format!(
+            "[{}, {}, {}, {}]",
+            bind("cyclenext", ""),
+            bind("alterzorder", "top"),
+            bind("cyclenext", ""),
+            bind("alterzorder", "top")
+        );
+        assert_eq!(duplicate_bindings(&twice).len(), 1);
     }
 
     #[test]

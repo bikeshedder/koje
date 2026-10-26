@@ -6,6 +6,7 @@ PartOf=koje-session.target
 After=koje-session.target
 
 [Service]
-ExecStart=/usr/bin/hypridle
+# Its own config: hypridle quits without one.
+ExecStart=/usr/bin/hypridle --config /usr/share/koje/lock/hypridle.conf
 Restart=on-failure
 RestartSec=2
