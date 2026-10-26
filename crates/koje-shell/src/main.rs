@@ -41,6 +41,7 @@ const CSS: &str = "
   background: var(--accent-bg-color);
   color: var(--accent-fg-color);
 }
+.koje-bar .workspaces button.empty { opacity: 0.55; }
 .koje-bar .tasks button { border-radius: 6px; padding: 0 8px; }
 .koje-bar .tasks button.focused { box-shadow: inset 0 -2px var(--accent-bg-color); }
 .capsule {

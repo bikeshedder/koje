@@ -141,9 +141,19 @@ impl Bar {
         if w.active {
             button.add_css_class("active");
         }
-        let (actions, name) = (self.actions.clone(), w.name.clone());
+        if w.empty {
+            button.add_css_class("empty");
+            button.set_tooltip_text(Some(&format!("{} – no windows", w.name)));
+        }
+        // An empty context's workspace through kojed, like `koje focus`.
+        let action = if w.empty {
+            Action::FocusContext(w.name.clone())
+        } else {
+            Action::FocusWorkspace(w.name.clone())
+        };
+        let actions = self.actions.clone();
         button.connect_clicked(move |_| {
-            let _ = actions.send(Action::FocusWorkspace(name.clone()));
+            let _ = actions.send(action.clone());
         });
         button
     }

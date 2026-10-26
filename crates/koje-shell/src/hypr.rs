@@ -18,6 +18,8 @@ struct Monitor {
     name: String,
     #[serde(rename = "activeWorkspace")]
     active_workspace: NameRef,
+    #[serde(default)]
+    focused: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +68,7 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
             .map(|m| MonitorState {
                 name: m.name,
                 active_workspace: m.active_workspace.name,
+                focused: m.focused,
             })
             .collect(),
         workspaces: workspaces

@@ -154,6 +154,8 @@ pub struct MonitorState {
     /// The connector name, e.g. `eDP-1` (GDK's `Monitor::connector`).
     pub name: String,
     pub active_workspace: String,
+    /// It has the keyboard focus: new workspaces open there.
+    pub focused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,6 +232,9 @@ pub struct WorkspaceButton {
     pub name: String,
     pub active: bool,
     pub accent: Accent,
+    /// A running context whose workspace Hyprland dropped: it has no
+    /// windows (or they are stashed while it sleeps). A click opens it.
+    pub empty: bool,
 }
 
 /// One window of the task list.
@@ -401,16 +406,43 @@ impl Shell {
             .or_else(|| d.monitors.first());
         let active = mon.map(|m| m.active_workspace.as_str());
 
-        let mut workspaces: Vec<&WorkspaceState> = d
+        // Numbered workspaces first, then named ones by name.
+        let key = |id: i64, name: &str| (id <= 0, if id > 0 { id } else { 0 }, name.to_owned());
+        let mut workspaces: Vec<((bool, i64, String), WorkspaceButton)> = d
             .workspaces
             .iter()
             .filter(|w| !w.name.starts_with("special:"))
             .filter(|w| mon.is_none_or(|m| w.monitor == m.name))
+            .map(|w| {
+                (
+                    key(w.id, &w.name),
+                    WorkspaceButton {
+                        name: w.name.clone(),
+                        active: Some(w.name.as_str()) == active,
+                        accent: self.accent(&w.name),
+                        empty: false,
+                    },
+                )
+            })
             .collect();
-        workspaces.sort_by(|a, b| {
-            let key = |w: &WorkspaceState| (w.id <= 0, if w.id > 0 { w.id } else { 0 });
-            key(a).cmp(&key(b)).then_with(|| a.name.cmp(&b.name))
-        });
+        // Running contexts Hyprland has no workspace for (it drops empty
+        // ones, ADR 0028): on the focused monitor, where it would open them.
+        if mon.is_none_or(|m| m.focused) {
+            for c in self.contexts() {
+                if !d.workspaces.iter().any(|w| w.name == c.name) {
+                    workspaces.push((
+                        key(0, &c.name),
+                        WorkspaceButton {
+                            name: c.name.clone(),
+                            active: false,
+                            accent: Accent::Context(c.name.clone()),
+                            empty: true,
+                        },
+                    ));
+                }
+            }
+        }
+        workspaces.sort_by(|a, b| a.0.cmp(&b.0));
 
         let mut windows: Vec<&Window> = d
             .windows
@@ -429,14 +461,7 @@ impl Shell {
             .collect();
 
         BarView {
-            workspaces: workspaces
-                .into_iter()
-                .map(|w| WorkspaceButton {
-                    name: w.name.clone(),
-                    active: Some(w.name.as_str()) == active,
-                    accent: self.accent(&w.name),
-                })
-                .collect(),
+            workspaces: workspaces.into_iter().map(|(_, b)| b).collect(),
             tasks,
             tasks_accent: active.map_or(Accent::Host, |a| self.accent(a)),
             menu: matches!(self.kojed, Kojed::Running(_)).then(|| {
@@ -563,10 +588,12 @@ mod tests {
                 MonitorState {
                     name: "eDP-1".into(),
                     active_workspace: "kp".into(),
+                    focused: true,
                 },
                 MonitorState {
                     name: "DP-1".into(),
                     active_workspace: "3".into(),
+                    focused: false,
                 },
             ],
             workspaces: vec![
@@ -612,6 +639,40 @@ mod tests {
         assert_eq!(kp.accent, Accent::Context("kp".into()));
         // `admin` is no running context: grey.
         assert_eq!(bar.workspaces[2].accent, Accent::Host);
+    }
+
+    #[test]
+    fn running_contexts_without_a_workspace_show_on_the_focused_monitor() {
+        let mut s = shell();
+        s.apply(Update::Contexts(vec![
+            ctx("kp", true),
+            ctx("leer", false),
+            ctx("admin", false),
+        ]));
+        let names = |bar: &BarView| -> Vec<(String, bool)> {
+            bar.workspaces
+                .iter()
+                .map(|w| (w.name.clone(), w.empty))
+                .collect()
+        };
+        let focused = s.bar(Some("eDP-1"));
+        assert_eq!(
+            names(&focused),
+            [
+                ("1".into(), false),
+                ("2".into(), false),
+                ("admin".into(), false),
+                ("kp".into(), false),
+                ("leer".into(), true),
+            ]
+        );
+        let leer = &focused.workspaces[4];
+        assert_eq!(
+            (leer.active, &leer.accent),
+            (false, &Accent::Context("leer".into()))
+        );
+        // Not on the other monitor, and not twice when it exists there.
+        assert_eq!(names(&s.bar(Some("DP-1"))), [("3".into(), false)]);
     }
 
     #[test]
