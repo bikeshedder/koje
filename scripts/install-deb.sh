@@ -7,7 +7,8 @@
 #   scripts/install-deb.sh --yes    do not ask (apt and koje setup)
 #
 # Reinstalls when the version is the same (another build of the same commit).
-# koje setup restarts kojed when it runs an old binary. sudo is used for apt.
+# koje setup restarts kojed and koje-shell when they run an old binary and,
+# in the koje session, reloads Hyprland. sudo is used for apt.
 set -euo pipefail
 
 yes=0
@@ -42,7 +43,14 @@ setup_args=()
 echo
 /usr/bin/koje setup "${setup_args[@]}"
 
-if pgrep -x koje-shell >/dev/null; then
-  echo
-  echo "note: koje-shell runs an old binary – restart it to test the new one"
-fi
+# koje setup restarted the units; a koje-shell or kojed started by hand still
+# runs the binary the package replaced.
+for name in koje-shell kojed; do
+  for pid in $(pgrep -x "$name" || true); do
+    if [[ $(readlink "/proc/$pid/exe" 2>/dev/null) == *" (deleted)" ]]; then
+      echo
+      echo "note: $name (pid $pid) runs the old binary and is not koje's unit –"
+      echo "      stop it and run: systemctl --user restart $name"
+    fi
+  done
+done

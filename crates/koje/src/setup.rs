@@ -296,13 +296,13 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
     } else {
         Vec::new()
     };
-    if std::env::var("XDG_SESSION_DESKTOP").as_deref() == Ok("koje") {
-        refresh = setup::for_koje_session(refresh);
-    }
     for (unit, binary) in setup::UNITS {
         if main_exe(unit).is_some_and(|exe| setup::outdated(&exe, binary)) {
             refresh.push(Refresh::Restart(unit));
         }
+    }
+    if std::env::var("XDG_SESSION_DESKTOP").as_deref() == Ok("koje") {
+        refresh = setup::for_koje_session(refresh);
     }
     if !refresh.is_empty() {
         println!("\nThen");

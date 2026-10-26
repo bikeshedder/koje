@@ -528,12 +528,19 @@ impl fmt::Display for Refresh {
 }
 
 /// In the koje session systemd starts the services (ADR 0048): only the
-/// config reload and koje's restarts are left of a `refresh`.
+/// config reload and koje's restarts are left of a `refresh`. Its Hyprland
+/// reads the package's snippet itself, so an upgrade – a unit runs an old
+/// binary – reloads it too.
 pub fn for_koje_session(refresh: Vec<Refresh>) -> Vec<Refresh> {
-    refresh
+    let mut out: Vec<Refresh> = refresh
         .into_iter()
         .filter(|r| matches!(r, Refresh::Hyprland | Refresh::Restart(_)))
-        .collect()
+        .collect();
+    let upgraded = out.iter().any(|r| matches!(r, Refresh::Restart(_)));
+    if upgraded && !out.contains(&Refresh::Hyprland) {
+        out.insert(0, Refresh::Hyprland);
+    }
+    out
 }
 
 /// What to refresh in the current Hyprland session after `steps` ran;
@@ -862,6 +869,15 @@ mod tests {
             for_koje_session(all),
             [Refresh::Hyprland, Refresh::Restart("kojed")]
         );
+    }
+
+    #[test]
+    fn an_upgrade_reloads_the_koje_sessions_hyprland() {
+        assert_eq!(
+            for_koje_session(vec![Refresh::Restart("koje-shell")]),
+            [Refresh::Hyprland, Refresh::Restart("koje-shell")]
+        );
+        assert_eq!(for_koje_session(vec![Refresh::Waybar]), []);
     }
 
     #[test]
