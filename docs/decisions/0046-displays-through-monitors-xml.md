@@ -1,6 +1,6 @@
 # 0046. Displays: GNOME Settings through Mutter's API, `monitors.xml` as the source
 
-- Status: Accepted
+- Status: Accepted (updated 2026-10-26: the monitor config is generated at login into the runtime directory, ADR 0048)
 - Date: 2026-10-26
 - Source: discussion (a lost `hyprland.conf` left the screen at a wrong mode;
   configuring screens in GNOME Settings); answers the open question
@@ -30,12 +30,15 @@ shared with GNOME and has no notion of monitor sets.
   and with its rules: one configuration per set of connected monitors, monitors
   identified by connector, vendor, product and serial. A real GNOME session on
   the same account reads and writes the same file.
-- **kojed generates Hyprland's monitor config from it**:
-  `$XDG_CONFIG_HOME/koje/hyprland/monitors.conf`, sourced by koje's snippet, for
-  the configuration that matches the connected monitors. Hyprland reads it at
-  login before kojed runs, so the screen starts in the right mode. kojed writes
-  it again when `monitors.xml` changes (also when edited by hand or by GNOME) and
-  on hotplug, and applies it. The file is generated: hand edits are lost.
+- **Hyprland's monitor config is generated from it** (updated with
+  ADR 0048): `koje session start` writes
+  `$XDG_RUNTIME_DIR/koje/monitors.conf` before Hyprland starts, which sources
+  it – so the screen starts in the right mode. Which screens are connected is
+  not known before Hyprland runs, so each screen gets the settings of the most
+  recent configuration that has it, matched by its description (`desc:`); kojed
+  applies the configuration that matches the connected set once Hyprland runs,
+  again when `monitors.xml` changes (also when edited by hand or by GNOME) and
+  on hotplug. Nothing is written to the home but `monitors.xml`.
 - **The "Keep these display settings?" dialog** – in GNOME it is GNOME Shell's,
   not GNOME Settings' – is koje-shell's: after a change it counts down and
   reverts unless confirmed.
@@ -51,8 +54,8 @@ shared with GNOME and has no notion of monitor sets.
 + The right mode from the first frame of a login.
 - kojed implements a large, unstable Mutter API (versioned by GNOME release,
   not documented as public); koje follows GNOME's changes by hand.
-- Two files describe the screens; only one (`monitors.xml`) may be edited, the
-  other is generated – an own `monitor` line in `hyprland.conf` overrides both.
+- `monitors.xml` is the only file describing the screens; an own `monitor`
+  line in `~/.config/koje/hyprland.conf` still overrides it.
 - Until this is built, a new `hyprland.conf` from `koje setup` still has the
   generic `monitor = , preferred, auto, 1`.
 - Follow-ups: plan tasks M8.51–M8.54.

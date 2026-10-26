@@ -114,7 +114,7 @@ Hyprland; the shell takes over the rest of GNOME Shell's duties.
 
 - [ ] **M8.51 Mutter's display API in kojed** (ADR 0046): `org.gnome.Mutter.DisplayConfig` from `hyprctl monitors all` – `GetCurrentState`, `MonitorsChanged`, `ApplyMonitorsConfig` (verify, temporary, persistent) applied to Hyprland; the mapping between Mutter's and Hyprland's monitors, modes, scales and transforms pure in `koje-core`
   - Notes: after the bar and M8.42; check which version of the API the host's GNOME Settings speaks.
-- [ ] **M8.52 `monitors.xml` and the generated monitor config** (ADR 0046): read and write `~/.config/monitors.xml` in Mutter's format (configurations per monitor set); generate `$XDG_CONFIG_HOME/koje/hyprland/monitors.conf` for the connected set, sourced by koje's snippet; again on changes of `monitors.xml` and on hotplug; `koje setup` stops writing a `monitor =` line
+- [ ] **M8.52 `monitors.xml` and the generated monitor config** (ADR 0046, 0048): read and write `~/.config/monitors.xml` in Mutter's format (configurations per monitor set); at login `koje session start` writes `$XDG_RUNTIME_DIR/koje/monitors.conf` (each screen by `desc:` from the latest configuration that has it), sourced by the session config; kojed applies the configuration of the connected set, again on changes of `monitors.xml` and on hotplug
 - [ ] **M8.53 "Keep these display settings?" in the shell** (ADR 0046): GNOME Shell's countdown dialog after a display change; reverts unless confirmed
 - [ ] **M8.54 Monitors in `koje doctor`** (ADR 0046): warn when a screen runs below its best refresh rate at its resolution, and when an own `monitor` line in `hyprland.conf` overrides the generated file
 
@@ -129,6 +129,8 @@ koje is its own session; Hyprland is the compositor it starts.
 - [ ] **M8.61 Move existing installs** (ADR 0048): `koje setup` no longer writes or edits `~/.config/hypr/hyprland.conf`; for an existing install it offers (plan first, ADR 0021) to move the user's settings below koje's `source` line into `~/.config/koje/hyprland.conf` and to remove that line; `koje doctor` warns while the old line is there; README and docs
 - [ ] **M8.62 The koje session on the host** *(host)*: from the login screen (GDM); `XDG_CURRENT_DESKTOP=koje:GNOME` reaches programs and contexts; GNOME Settings without the shell's workaround; apps that expect GNOME Shell's D-Bus services (screenshots, `org.gnome.SessionManager`); Hyprland directly or through `start-hyprland`; logout stops every service
   - Done when: a report in `docs/spikes/`; together with M8.42.
+- [ ] **M8.63 Custom shortcuts from GNOME Settings** (ADR 0044, 0048): kojed turns GNOME Settings' custom shortcuts (`org.gnome.settings-daemon.plugins.media-keys custom-keybindings`, each with name, command, binding) into Hyprland bindings – at start, on change, after a config reload; the mapping (GNOME's accelerator syntax → Hyprland's) pure in `koje-core`
+- [ ] **M8.64 The session's environment from `environment.d`** (ADR 0048): `koje session start` gives Hyprland the environment of the user's systemd manager (`~/.config/environment.d/*.conf`, e.g. GPU variables), so nothing needs Hyprland's `env =`; `koje doctor` points there
 
 ## Settings app
 

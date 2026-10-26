@@ -1,6 +1,6 @@
 # 0048. koje is its own session; Hyprland is the compositor it starts
 
-- Status: Accepted
+- Status: Accepted (updated 2026-10-26: the session config is generated at login; no user file required)
 - Date: 2026-10-26
 - Source: discussion (GNOME Settings refuses to start under
   `XDG_CURRENT_DESKTOP=Hyprland`, M8.30; a lost `hyprland.conf` took the
@@ -37,13 +37,17 @@ ship.
   `XDG_CURRENT_DESKTOP=koje:GNOME` for everything in it. "koje" is what the
   user picks on the login screen.
 - **`koje session start` (called `koje-session` below) starts Hyprland with
-  koje's own config**,
-  `/usr/share/koje/hyprland/session.conf`, which sources in this order: koje's
-  snippet (the session as of ADR 0037), the generated monitor config
-  (ADR 0046), then the user's optional `~/.config/koje/hyprland.conf` for
-  machine and personal settings – later settings win, `unbind` removes a koje
-  binding. koje never reads or writes `~/.config/hypr/`; a plain Hyprland
-  session stays the user's own.
+  a config it generates at login**, `$XDG_RUNTIME_DIR/koje/session.conf`,
+  which sources in this order: koje's snippet (the session as of ADR 0037),
+  the monitor config generated from `monitors.xml` (ADR 0046), and – only if
+  it exists – the user's `~/.config/koje/hyprland.conf`. Later settings win,
+  `unbind` removes a koje binding. koje creates no file in the home for
+  Hyprland: GNOME's settings are the source of truth (ADR 0044, 0046) and
+  reach Hyprland through kojed; the user's file is an escape hatch for
+  Hyprland-specific tweaks GNOME has no setting for. The session's environment
+  comes from systemd's `environment.d` (e.g. GPU variables), not from
+  Hyprland's `env =`. koje never reads or writes `~/.config/hypr/`; a plain
+  Hyprland session stays the user's own.
 - **koje's own systemd user units, not uwsm** – as gnome-session does it:
   `koje-session` passes the session's environment to systemd once Hyprland is
   up and starts `koje-session.target` (bound to `graphical-session.target`),
@@ -85,4 +89,4 @@ ship.
 - Revises ADR 0037 (where the session's config lives, `exec-once` services,
   `setup` writing `hyprland.conf`) and ADR 0021 (the `source` line);
   `XDG_CURRENT_DESKTOP` of ADR 0044's spike is decided: `koje:GNOME`.
-- Follow-ups: plan tasks M8.58–M8.62.
+- Follow-ups: plan tasks M8.58–M8.64.
