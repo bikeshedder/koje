@@ -2,6 +2,7 @@
 #include "overview.hpp"
 
 #include <hyprland/src/Compositor.hpp>
+#include <hyprland/src/debug/log/Logger.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/helpers/Monitor.hpp>
 #include <hyprland/src/protocols/XDGShell.hpp>
@@ -51,8 +52,15 @@ void onWindowOpen(PHLWINDOW window) {
 
     if (!window->m_isFloating || window->isFullscreen() || (window->m_suppressedEvents & Desktop::View::SUPPRESS_MAXIMIZE))
         return;
+    const bool large = nearlyScreenSized(window);
+    // Why a new window opens maximized, in Hyprland's log (M8.74 on the host).
+    const auto monitor = window->m_monitor.lock();
+    const auto area    = monitor ? monitor->logicalBoxMinusReserved() : CBox{};
+    const auto size    = window->m_realSize->goal();
+    Log::logger->log(Log::DEBUG, "[koje] new window {} ({}): asked to maximize {}, {}x{} of {}x{} – {}", window->m_class, window->m_title, asked,
+                     size.x, size.y, area.w, area.h, asked || large ? "maximized" : "left as it is");
     // As Hyprland does for a maximize request of a mapped window: the
     // program is told it is maximized.
-    if (asked || nearlyScreenSized(window))
+    if (asked || large)
         g_pCompositor->changeWindowFullscreenModeClient(window, FSMODE_MAXIMIZED, true);
 }
