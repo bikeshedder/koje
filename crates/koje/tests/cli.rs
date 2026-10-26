@@ -1371,3 +1371,77 @@ fn ending_the_session_reaches_hyprland() {
         "{log}"
     );
 }
+
+/// Fakes for grim, slurp (`slurp_exit`), wl-copy and date that log what
+/// they get.
+fn screenshot_fakes(tmp: &Path, slurp_exit: u8) -> String {
+    let bin = tmp.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = tmp.join("shot.log");
+    let tool = |name: &str, body: &str| {
+        write_tool(
+            &bin,
+            name,
+            &format!(
+                "#!/bin/sh\necho \"{name} $*\" >> {}\n{body}\n",
+                log.display()
+            ),
+        );
+    };
+    tool("slurp", &format!("echo '10,20 300x200'\nexit {slurp_exit}"));
+    // grim writes the picture to its last argument.
+    tool("grim", "for f; do :; done; echo png > \"$f\"");
+    tool("wl-copy", "cat > /dev/null");
+    tool("date", "echo '2026-10-26 15-40-12'");
+    format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
+#[test]
+fn screenshot_of_an_area_goes_into_pictures_and_onto_the_clipboard() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = screenshot_fakes(t, 0);
+    std::fs::create_dir_all(t.join("config")).unwrap();
+    std::fs::write(
+        t.join("config/user-dirs.dirs"),
+        "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n",
+    )
+    .unwrap();
+    let out = command(t, &["screenshot", "area"])
+        .env("PATH", &path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let file = t.join("Bilder/Screenshots/Screenshot From 2026-10-26 15-40-12.png");
+    assert!(file.is_file());
+    let log = std::fs::read_to_string(t.join("shot.log")).unwrap();
+    assert!(
+        log.contains(&format!("grim -g 10,20 300x200 {}", file.display())),
+        "{log}"
+    );
+    assert!(log.contains("wl-copy --type image/png"), "{log}");
+}
+
+#[test]
+fn a_cancelled_area_takes_no_screenshot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path();
+    let path = screenshot_fakes(t, 1);
+    let out = command(t, &["screenshot"])
+        .env("PATH", &path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let log = std::fs::read_to_string(t.join("shot.log")).unwrap();
+    assert!(!log.contains("grim"), "{log}");
+}

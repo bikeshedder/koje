@@ -19,6 +19,7 @@ mod mounts;
 mod prompt;
 mod runtime;
 mod screens;
+mod screenshot;
 mod session;
 mod setup;
 mod terminal;

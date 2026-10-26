@@ -111,6 +111,7 @@ Hyprland; the shell takes over the rest of GNOME Shell's duties.
 - [ ] **M8.46 Polkit agent in the shell**: the authentication dialog like GNOME Shell's, replacing polkit-gnome in the session
 - [ ] **M8.47 End session dialog**: log out, restart, shut down with a countdown like GNOME's; Super+Shift+E opens it instead of leaving Hyprland at once
 - [ ] **M8.48 Screenshot UI like GNOME's**: area, window or screen, to the clipboard and a file; screen recording; through `xdg-desktop-portal-hyprland` or Hyprland's protocols; Print opens it
+  - First step (2026-10-26, "can't take screenshots" on the first koje session): `koje screenshot area|screen|window` as GNOME saves them – `Pictures/Screenshots/Screenshot From <date> <time>.png` (Pictures from `user-dirs.dirs`), the image on the clipboard, GNOME Shell's notification; Print takes an area (slurp; Escape cancels), Shift+Print the focused screen, Alt+Print the focused window. The interactive UI and recording remain.
 - [ ] **M8.49 Alt+Tab like GNOME's**: windows grouped by app, Alt+` within one app, in the shell
 - [ ] **M8.50 GNOME Shell's data in the shell**: favorites (`org.gnome.shell favorite-apps`), app folders (`org.gnome.desktop.app-folders`) and the apps' search providers (`org.gnome.Shell.SearchProvider2`) in the launcher (M8.40, M8.18); notification settings per app and "Do Not Disturb" (`org.gnome.desktop.notifications`) for M8.36
 

@@ -251,6 +251,13 @@ pub enum Command {
         #[arg(value_enum)]
         action: MediaAction,
     },
+    /// Take a screenshot as GNOME does: into Pictures/Screenshots and onto the
+    /// clipboard (Print: an area, Shift+Print: the screen, Alt+Print: the
+    /// window).
+    Screenshot {
+        #[arg(value_enum, default_value = "area")]
+        what: ScreenshotKind,
+    },
     /// Check what koje needs on this host and how to fix what is missing.
     Doctor,
     /// Waybar module: the running contexts, updated as they change (JSON lines).
@@ -286,6 +293,26 @@ pub enum ImageCmd {
         #[arg(long)]
         no_cache: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ScreenshotKind {
+    /// Choose an area with the mouse (Escape cancels).
+    Area,
+    /// The screen with the focus.
+    Screen,
+    /// The window with the focus.
+    Window,
+}
+
+impl From<ScreenshotKind> for koje_core::screenshot::Kind {
+    fn from(k: ScreenshotKind) -> Self {
+        match k {
+            ScreenshotKind::Area => Self::Area,
+            ScreenshotKind::Screen => Self::Screen,
+            ScreenshotKind::Window => Self::Window,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
