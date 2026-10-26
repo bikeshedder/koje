@@ -124,6 +124,91 @@ fn hyprland() -> Check {
     }
 }
 
+/// One entry of `hyprctl -j binds`.
+#[derive(Debug, serde::Deserialize)]
+struct Bind {
+    #[serde(default)]
+    modmask: u32,
+    #[serde(default)]
+    submap: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    keycode: i64,
+    #[serde(default)]
+    mouse: bool,
+    #[serde(default)]
+    release: bool,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    dispatcher: String,
+    #[serde(default)]
+    arg: String,
+}
+
+/// `Super+Shift+Return` from Hyprland's modifier mask.
+fn combo(modmask: u32, key: &str) -> String {
+    const MODS: [(u32, &str); 4] = [(64, "Super"), (4, "Ctrl"), (8, "Alt"), (1, "Shift")];
+    let mut parts: Vec<&str> = MODS
+        .iter()
+        .filter(|(bit, _)| modmask & bit != 0)
+        .map(|(_, name)| *name)
+        .collect();
+    parts.push(key);
+    parts.join("+")
+}
+
+/// Key combinations bound more than once – each press runs all of them, e.g.
+/// koje's Super+Return and an own one open two terminals. One line each:
+/// the combination and what its bindings do.
+pub fn duplicate_bindings(json: &str) -> Vec<String> {
+    let Ok(binds) = serde_json::from_str::<Vec<Bind>>(json) else {
+        return Vec::new();
+    };
+    let mut groups: std::collections::BTreeMap<_, Vec<&Bind>> = std::collections::BTreeMap::new();
+    for b in &binds {
+        let key = (&b.submap, b.modmask, &b.key, b.keycode, b.mouse, b.release);
+        groups.entry(key).or_default().push(b);
+    }
+    groups
+        .into_values()
+        .filter(|g| g.len() > 1)
+        .map(|g| {
+            let what: Vec<String> = g
+                .iter()
+                .map(|b| {
+                    if b.description.is_empty() {
+                        format!("{} {}", b.dispatcher, b.arg).trim().to_owned()
+                    } else {
+                        b.description.clone()
+                    }
+                })
+                .collect();
+            format!("{} ({})", combo(g[0].modmask, &g[0].key), what.join("; "))
+        })
+        .collect()
+}
+
+/// Key combinations the running Hyprland binds twice.
+fn bindings() -> Option<Check> {
+    let reply = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?
+        .block_on(koje_hyprland::Hyprland::from_env().request("j/binds"))
+        .ok()?;
+    let dups = duplicate_bindings(&reply);
+    Some(if dups.is_empty() {
+        Check::ok("key bindings: none bound twice")
+    } else {
+        Check::warn(
+            format!("key bindings bound twice: {}", dups.join(", ")),
+            "remove your own in ~/.config/hypr/hyprland.conf, or `unbind` koje's after its source line",
+        )
+    })
+}
+
 /// The files `koje setup` installs.
 fn installed(paths: &Paths) -> Vec<Check> {
     let steps = match setup::plan(paths) {
@@ -269,6 +354,7 @@ fn nvidia() -> Option<Check> {
 
 pub fn run(paths: &Paths) -> Result<()> {
     let mut checks = vec![package(), packages(), hyprland()];
+    checks.extend(bindings());
     checks.extend(installed(paths));
     checks.extend(kojed());
     checks.extend([image(), forwarder(), subids()]);
@@ -295,6 +381,27 @@ mod tests {
         assert_eq!(version_at_least("v0.52.9", (0, 53)), Some(false));
         assert_eq!(version_at_least("", (0, 53)), None);
         assert_eq!(version_at_least("git-abc", (0, 53)), None);
+    }
+
+    #[test]
+    fn bindings_bound_twice() {
+        let json = r#"[
+            {"modmask": 64, "submap": "", "key": "Return", "keycode": 0, "mouse": false, "release": false,
+             "description": "Terminal in the context", "dispatcher": "exec", "arg": "koje terminal"},
+            {"modmask": 64, "submap": "", "key": "Return", "keycode": 0, "mouse": false, "release": false,
+             "description": "", "dispatcher": "exec", "arg": "foot"},
+            {"modmask": 65, "submap": "", "key": "Return", "keycode": 0, "mouse": false, "release": false,
+             "description": "", "dispatcher": "exec", "arg": "kitty"},
+            {"modmask": 64, "submap": "", "key": "Super_L", "keycode": 0, "mouse": false, "release": true,
+             "description": "Launcher", "dispatcher": "exec", "arg": "menu"},
+            {"modmask": 64, "submap": "", "key": "Super_L", "keycode": 0, "mouse": false, "release": false,
+             "description": "", "dispatcher": "exec", "arg": "other"}
+        ]"#;
+        assert_eq!(
+            duplicate_bindings(json),
+            ["Super+Return (Terminal in the context; exec foot)"]
+        );
+        assert_eq!(duplicate_bindings("not json"), Vec::<String>::new());
     }
 
     #[test]
