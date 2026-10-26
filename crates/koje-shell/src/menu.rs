@@ -7,7 +7,28 @@ use koje_core::config::Limits;
 use koje_core::memory::{MemoryLevel, classify};
 use koje_core::size::ByteSize;
 
-use crate::model::{Accent, MemoryReading, RunningContext};
+use std::collections::BTreeMap;
+
+use koje_core::name::ContextName;
+
+use crate::model::{Accent, Busy, ContextEntry, MemoryReading, RunningContext, Status};
+
+/// Where creating a new context reports that it is busy or failed.
+pub const NEW_CONTEXT: &str = "+new";
+
+/// Colors offered for a new context: libadwaita's accent colors (ADR 0043).
+/// `None` leaves the choice to `koje new`.
+pub const PALETTE: [(&str, &str); 9] = [
+    ("Blue", "#3584e4"),
+    ("Teal", "#2190a4"),
+    ("Green", "#3a944a"),
+    ("Yellow", "#c88800"),
+    ("Orange", "#ed5b00"),
+    ("Red", "#e62d42"),
+    ("Pink", "#d56199"),
+    ("Purple", "#9141ac"),
+    ("Slate", "#6f8396"),
+];
 
 /// The working set of a context over the last minutes (kojed's
 /// `MemoryHistory`), oldest first.
@@ -138,19 +159,31 @@ pub struct ContextPanel {
     pub error: Option<String>,
 }
 
-/// One running context on a host workspace.
+/// One context on a host workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverviewRow {
     pub name: String,
     pub accent: Accent,
+    pub status: Status,
+    /// Running and paused ones.
     pub memory: Option<MemoryView>,
+    pub busy: Option<Busy>,
+    pub error: Option<String>,
+}
+
+/// The dropdown on a host workspace: every context, running ones first,
+/// and creating a new one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overview {
+    pub rows: Vec<OverviewRow>,
+    pub creating: bool,
+    pub create_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Panel {
     Context(Box<ContextPanel>),
-    /// The running contexts; empty when none runs.
-    Overview(Vec<OverviewRow>),
+    Overview(Overview),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,29 +216,77 @@ pub fn limit_arg(text: &str) -> Result<String, String> {
         .map_err(|_| format!("“{t}” is no size – e.g. 6G or 512M; empty for none"))
 }
 
-/// The koje menu for the running `contexts`, their `memory`, the active
-/// one's `history` and the last error changing limits (`(context, error)`).
-pub fn menu(
-    contexts: &[RunningContext],
-    memory: &[MemoryReading],
-    history: &HistoryReading,
-    error: Option<&(String, String)>,
-) -> MenuView {
-    let reading = |name: &str| memory.iter().find(|m| m.context == name);
-    let Some(active) = contexts.iter().find(|c| c.active) else {
+/// A name typed for a new context: valid (`koje_core::name`) and not taken.
+pub fn context_name(text: &str, existing: &[String]) -> Result<String, String> {
+    let name = ContextName::new(text.trim()).map_err(|e| e.to_string())?;
+    if existing.iter().any(|c| c == name.as_str()) {
+        return Err(format!("a context {name} exists already"));
+    }
+    Ok(name.to_string())
+}
+
+/// What the koje menu is made of.
+#[derive(Debug)]
+pub struct MenuInput<'a> {
+    /// kojed's `RunningContexts`: which one is active.
+    pub running: &'a [RunningContext],
+    /// kojed's `Contexts`: all of them with their status; empty from an
+    /// older kojed – then the running ones are all.
+    pub all: &'a [ContextEntry],
+    pub memory: &'a [MemoryReading],
+    /// The active context's.
+    pub history: &'a HistoryReading,
+    pub busy: &'a BTreeMap<String, Busy>,
+    pub errors: &'a BTreeMap<String, String>,
+}
+
+fn overview(input: &MenuInput<'_>) -> Overview {
+    let reading = |name: &str| input.memory.iter().find(|m| m.context == name);
+    let mut all: Vec<ContextEntry> = if input.all.is_empty() {
+        input
+            .running
+            .iter()
+            .map(|c| ContextEntry {
+                name: c.name.clone(),
+                color: c.color.clone(),
+                status: Status::Running,
+            })
+            .collect()
+    } else {
+        input.all.to_vec()
+    };
+    // Running and paused ones first, by name.
+    all.sort_by(|a, b| {
+        (a.status == Status::Stopped, &a.name).cmp(&(b.status == Status::Stopped, &b.name))
+    });
+    Overview {
+        rows: all
+            .into_iter()
+            .map(|c| OverviewRow {
+                accent: Accent::Context(c.name.clone()),
+                status: c.status,
+                memory: (c.status != Status::Stopped)
+                    .then(|| reading(&c.name).map(MemoryView::from_reading))
+                    .flatten(),
+                busy: input.busy.get(&c.name).copied(),
+                error: input.errors.get(&c.name).cloned(),
+                name: c.name,
+            })
+            .collect(),
+        creating: input.busy.contains_key(NEW_CONTEXT),
+        create_error: input.errors.get(NEW_CONTEXT).cloned(),
+    }
+}
+
+/// The koje menu: the active context in detail, else the overview.
+pub fn menu(input: &MenuInput<'_>) -> MenuView {
+    let reading = |name: &str| input.memory.iter().find(|m| m.context == name);
+    let history = input.history;
+    let Some(active) = input.running.iter().find(|c| c.active) else {
         return MenuView {
             accent: Accent::Host,
             meter: None,
-            panel: Panel::Overview(
-                contexts
-                    .iter()
-                    .map(|c| OverviewRow {
-                        name: c.name.clone(),
-                        accent: Accent::Context(c.name.clone()),
-                        memory: reading(&c.name).map(MemoryView::from_reading),
-                    })
-                    .collect(),
-            ),
+            panel: Panel::Overview(overview(input)),
         };
     };
     let m = reading(&active.name);
@@ -240,9 +321,7 @@ pub fn menu(
             graph,
             soft: m.map(|m| limit_text(m.soft)).unwrap_or_default(),
             hard: m.map(|m| limit_text(m.hard)).unwrap_or_default(),
-            error: error
-                .filter(|(ctx, _)| *ctx == active.name)
-                .map(|(_, e)| e.clone()),
+            error: input.errors.get(&active.name).cloned(),
         })),
     }
 }
@@ -271,6 +350,31 @@ mod tests {
         }
     }
 
+    fn entry(name: &str, status: Status) -> ContextEntry {
+        ContextEntry {
+            name: name.into(),
+            color: "#3584e4".into(),
+            status,
+        }
+    }
+
+    /// The menu with nothing busy and no errors.
+    fn plain(
+        running: &[RunningContext],
+        all: &[ContextEntry],
+        memory: &[MemoryReading],
+        history: &HistoryReading,
+    ) -> MenuView {
+        menu(&MenuInput {
+            running,
+            all,
+            memory,
+            history,
+            busy: &BTreeMap::new(),
+            errors: &BTreeMap::new(),
+        })
+    }
+
     fn history(context: &str, used: &[u64]) -> HistoryReading {
         HistoryReading {
             context: context.into(),
@@ -281,11 +385,11 @@ mod tests {
 
     #[test]
     fn a_context_in_detail() {
-        let menu = menu(
+        let menu = plain(
             &[ctx("privat", false), ctx("kp", true)],
+            &[],
             &[reading("kp", 3 * GIB, 6 * GIB, 8 * GIB)],
             &history("kp", &[2 * GIB, 3 * GIB]),
-            None,
         );
         assert_eq!(menu.accent, Accent::Context("kp".into()));
         let meter = menu.meter.unwrap();
@@ -310,7 +414,7 @@ mod tests {
 
     #[test]
     fn nothing_read_yet_and_a_history_of_another_context() {
-        let menu = menu(&[ctx("kp", true)], &[], &history("privat", &[GIB]), None);
+        let menu = plain(&[ctx("kp", true)], &[], &[], &history("privat", &[GIB]));
         assert_eq!(menu.meter, None);
         let Panel::Context(p) = menu.panel else {
             panic!("context panel expected");
@@ -321,11 +425,11 @@ mod tests {
 
     #[test]
     fn without_limits_the_size() {
-        let menu = menu(
+        let menu = plain(
             &[ctx("kp", true)],
+            &[],
             &[reading("kp", 3 * GIB, 0, 0)],
             &HistoryReading::default(),
-            None,
         );
         let Panel::Context(p) = menu.panel else {
             panic!("context panel expected");
@@ -336,14 +440,17 @@ mod tests {
 
     #[test]
     fn errors_belong_to_their_context() {
-        let err = ("kp".to_owned(), "hard limit below soft".to_owned());
+        let errors = BTreeMap::from([("kp".to_owned(), "hard limit below soft".to_owned())]);
         let shown = |active: &str| {
-            let m = menu(
-                &[ctx(active, true)],
-                &[],
-                &HistoryReading::default(),
-                Some(&err),
-            );
+            let running = [ctx(active, true)];
+            let m = menu(&MenuInput {
+                running: &running,
+                all: &[],
+                memory: &[],
+                history: &HistoryReading::default(),
+                busy: &BTreeMap::new(),
+                errors: &errors,
+            });
             match m.panel {
                 Panel::Context(p) => p.error,
                 Panel::Overview(_) => None,
@@ -354,24 +461,69 @@ mod tests {
     }
 
     #[test]
-    fn host_workspaces_list_the_running_contexts() {
-        let menu = menu(
-            &[ctx("kp", false), ctx("privat", false)],
-            &[reading("privat", GIB, 0, 2 * GIB)],
-            &HistoryReading::default(),
-            None,
-        );
+    fn host_workspaces_list_every_context() {
+        let busy = BTreeMap::from([
+            ("privat".to_owned(), Busy::Pausing),
+            (NEW_CONTEXT.to_owned(), Busy::Creating),
+        ]);
+        let errors = BTreeMap::from([("alt".to_owned(), "image missing".to_owned())]);
+        let menu = menu(&MenuInput {
+            running: &[ctx("kp", false), ctx("privat", false)],
+            all: &[
+                entry("alt", Status::Stopped),
+                entry("privat", Status::Paused),
+                entry("kp", Status::Running),
+            ],
+            memory: &[reading("privat", GIB, 0, 2 * GIB)],
+            history: &HistoryReading::default(),
+            busy: &busy,
+            errors: &errors,
+        });
         assert_eq!(
             (menu.accent.clone(), menu.meter.clone()),
             (Accent::Host, None)
         );
-        let Panel::Overview(rows) = menu.panel else {
+        let Panel::Overview(o) = menu.panel else {
             panic!("overview expected");
         };
-        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["kp", "privat"]);
-        assert_eq!(rows[0].memory, None);
-        assert_eq!(rows[1].memory.as_ref().unwrap().label, "50%");
+        let rows: Vec<_> = o
+            .rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.status, r.busy, r.error.as_deref()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("kp", Status::Running, None, None),
+                ("privat", Status::Paused, Some(Busy::Pausing), None),
+                ("alt", Status::Stopped, None, Some("image missing")),
+            ]
+        );
+        assert_eq!(o.rows[1].memory.as_ref().unwrap().label, "50%");
+        assert!(o.creating);
+        assert_eq!(o.create_error, None);
+    }
+
+    #[test]
+    fn an_older_kojed_lists_the_running_ones() {
+        let menu = plain(&[ctx("kp", false)], &[], &[], &HistoryReading::default());
+        let Panel::Overview(o) = menu.panel else {
+            panic!("overview expected");
+        };
+        assert_eq!((o.rows.len(), o.rows[0].status), (1, Status::Running));
+    }
+
+    #[test]
+    fn names_for_new_contexts() {
+        let existing = ["kp".to_owned()];
+        assert_eq!(context_name(" neu ", &existing), Ok("neu".into()));
+        assert!(
+            context_name("kp", &existing)
+                .unwrap_err()
+                .contains("exists already")
+        );
+        assert!(context_name("Neu", &existing).is_err());
+        assert!(context_name("", &existing).is_err());
     }
 
     #[test]

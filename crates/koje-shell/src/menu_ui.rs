@@ -15,8 +15,9 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::menu::{ContextPanel, Graph, MemoryView, MenuView, OverviewRow, Panel, limit_arg};
+use crate::menu::{ContextPanel, Graph, MemoryView, MenuView, Panel, limit_arg};
 use crate::model::{Accent, Action};
+use crate::overview_ui::OverviewPage;
 
 /// The koje icon's size in pixels.
 const ICON_SIZE: i32 = 16;
@@ -58,14 +59,14 @@ fn set_accent(widget: &impl IsA<gtk::Widget>, accent: &Accent) {
 
 /// A memory meter that draws whatever its cell holds.
 #[derive(Debug, Clone)]
-struct Meter {
-    area: gtk::DrawingArea,
-    label: gtk::Label,
+pub struct Meter {
+    pub area: gtk::DrawingArea,
+    pub label: gtk::Label,
     view: Rc<RefCell<Option<MemoryView>>>,
 }
 
 impl Meter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let view: Rc<RefCell<Option<MemoryView>>> = Rc::default();
         let area = gtk::DrawingArea::builder()
             .content_width(METER_WIDTH)
@@ -84,7 +85,7 @@ impl Meter {
         Self { area, label, view }
     }
 
-    fn set(&self, view: Option<&MemoryView>) {
+    pub fn set(&self, view: Option<&MemoryView>) {
         self.area
             .set_visible(view.is_some_and(|m| m.fill.is_some()));
         self.label.set_visible(view.is_some());
@@ -236,12 +237,11 @@ pub struct MenuWidget {
     popover: gtk::Popover,
     stack: gtk::Stack,
     context: ContextPage,
-    overview: gtk::ListBox,
-    actions: UnboundedSender<Action>,
+    overview: Rc<OverviewPage>,
 }
 
 impl MenuWidget {
-    pub fn new(actions: UnboundedSender<Action>) -> Self {
+    pub fn new(actions: &UnboundedSender<Action>) -> Self {
         let icon = koje_icon();
         let meter = Meter::new();
         let face = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -249,24 +249,7 @@ impl MenuWidget {
         face.append(&meter.area);
         face.append(&meter.label);
 
-        let context = ContextPage::new(&actions);
-        let overview = gtk::ListBox::builder()
-            .selection_mode(gtk::SelectionMode::None)
-            .css_classes(["boxed-list"])
-            .build();
-        let overview_page = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(8)
-            .build();
-        overview_page.append(
-            &gtk::Label::builder()
-                .label("Running contexts")
-                .css_classes(["heading"])
-                .halign(gtk::Align::Start)
-                .build(),
-        );
-        overview_page.append(&overview);
-
+        let context = ContextPage::new(actions);
         let stack = gtk::Stack::builder()
             .width_request(DROPDOWN_WIDTH)
             .vhomogeneous(false)
@@ -275,9 +258,10 @@ impl MenuWidget {
             .margin_start(6)
             .margin_end(6)
             .build();
-        stack.add_named(&context.root, Some("context"));
-        stack.add_named(&overview_page, Some("overview"));
         let popover = gtk::Popover::builder().child(&stack).build();
+        let overview = OverviewPage::new(&popover, actions);
+        stack.add_named(&context.root, Some("context"));
+        stack.add_named(&overview.root, Some("overview"));
         let button = gtk::MenuButton::builder()
             .child(&face)
             .popover(&popover)
@@ -293,7 +277,6 @@ impl MenuWidget {
             stack,
             context,
             overview,
-            actions,
         }
     }
 
@@ -318,48 +301,10 @@ impl MenuWidget {
                 self.context.render(p);
                 self.stack.set_visible_child_name("context");
             }
-            Panel::Overview(rows) => {
-                self.render_overview(rows);
+            Panel::Overview(o) => {
+                self.overview.render(o);
                 self.stack.set_visible_child_name("overview");
             }
-        }
-    }
-
-    fn render_overview(&self, rows: &[OverviewRow]) {
-        while let Some(child) = self.overview.first_child() {
-            self.overview.remove(&child);
-        }
-        if rows.is_empty() {
-            self.overview.append(
-                &adw::ActionRow::builder()
-                    .title("No context is running")
-                    .css_classes(["dim-label"])
-                    .build(),
-            );
-            return;
-        }
-        for r in rows {
-            let name = gtk::Label::builder()
-                .label(&r.name)
-                .css_classes(["capsule", &r.accent.css_class()])
-                .valign(gtk::Align::Center)
-                .build();
-            let meter = Meter::new();
-            meter.set(r.memory.as_ref());
-            let row = adw::ActionRow::builder().activatable(true).build();
-            row.add_prefix(&name);
-            row.add_suffix(&meter.area);
-            row.add_suffix(&meter.label);
-            if let Some(m) = &r.memory {
-                row.set_tooltip_text(Some(&m.tooltip));
-            }
-            let (actions, popover, context) =
-                (self.actions.clone(), self.popover.clone(), r.name.clone());
-            row.connect_activated(move |_| {
-                let _ = actions.send(Action::FocusContext(context.clone()));
-                popover.popdown();
-            });
-            self.overview.append(&row);
         }
     }
 }

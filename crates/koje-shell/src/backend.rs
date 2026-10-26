@@ -15,7 +15,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::hypr;
 use crate::menu::HistoryReading;
-use crate::model::{Action, MemoryReading, RunningContext, Update};
+use crate::model::{Action, ContextEntry, MemoryReading, RunningContext, Update};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 /// Events come in bursts (a workspace switch focuses a window too): read the
@@ -23,8 +23,9 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 const SETTLE: Duration = Duration::from_millis(20);
 /// Wait before connecting to the session bus again.
 const RETRY: Duration = Duration::from_secs(2);
-/// `koje limit` reads and writes a few files and may set a kernel limit.
-const LIMIT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a `koje` command may take: `up` may start many programs,
+/// `down` waits for programs that ask to save.
+const KOJE_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[zbus::proxy(
     interface = "io.koje.Daemon1",
@@ -33,6 +34,8 @@ const LIMIT_TIMEOUT: Duration = Duration::from_secs(10);
 )]
 trait Daemon {
     fn running_contexts(&self) -> zbus::Result<Vec<(String, String, u32, bool)>>;
+
+    fn contexts(&self) -> zbus::Result<Vec<(String, String, String)>>;
 
     fn memory(&self, context: &str) -> zbus::Result<(String, u64, u64, u64, u64)>;
 
@@ -110,21 +113,32 @@ async fn act(hypr: &Hyprland, mut actions: UnboundedReceiver<Action>, tx: Sender
             }
             continue;
         }
-        match action {
-            Action::FocusContext(context) => {
-                if let Err(e) = focus(&context).await {
-                    tracing::warn!("kojed: Focus {context}: {e:#}");
+        if let Some((context, busy, commands)) = action.koje() {
+            // Its own task: a `koje down` that waits for programs must not
+            // hold up other clicks.
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let _ = tx
+                    .send(Update::Busy {
+                        context: context.clone(),
+                        busy,
+                    })
+                    .await;
+                let mut error = None;
+                for args in &commands {
+                    if let Err(e) = run_koje(crate::KOJE, args).await {
+                        error = Some(e);
+                        break;
+                    }
                 }
-            }
-            Action::SetLimits {
-                context,
-                soft,
-                hard,
-            } => {
-                let error = set_limits(crate::KOJE, &context, &soft, &hard).await.err();
-                let _ = tx.send(Update::LimitsChanged { context, error }).await;
-            }
-            Action::FocusWorkspace(_) | Action::FocusWindow(_) => {}
+                let _ = tx.send(Update::Done { context, error }).await;
+            });
+            continue;
+        }
+        if let Action::FocusContext(context) = action
+            && let Err(e) = focus(&context).await
+        {
+            tracing::warn!("kojed: Focus {context}: {e:#}");
         }
     }
     // The GTK side is gone; keep the others running until it says so.
@@ -143,20 +157,21 @@ async fn focus(context: &str) -> Result<()> {
         .context("kojed did not answer")?
 }
 
-/// `koje limit <context> --soft … --hard …`: it checks the values against
-/// `config.toml`, keeps the file's comments, sets the kernel limit of a
-/// running context and tells kojed. The error is its message.
-async fn set_limits(koje: &str, context: &str, soft: &str, hard: &str) -> Result<(), String> {
+/// Run `koje <args>` (`koje limit`, `up`, `down`, …): the CLI checks, writes
+/// and tells kojed, as when typed. The error is its message.
+async fn run_koje(koje: &str, args: &[String]) -> Result<(), String> {
     let run = tokio::process::Command::new(koje)
-        .args(["limit", context, "--soft", soft, "--hard", hard])
+        .args(args)
+        .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
         .output();
-    let out = match tokio::time::timeout(LIMIT_TIMEOUT, run).await {
+    let out = match tokio::time::timeout(KOJE_TIMEOUT, run).await {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => return Err(format!("running {koje}: {e}")),
         Err(_) => {
             return Err(format!(
-                "koje limit did not finish within {LIMIT_TIMEOUT:?}"
+                "koje {} did not finish within {KOJE_TIMEOUT:?}",
+                args.first().map_or("", String::as_str)
             ));
         }
     };
@@ -166,7 +181,11 @@ async fn set_limits(koje: &str, context: &str, soft: &str, hard: &str) -> Result
     let err = String::from_utf8_lossy(&out.stderr);
     let err = err.trim().trim_start_matches("Error: ");
     Err(if err.is_empty() {
-        format!("koje limit failed ({})", out.status)
+        format!(
+            "koje {} failed ({})",
+            args.first().map_or("", String::as_str),
+            out.status
+        )
     } else {
         err.to_owned()
     })
@@ -280,6 +299,17 @@ async fn contexts(daemon: &DaemonProxy<'_>, tx: &Sender<Update>) -> Option<Vec<S
         }
     };
     let _ = tx.send(update).await;
+    if running.is_some() {
+        // Every context with its status; an older kojed has no `Contexts`.
+        match tokio::time::timeout(TIMEOUT, daemon.contexts()).await {
+            Ok(Ok(all)) => {
+                let all = all.into_iter().map(ContextEntry::from).collect();
+                let _ = tx.send(Update::AllContexts(all)).await;
+            }
+            Ok(Err(e)) => tracing::debug!("kojed: Contexts: {e}"),
+            Err(_) => tracing::warn!("kojed did not answer Contexts within {TIMEOUT:?}"),
+        }
+    }
     running
 }
 
@@ -315,36 +345,42 @@ mod tests {
         path.display().to_string()
     }
 
-    #[tokio::test]
-    async fn limits_go_to_koje_limit() {
-        let tmp = tempfile::tempdir().unwrap();
-        let koje = fake_koje(tmp.path(), "koje", "exit 0");
-        assert_eq!(set_limits(&koje, "kp", "6G", "none").await, Ok(()));
-        let args = std::fs::read_to_string(tmp.path().join("args")).unwrap();
-        assert_eq!(args.trim(), "limit kp --soft 6G --hard none");
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|&s| s.to_owned()).collect()
     }
 
     #[tokio::test]
-    async fn koje_limits_error_is_shown() {
+    async fn commands_go_to_koje() {
+        let tmp = tempfile::tempdir().unwrap();
+        let koje = fake_koje(tmp.path(), "koje", "exit 0");
+        let limit = args(&["limit", "kp", "--soft", "6G", "--hard", "none"]);
+        assert_eq!(run_koje(&koje, &limit).await, Ok(()));
+        let logged = std::fs::read_to_string(tmp.path().join("args")).unwrap();
+        assert_eq!(logged.trim(), "limit kp --soft 6G --hard none");
+    }
+
+    #[tokio::test]
+    async fn kojes_error_is_shown() {
         let tmp = tempfile::tempdir().unwrap();
         let koje = fake_koje(
             tmp.path(),
             "koje",
             "echo 'Error: the hard limit 2G is below the soft limit 6G' >&2; exit 1",
         );
+        let limit = args(&["limit", "kp", "--soft", "6G", "--hard", "2G"]);
         assert_eq!(
-            set_limits(&koje, "kp", "6G", "2G").await,
+            run_koje(&koje, &limit).await,
             Err("the hard limit 2G is below the soft limit 6G".into())
         );
         let silent = fake_koje(tmp.path(), "silent", "exit 3");
         assert!(
-            set_limits(&silent, "kp", "6G", "2G")
+            run_koje(&silent, &limit)
                 .await
                 .unwrap_err()
                 .starts_with("koje limit failed")
         );
         assert!(
-            set_limits("/nonexistent/koje", "kp", "6G", "2G")
+            run_koje("/nonexistent/koje", &limit)
                 .await
                 .unwrap_err()
                 .starts_with("running /nonexistent/koje")

@@ -6,7 +6,9 @@
 use koje_core::color::Color;
 use koje_core::ports::CompositorCommand;
 
-use crate::menu::{HistoryReading, MenuView, menu};
+use std::collections::BTreeMap;
+
+use crate::menu::{HistoryReading, MenuInput, MenuView, NEW_CONTEXT, menu};
 
 /// Something the shell learned from kojed or Hyprland.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,12 +17,17 @@ pub enum Update {
     Desktop(Desktop),
     /// The running contexts (kojed's `RunningContexts`).
     Contexts(Vec<RunningContext>),
+    /// Every context with its status (kojed's `Contexts`).
+    AllContexts(Vec<ContextEntry>),
     /// The memory of every running context (kojed's `Memory`).
     Memory(Vec<MemoryReading>),
     /// The active context's memory over the last minutes.
     History(HistoryReading),
-    /// `koje limit` ran for a context: its error, if any.
-    LimitsChanged {
+    /// A command for a context started (`koje up`, `down`, …).
+    Busy { context: String, busy: Busy },
+    /// It ended: its error, if any. Creating a new context reports under
+    /// [`NEW_CONTEXT`].
+    Done {
         context: String,
         error: Option<String>,
     },
@@ -50,6 +57,64 @@ impl From<(String, u64, u64, u64, u64)> for MemoryReading {
             charged,
             soft,
             hard,
+        }
+    }
+}
+
+/// What a context is doing (kojed's `Contexts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Status {
+    Running,
+    Paused,
+    Stopped,
+}
+
+/// One entry of kojed's `Contexts`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextEntry {
+    pub name: String,
+    /// `#RRGGBB`.
+    pub color: String,
+    pub status: Status,
+}
+
+impl From<(String, String, String)> for ContextEntry {
+    fn from((name, color, status): (String, String, String)) -> Self {
+        let status = match status.as_str() {
+            "running" => Status::Running,
+            "paused" => Status::Paused,
+            _ => Status::Stopped,
+        };
+        Self {
+            name,
+            color,
+            status,
+        }
+    }
+}
+
+/// A command the shell runs for a context, while it runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Busy {
+    Starting,
+    Stopping,
+    Restarting,
+    Pausing,
+    Waking,
+    Creating,
+    ChangingLimits,
+}
+
+impl Busy {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Starting => "Starting…",
+            Self::Stopping => "Stopping…",
+            Self::Restarting => "Restarting…",
+            Self::Pausing => "Pausing…",
+            Self::Waking => "Waking…",
+            Self::Creating => "Creating…",
+            Self::ChangingLimits => "Changing limits…",
         }
     }
 }
@@ -132,8 +197,12 @@ pub struct Shell {
     order: Vec<String>,
     memory: Vec<MemoryReading>,
     history: HistoryReading,
-    /// The last failed limit change: `(context, error)`.
-    limit_error: Option<(String, String)>,
+    /// Every context with its status; empty from a kojed without `Contexts`.
+    all: Vec<ContextEntry>,
+    /// Commands running per context.
+    busy: BTreeMap<String, Busy>,
+    /// The last failed command per context.
+    errors: BTreeMap<String, String>,
 }
 
 /// Whose color an element shows as its accent: a context's, or the grey of
@@ -204,6 +273,17 @@ pub enum Action {
         soft: String,
         hard: String,
     },
+    Start(String),
+    Stop(String),
+    Restart(String),
+    Pause(String),
+    Wake(String),
+    /// `koje new` with a checked name ([`crate::menu::context_name`]) and
+    /// a color, else its default; then `koje up`.
+    Create {
+        name: String,
+        color: Option<String>,
+    },
 }
 
 impl Action {
@@ -216,8 +296,46 @@ impl Action {
             Self::FocusWindow(address) => Some(CompositorCommand::FocusWindow {
                 address: address.clone(),
             }),
-            Self::FocusContext(_) | Self::SetLimits { .. } => None,
+            _ => None,
         }
+    }
+
+    /// The context it is for, what it is doing meanwhile and the `koje`
+    /// commands it runs, in order – `None` for clicks that are no command.
+    pub fn koje(&self) -> Option<(String, Busy, Vec<Vec<String>>)> {
+        let cmd = |args: &[&str]| args.iter().map(|&a| a.to_owned()).collect::<Vec<_>>();
+        Some(match self {
+            Self::SetLimits {
+                context,
+                soft,
+                hard,
+            } => (
+                context.clone(),
+                Busy::ChangingLimits,
+                vec![cmd(&["limit", context, "--soft", soft, "--hard", hard])],
+            ),
+            Self::Start(c) => (c.clone(), Busy::Starting, vec![cmd(&["up", c])]),
+            Self::Stop(c) => (c.clone(), Busy::Stopping, vec![cmd(&["down", c])]),
+            Self::Restart(c) => (
+                c.clone(),
+                Busy::Restarting,
+                vec![cmd(&["down", c]), cmd(&["up", c])],
+            ),
+            Self::Pause(c) => (c.clone(), Busy::Pausing, vec![cmd(&["sleep", c])]),
+            Self::Wake(c) => (c.clone(), Busy::Waking, vec![cmd(&["wake", c])]),
+            Self::Create { name, color } => {
+                let mut new = cmd(&["new", name]);
+                if let Some(color) = color {
+                    new.extend(cmd(&["--color", color]));
+                }
+                (
+                    NEW_CONTEXT.to_owned(),
+                    Busy::Creating,
+                    vec![new, cmd(&["up", name])],
+                )
+            }
+            Self::FocusWorkspace(_) | Self::FocusWindow(_) | Self::FocusContext(_) => return None,
+        })
     }
 }
 
@@ -237,13 +355,23 @@ impl Shell {
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
             Update::History(history) => self.history = history,
-            Update::LimitsChanged { context, error } => {
-                self.limit_error = error.map(|e| (context, e));
+            Update::AllContexts(all) => self.all = all,
+            Update::Busy { context, busy } => {
+                self.errors.remove(&context);
+                self.busy.insert(context, busy);
+            }
+            Update::Done { context, error } => {
+                self.busy.remove(&context);
+                match error {
+                    Some(e) => self.errors.insert(context, e),
+                    None => self.errors.remove(&context),
+                };
             }
             Update::KojedGone => {
                 self.kojed = Kojed::Gone;
                 self.memory.clear();
                 self.history = HistoryReading::default();
+                self.all.clear();
             }
         }
     }
@@ -312,20 +440,35 @@ impl Shell {
             tasks,
             tasks_accent: active.map_or(Accent::Host, |a| self.accent(a)),
             menu: matches!(self.kojed, Kojed::Running(_)).then(|| {
-                menu(
-                    self.contexts(),
-                    &self.memory,
-                    &self.history,
-                    self.limit_error.as_ref(),
-                )
+                menu(&MenuInput {
+                    running: self.contexts(),
+                    all: &self.all,
+                    memory: &self.memory,
+                    history: &self.history,
+                    busy: &self.busy,
+                    errors: &self.errors,
+                })
             }),
             warning: (self.kojed == Kojed::Gone).then_some(KOJED_GONE),
         }
     }
 
-    /// The accent classes for the running contexts and the host.
+    /// The accent classes for every context (stopped ones are in the koje
+    /// menu too) and the host.
     pub fn accent_css(&self) -> String {
-        accent_css(self.contexts())
+        if self.all.is_empty() {
+            return accent_css(self.contexts());
+        }
+        let all: Vec<RunningContext> = self
+            .all
+            .iter()
+            .map(|c| RunningContext {
+                name: c.name.clone(),
+                color: c.color.clone(),
+                active: false,
+            })
+            .collect();
+        accent_css(&all)
     }
 }
 
@@ -540,16 +683,20 @@ mod tests {
             crate::menu::Panel::Context(p) => p.error,
             crate::menu::Panel::Overview(_) => None,
         };
-        s.apply(Update::LimitsChanged {
+        s.apply(Update::Busy {
+            context: "kp".into(),
+            busy: Busy::ChangingLimits,
+        });
+        s.apply(Update::Done {
             context: "kp".into(),
             error: Some("bad".into()),
         });
         assert_eq!(error(&s), Some("bad".into()));
-        s.apply(Update::LimitsChanged {
+        s.apply(Update::Busy {
             context: "kp".into(),
-            error: None,
+            busy: Busy::ChangingLimits,
         });
-        assert_eq!(error(&s), None);
+        assert_eq!(error(&s), None, "a new try clears the error");
     }
 
     #[test]
@@ -624,6 +771,64 @@ mod tests {
             })
         );
         assert_eq!(Action::FocusContext("kp".into()).command(), None);
+        assert_eq!(Action::FocusContext("kp".into()).koje(), None);
+    }
+
+    #[test]
+    fn actions_run_koje() {
+        let args = |a: Action| {
+            let (context, busy, cmds) = a.koje().unwrap();
+            let cmds: Vec<String> = cmds.iter().map(|c| c.join(" ")).collect();
+            (context, busy, cmds)
+        };
+        assert_eq!(
+            args(Action::Restart("kp".into())),
+            (
+                "kp".into(),
+                Busy::Restarting,
+                vec!["down kp".into(), "up kp".into()]
+            )
+        );
+        assert_eq!(
+            args(Action::Pause("kp".into())),
+            ("kp".into(), Busy::Pausing, vec!["sleep kp".into()])
+        );
+        assert_eq!(
+            args(Action::Create {
+                name: "neu".into(),
+                color: Some("#3584e4".into())
+            }),
+            (
+                NEW_CONTEXT.into(),
+                Busy::Creating,
+                vec!["new neu --color #3584e4".into(), "up neu".into()]
+            )
+        );
+        assert_eq!(
+            args(Action::Create {
+                name: "neu".into(),
+                color: None
+            })
+            .2[0],
+            "new neu"
+        );
+        assert_eq!(
+            args(Action::SetLimits {
+                context: "kp".into(),
+                soft: "6G".into(),
+                hard: "none".into()
+            })
+            .2,
+            ["limit kp --soft 6G --hard none"]
+        );
+    }
+
+    #[test]
+    fn context_entries_from_kojed() {
+        let e = ContextEntry::from(("kp".to_owned(), "#ff0000".to_owned(), "paused".to_owned()));
+        assert_eq!(e.status, Status::Paused);
+        let odd = ContextEntry::from(("kp".to_owned(), "#ff0000".to_owned(), "weird".to_owned()));
+        assert_eq!(odd.status, Status::Stopped);
     }
 
     #[test]

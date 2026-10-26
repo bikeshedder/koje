@@ -65,7 +65,7 @@ impl Bar {
         start.append(&workspaces);
         start.append(&tasks);
 
-        let menu = MenuWidget::new(actions.clone());
+        let menu = MenuWidget::new(&actions);
         let warning_text = gtk::Label::new(None);
         let warning = gtk::Box::builder()
             .spacing(6)

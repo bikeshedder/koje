@@ -8,6 +8,7 @@ mod hypr;
 mod menu;
 mod menu_ui;
 mod model;
+mod overview_ui;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -94,6 +95,7 @@ fn start(app: &adw::Application) {
         provider
     };
     style(CSS);
+    style(&swatch_css());
     let shell = Rc::new(RefCell::new(Shell::default()));
     let accents_css = shell.borrow().accent_css();
     let accents = style(&accents_css);
@@ -121,6 +123,24 @@ fn start(app: &adw::Application) {
 
     // Keep running without monitors (all unplugged): bars come back with them.
     std::mem::forget(app.hold());
+}
+
+/// The color buttons of "New context…": each in its palette color.
+fn swatch_css() -> String {
+    use std::fmt::Write as _;
+    let mut css = String::from(
+        ".swatch { min-width: 24px; min-height: 24px; padding: 0; }\n\
+         .swatch-auto { min-height: 24px; padding: 0 10px; }\n\
+         .swatch:checked, .swatch-auto:checked { outline: 2px solid var(--accent-bg-color); outline-offset: 2px; }\n",
+    );
+    for (label, hex) in menu::PALETTE {
+        let _ = writeln!(
+            css,
+            ".swatch-{} {{ background: {hex}; }}",
+            label.to_lowercase()
+        );
+    }
+    css
 }
 
 fn render(bars: &Bars, shell: &Rc<RefCell<Shell>>) {
