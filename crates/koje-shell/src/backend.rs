@@ -45,6 +45,13 @@ trait Daemon {
 
     fn focus(&self, context: &str) -> zbus::Result<()>;
 
+    fn keep_display_change(&self) -> zbus::Result<bool>;
+
+    fn revert_display_change(&self) -> zbus::Result<bool>;
+
+    #[zbus(signal)]
+    fn display_change_pending(&self, seconds: u32) -> zbus::Result<()>;
+
     #[zbus(signal)]
     fn contexts_changed(&self) -> zbus::Result<()>;
 
@@ -159,10 +166,19 @@ async fn act(
             });
             continue;
         }
-        if let Action::FocusContext(context) = action
-            && let Err(e) = focus(&context).await
-        {
-            tracing::warn!("kojed: Focus {context}: {e:#}");
+        match action {
+            Action::FocusContext(context) => {
+                if let Err(e) = focus(&context).await {
+                    tracing::warn!("kojed: Focus {context}: {e:#}");
+                }
+            }
+            Action::KeepDisplayChange | Action::RevertDisplayChange => {
+                let keep = action == Action::KeepDisplayChange;
+                if let Err(e) = display_change(keep).await {
+                    tracing::warn!("kojed: display change: {e:#}");
+                }
+            }
+            _ => {}
         }
     }
     // The GTK side is gone; keep the others running until it says so.
@@ -174,6 +190,23 @@ async fn focus(context: &str) -> Result<()> {
     let call = async {
         let conn = zbus::Connection::session().await?;
         DaemonProxy::new(&conn).await?.focus(context).await?;
+        anyhow::Ok(())
+    };
+    tokio::time::timeout(TIMEOUT, call)
+        .await
+        .context("kojed did not answer")?
+}
+
+/// Keep or undo the display change GNOME Settings made (M8.53).
+async fn display_change(keep: bool) -> Result<()> {
+    let call = async {
+        let conn = zbus::Connection::session().await?;
+        let daemon = DaemonProxy::new(&conn).await?;
+        if keep {
+            daemon.keep_display_change().await?;
+        } else {
+            daemon.revert_display_change().await?;
+        }
         anyhow::Ok(())
     };
     tokio::time::timeout(TIMEOUT, call)
@@ -241,12 +274,18 @@ async fn kojed(tx: &Sender<Update>) -> Result<()> {
         .await?;
     let mut changed = daemon.receive_contexts_changed().await?;
     let mut readings = daemon.receive_memory_changed().await?;
+    let mut displays = daemon.receive_display_change_pending().await?;
     let mut owner = daemon.inner().receive_owner_changed().await?;
     let mut running = refresh(&daemon, tx, Vec::new()).await;
     loop {
         tokio::select! {
             Some(_) = changed.next() => running = refresh(&daemon, tx, running).await,
             Some(_) = readings.next() => memory(&daemon, tx, &running).await,
+            Some(signal) = displays.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = tx.send(Update::DisplayChangePending(args.seconds)).await;
+                }
+            }
             Some(new_owner) = owner.next() => {
                 if new_owner.is_some() {
                     running = refresh(&daemon, tx, running).await;

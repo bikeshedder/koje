@@ -40,6 +40,9 @@ pub enum Update {
     System(System),
     /// `config.toml` changed.
     Bar(BarConfig),
+    /// GNOME Settings changed the screens: ask to keep them within that many
+    /// seconds (M8.53). Not part of the bar's state.
+    DisplayChangePending(u32),
 }
 
 /// kojed's `Memory`: the working set, what the cgroup charges and the limits
@@ -270,6 +273,9 @@ pub enum Action {
     },
     /// A change in Quick Settings.
     Quick(Change),
+    /// "Keep Changes" / "Revert Settings" after a display change.
+    KeepDisplayChange,
+    RevertDisplayChange,
 }
 
 impl Action {
@@ -317,7 +323,11 @@ impl Action {
                     vec![new, cmd(&["up", name])],
                 )
             }
-            Self::FocusWorkspace(_) | Self::FocusContext(_) | Self::Quick(_) => return None,
+            Self::FocusWorkspace(_)
+            | Self::FocusContext(_)
+            | Self::Quick(_)
+            | Self::KeepDisplayChange
+            | Self::RevertDisplayChange => return None,
         })
     }
 }
@@ -327,6 +337,7 @@ impl Shell {
         match update {
             Update::Desktop(desktop) => self.desktop = desktop,
             Update::Bar(bar) => self.bar = bar,
+            Update::DisplayChangePending(_) => {}
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
             Update::History(history) => self.history = history,

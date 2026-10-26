@@ -178,12 +178,27 @@ impl Displays {
         pending.is_some()
     }
 
-    /// Undo a pending change now (the shell's "Revert", or the timer).
+    /// Undo a pending change now (the shell's "Revert").
     pub async fn revert(self: &Arc<Self>) -> bool {
         let Some(p) = self.state.lock().await.pending.take() else {
             return false;
         };
         p.revert.abort();
+        self.undo(p).await;
+        true
+    }
+
+    /// The timer ran out: undo. Not through [`Self::revert`], whose abort
+    /// would cancel this very task in the middle of it.
+    async fn expire(self: &Arc<Self>) {
+        let pending = self.state.lock().await.pending.take();
+        if let Some(p) = pending {
+            tracing::info!("display change not kept in time");
+            self.undo(p).await;
+        }
+    }
+
+    async fn undo(self: &Arc<Self>, p: Pending) {
         let xml = self.paths.monitors_xml();
         let restored = match &p.previous_xml {
             Some(text) => {
@@ -199,7 +214,6 @@ impl Displays {
         }
         tracing::info!("display change reverted");
         self.changed().await;
-        true
     }
 
     async fn apply(
@@ -269,7 +283,7 @@ impl Displays {
             let me = Arc::clone(self);
             let timer = tokio::spawn(async move {
                 tokio::time::sleep(CONFIRM).await;
-                me.revert().await;
+                me.expire().await;
             });
             self.state.lock().await.pending = Some(Pending {
                 previous_lines,

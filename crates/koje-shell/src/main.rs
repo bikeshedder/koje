@@ -6,6 +6,7 @@ mod backend;
 mod bar;
 mod bar_layout;
 mod clock;
+mod confirm_ui;
 mod hypr;
 mod menu;
 mod menu_ui;
@@ -79,6 +80,15 @@ button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .koje-icon.koje-host { color: #ffffff; }
 .koje-graph { color: var(--accent-color); }
 .koje-bar .warning { color: var(--warning-color); margin: 0 8px; }
+window.display-confirm { background: transparent; }
+.dialog-card {
+  background: var(--dialog-bg-color);
+  color: var(--dialog-fg-color);
+  border-radius: 15px;
+  padding: 24px;
+  margin: 24px;
+  box-shadow: 0 2px 12px alpha(black, 0.3), 0 0 0 1px alpha(black, 0.05);
+}
 ";
 
 type Bars = Rc<RefCell<Vec<Bar>>>;
@@ -100,6 +110,7 @@ fn main() -> glib::ExitCode {
 fn start(app: &adw::Application) {
     let (tx, rx) = async_channel::unbounded();
     let (actions, actions_rx) = tokio::sync::mpsc::unbounded_channel();
+    let actions_for_confirm = actions.clone();
     if let Err(e) = backend::spawn(tx, actions_rx) {
         tracing::error!("{e:#}");
         app.quit();
@@ -136,10 +147,15 @@ fn start(app: &adw::Application) {
     });
 
     follow_config(&shell, &bars);
+    let confirm = confirm_ui::DisplayConfirm::new(app, &actions_for_confirm);
 
     glib::spawn_future_local(async move {
         let mut accents_css = accents_css;
         while let Ok(update) = rx.recv().await {
+            if let Update::DisplayChangePending(seconds) = update {
+                confirm.show(seconds);
+                continue;
+            }
             shell.borrow_mut().apply(update);
             let css = shell.borrow().accent_css();
             if css != accents_css {
