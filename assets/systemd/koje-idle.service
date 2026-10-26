@@ -1,0 +1,11 @@
+# Idle, blank and lock in the koje session (ADR 0048): hypridle. Installed by
+# the koje package to /usr/lib/systemd/user/.
+[Unit]
+Description=koje session idle daemon (hypridle)
+PartOf=koje-session.target
+After=koje-session.target
+
+[Service]
+ExecStart=/usr/bin/hypridle
+Restart=on-failure
+RestartSec=2

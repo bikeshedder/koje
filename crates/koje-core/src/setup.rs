@@ -181,11 +181,15 @@ pub fn remove_old(label: &str, path: &Path, current: Option<&[u8]>, unit: bool) 
     })
 }
 
-/// A running kojed whose executable is not the package's is restarted after
-/// setup: it is the old one from `~/.local/bin`, or the package was upgraded
-/// under it (`/usr/bin/kojed (deleted)`).
-pub fn kojed_outdated(exe: &Path) -> bool {
-    exe != Path::new(crate::paths::BIN_DIR).join("kojed")
+/// koje's units and their binaries: restarted after setup when they run an
+/// executable that is not the package's (ADR 0045, 0048).
+pub const UNITS: [(&str, &str); 2] = [("kojed", "kojed"), ("koje-shell", "koje-shell")];
+
+/// A running unit whose executable is not the package's `binary` is
+/// restarted after setup: an old one from `~/.local/bin`, or the package was
+/// upgraded under it (`/usr/bin/kojed (deleted)`).
+pub fn outdated(exe: &Path, binary: &str) -> bool {
+    exe != Path::new(crate::paths::BIN_DIR).join(binary)
 }
 
 /// Keyboard layouts for Hyprland's `input` section.
@@ -508,8 +512,8 @@ pub enum Refresh {
     Waybar,
     /// Start a service that is not running (`exec-once` runs only at login).
     Start(Service),
-    /// Restart kojed: it runs an old binary ([`kojed_outdated`]).
-    Kojed,
+    /// Restart one of koje's units: it runs an old binary ([`outdated`]).
+    Restart(&'static str),
 }
 
 impl fmt::Display for Refresh {
@@ -518,9 +522,18 @@ impl fmt::Display for Refresh {
             Self::Hyprland => write!(f, "reload Hyprland's config"),
             Self::Waybar => write!(f, "reload Waybar's config"),
             Self::Start(s) => write!(f, "start {}", s.name),
-            Self::Kojed => write!(f, "restart kojed (it runs an old binary)"),
+            Self::Restart(unit) => write!(f, "restart {unit} (it runs an old binary)"),
         }
     }
+}
+
+/// In the koje session systemd starts the services (ADR 0048): only the
+/// config reload and koje's restarts are left of a `refresh`.
+pub fn for_koje_session(refresh: Vec<Refresh>) -> Vec<Refresh> {
+    refresh
+        .into_iter()
+        .filter(|r| matches!(r, Refresh::Hyprland | Refresh::Restart(_)))
+        .collect()
 }
 
 /// What to refresh in the current Hyprland session after `steps` ran;
@@ -623,9 +636,13 @@ mod tests {
 
     #[test]
     fn kojed_is_outdated_unless_it_runs_the_packages_binary() {
-        assert!(!kojed_outdated(Path::new("/usr/bin/kojed")));
-        assert!(kojed_outdated(Path::new("/usr/bin/kojed (deleted)")));
-        assert!(kojed_outdated(Path::new("/home/mj/.local/bin/kojed")));
+        assert!(!outdated(Path::new("/usr/bin/kojed"), "kojed"));
+        assert!(outdated(Path::new("/usr/bin/kojed (deleted)"), "kojed"));
+        assert!(outdated(Path::new("/home/mj/.local/bin/kojed"), "kojed"));
+        assert!(outdated(
+            Path::new("/usr/bin/koje-shell (deleted)"),
+            "koje-shell"
+        ));
     }
 
     fn us() -> Keyboard {
@@ -808,13 +825,17 @@ mod tests {
         file("f", Path::new(path), SNIPPET, 0o644, None)
     }
 
+    /// A plain Hyprland session gets its services from the legacy file; the
+    /// koje session's snippet has none (ADR 0048: systemd units).
     #[test]
-    fn session_services_are_the_snippets() {
+    fn session_services_are_the_legacy_snippets() {
+        let legacy = include_str!("../../../assets/hyprland/legacy-services.conf");
         let snippet = include_str!("../../../assets/hyprland/koje.conf");
         for s in SESSION {
             let line = format!("exec-once = {}", s.command);
-            assert!(snippet.lines().any(|l| l == line), "{line}");
+            assert!(legacy.lines().any(|l| l == line), "{line}");
         }
+        assert!(!snippet.lines().any(|l| l.starts_with("exec-once")));
     }
 
     /// Super+F1 lists the bindings by their descriptions: none of koje's may lack one.
@@ -827,6 +848,20 @@ mod tests {
             let flags = line.split_once(' ').map_or(line, |(b, _)| b);
             assert!(flags.contains('d'), "{line}");
         }
+    }
+
+    #[test]
+    fn the_koje_session_starts_its_services_itself() {
+        let all = vec![
+            Refresh::Hyprland,
+            Refresh::Waybar,
+            Refresh::Start(SESSION[0]),
+            Refresh::Restart("kojed"),
+        ];
+        assert_eq!(
+            for_koje_session(all),
+            [Refresh::Hyprland, Refresh::Restart("kojed")]
+        );
     }
 
     #[test]

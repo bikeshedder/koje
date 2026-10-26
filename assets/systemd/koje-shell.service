@@ -1,12 +1,12 @@
-# koje's UI: the bar, later OSD, overlays and notifications (ADR 0042). Holds
+# koje's UI: the bar, the OSD, dialogs, later notifications (ADR 0042). Holds
 # no state of its own, so a restart after a crash costs only a moment without
 # a bar. Installed by the koje package to /usr/lib/systemd/user/ (ADR 0045);
-# the session starts it once it replaces Waybar (M8.32).
+# part of the koje session (koje-session.target, ADR 0048).
 [Unit]
 Description=koje shell (bar)
 Documentation=https://github.com/bikeshedder/koje
-PartOf=graphical-session.target
-After=graphical-session.target
+PartOf=koje-session.target
+After=koje-session.target kojed.service
 
 [Service]
 Type=dbus

@@ -1,9 +1,14 @@
 # The koje session's services (ADR 0048): started by `koje session ready` once
-# Hyprland runs, stopped by `koje session start` when it exits. Installed by
-# the koje package to /usr/lib/systemd/user/.
+# Hyprland runs, stopped by `koje session start` when it exits; restarting it
+# restarts them (`koje session restart`). XDG autostart entries come with
+# xdg-desktop-autostart.target. Installed by the koje package to
+# /usr/lib/systemd/user/.
 [Unit]
 Description=koje session
 Documentation=https://github.com/bikeshedder/koje
 BindsTo=graphical-session.target
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target
+# Notifications: mako's own unit until the shell shows them (M8.36).
+Wants=kojed.service koje-shell.service mako.service koje-idle.service koje-polkit-agent.service
+Wants=xdg-desktop-autostart.target

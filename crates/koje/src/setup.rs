@@ -13,7 +13,13 @@ use koje_core::setup::{self, Action, Mark, Refresh, Service, Step, WaybarFile};
 
 use crate::prompt::confirm;
 
-const SNIPPET: &[u8] = include_bytes!("../../../assets/hyprland/koje.conf");
+/// The per-user copy a plain Hyprland session sources: koje's snippet with
+/// the services the koje session starts as units (ADR 0048, until M8.61).
+const SNIPPET: &[u8] = concat!(
+    include_str!("../../../assets/hyprland/koje.conf"),
+    include_str!("../../../assets/hyprland/legacy-services.conf")
+)
+.as_bytes();
 const HYPRBARS: &[u8] = include_bytes!("../../../assets/hyprland/hyprbars.conf");
 const WAYBAR: [(&str, &[u8]); 2] = [
     (
@@ -290,8 +296,13 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
     } else {
         Vec::new()
     };
-    if kojed_exe().is_some_and(|exe| setup::kojed_outdated(&exe)) {
-        refresh.push(Refresh::Kojed);
+    if std::env::var("XDG_SESSION_DESKTOP").as_deref() == Ok("koje") {
+        refresh = setup::for_koje_session(refresh);
+    }
+    for (unit, binary) in setup::UNITS {
+        if main_exe(unit).is_some_and(|exe| setup::outdated(&exe, binary)) {
+            refresh.push(Refresh::Restart(unit));
+        }
     }
     if !refresh.is_empty() {
         println!("\nThen");
@@ -352,10 +363,10 @@ pub fn run(paths: &Paths, dry_run: bool, yes: bool) -> Result<()> {
     Ok(())
 }
 
-/// The executable of the running kojed (its unit's main process).
-fn kojed_exe() -> Option<PathBuf> {
+/// The executable of a running unit's main process.
+fn main_exe(unit: &str) -> Option<PathBuf> {
     let out = std::process::Command::new("systemctl")
-        .args(["--user", "show", "--property=MainPID", "--value", "kojed"])
+        .args(["--user", "show", "--property=MainPID", "--value", unit])
         .output()
         .ok()?;
     let pid: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
@@ -385,7 +396,7 @@ fn refresh_session(r: &Refresh) -> Result<()> {
         Refresh::Waybar => ("pkill", vec!["-USR2", "-x", "waybar"]),
         // Started by Hyprland, so it gets the session's environment as at login.
         Refresh::Start(s) => ("hyprctl", vec!["dispatch", "exec", s.command]),
-        Refresh::Kojed => ("systemctl", vec!["--user", "restart", "kojed"]),
+        Refresh::Restart(unit) => ("systemctl", vec!["--user", "restart", unit]),
     };
     let out = std::process::Command::new(program)
         .args(&args)

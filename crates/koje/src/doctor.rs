@@ -265,6 +265,39 @@ fn screens(paths: &Paths) -> Vec<Check> {
     checks
 }
 
+/// In the koje session: its target and services run (ADR 0048).
+fn session_units() -> Vec<Check> {
+    if std::env::var("XDG_SESSION_DESKTOP").as_deref() != Ok("koje") {
+        return Vec::new();
+    }
+    let active = |unit: &str| {
+        std::process::Command::new("systemctl")
+            .args(["--user", "is-active", "--quiet", unit])
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    [
+        "koje-session.target",
+        "kojed.service",
+        "koje-shell.service",
+        "mako.service",
+        "koje-idle.service",
+        "koje-polkit-agent.service",
+    ]
+    .iter()
+    .map(|unit| {
+        if active(unit) {
+            Check::ok(format!("session: {unit}"))
+        } else {
+            Check::warn(
+                format!("session: {unit} is not running"),
+                format!("systemctl --user status {unit}; koje session restart starts them again"),
+            )
+        }
+    })
+    .collect()
+}
+
 /// The files `koje setup` installs.
 fn installed(paths: &Paths) -> Vec<Check> {
     let steps = match setup::plan(paths) {
@@ -412,6 +445,7 @@ pub fn run(paths: &Paths) -> Result<()> {
     let mut checks = vec![package(), packages(), hyprland()];
     checks.extend(bindings());
     checks.extend(screens(paths));
+    checks.extend(session_units());
     checks.extend(installed(paths));
     checks.extend(kojed());
     checks.extend([image(), forwarder(), subids()]);
