@@ -34,7 +34,7 @@ const KOJE_TIMEOUT: Duration = Duration::from_secs(300);
     default_service = "io.koje.Daemon",
     default_path = "/io/koje/Daemon"
 )]
-trait Daemon {
+pub trait Daemon {
     fn running_contexts(&self) -> zbus::Result<Vec<(String, String, u32, bool)>>;
 
     fn contexts(&self) -> zbus::Result<Vec<(String, String, String)>>;

@@ -21,6 +21,8 @@ mod overview_ui;
 mod quick;
 mod quick_ui;
 mod search;
+mod share;
+mod share_ui;
 mod switcher;
 mod switcher_ui;
 mod system;
@@ -111,7 +113,8 @@ fn main() -> glib::ExitCode {
         .init();
     // `koje-shell overview` / `apps`: show or hide the running shell's
     // overview or app grid (Super, Super+A; ADR 0049); `switch
-    // [--backwards] [--windows]`: Alt+Tab (M8.49).
+    // [--backwards] [--windows]`: Alt+Tab (M8.49); `share-picker`: xdph's
+    // screen sharing picker, its own process (ADR 0050).
     match std::env::args().nth(1).as_deref() {
         Some("overview") => return remote_action("overview"),
         Some("apps") => return remote_action("app-grid"),
@@ -124,6 +127,10 @@ fn main() -> glib::ExitCode {
                     glib::ExitCode::FAILURE
                 }
             };
+        }
+        Some("share-picker") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            return share_ui::run(&args);
         }
         Some("switch") => {
             let args: Vec<String> = std::env::args().skip(2).collect();
