@@ -44,7 +44,12 @@ fn modified(path: &Path) -> Option<SystemTime> {
 }
 
 /// Follow hotplug and monitors.xml; apply what changed.
-pub async fn run(hypr: Hyprland, paths: Paths, runtime: PathBuf) {
+pub async fn run(
+    hypr: Hyprland,
+    paths: Paths,
+    runtime: PathBuf,
+    displays: std::sync::Arc<crate::displays::Displays>,
+) {
     let xml = paths.monitors_xml();
     let user_conf = paths.session_hyprland_conf();
     let runtime_conf = runtime.join("koje/monitors.conf");
@@ -59,7 +64,14 @@ pub async fn run(hypr: Hyprland, paths: Paths, runtime: PathBuf) {
             line = events.next_line() => match line {
                 // Hyprland (re)started: it read the runtime file.
                 Line::Connected => false,
-                Line::Event(l) => is_hotplug(&l),
+                Line::Event(l) => {
+                    let plugged = is_hotplug(&l);
+                    if plugged {
+                        // GNOME Settings shows the new set.
+                        displays.changed().await;
+                    }
+                    plugged
+                }
             },
             _ = poll.tick() => {
                 let now = modified(&xml);

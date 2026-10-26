@@ -32,6 +32,7 @@ pub mod media;
 pub mod memory;
 pub mod monitors;
 pub mod mount;
+pub mod mutter;
 pub mod name;
 pub mod open;
 pub mod paths;

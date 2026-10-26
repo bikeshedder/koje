@@ -13,6 +13,7 @@
 
 mod api;
 mod daemon;
+mod displays;
 mod gsettings;
 mod players;
 mod procfs;
@@ -61,6 +62,7 @@ async fn main() -> Result<()> {
         &std::fs::metadata("/proc/self").context("reading /proc/self")?,
     );
     let players = players::Players::new(uid);
+    let displays = displays::Displays::new(Hyprland::from_env(), screens_paths.clone(), &runtime);
     let conn = zbus::connection::Builder::session()
         .context("connecting to the session bus")?
         .name(BUS_NAME)?
@@ -71,6 +73,7 @@ async fn main() -> Result<()> {
                 sockets: sockets.clone(),
                 players: players.clone(),
                 runtime: runtime.clone(),
+                displays: Arc::clone(&displays),
             },
         )?
         .build()
@@ -79,11 +82,14 @@ async fn main() -> Result<()> {
             format!("owning {BUS_NAME} on the session bus (is kojed running already?)")
         })?;
     tracing::info!("serving {BUS_NAME}");
+    // GNOME Settings' Displays panel (ADR 0046, M8.51).
+    displays.serve(&conn).await?;
     // GNOME's monitors.xml while Hyprland runs (ADR 0046, M8.52).
     tokio::spawn(screens::run(
         Hyprland::from_env(),
         screens_paths,
         runtime.clone(),
+        Arc::clone(&displays),
     ));
     tokio::spawn(relink_sound(runtime));
     // GNOME's input settings on Hyprland (ADR 0044, M8.43).

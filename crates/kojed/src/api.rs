@@ -28,6 +28,8 @@ pub struct Api {
     pub players: Players,
     /// The host's `XDG_RUNTIME_DIR`.
     pub runtime: std::path::PathBuf,
+    /// The screens (Mutter's API for GNOME Settings, ADR 0046).
+    pub displays: std::sync::Arc<crate::displays::Displays>,
 }
 
 /// `""` or `empty` → `None`.
@@ -319,6 +321,22 @@ impl Api {
         let interval = u32::try_from(crate::TICK.as_secs()).unwrap_or(u32::MAX);
         Ok((ctx.to_string(), interval, d.memory_history(&ctx)))
     }
+
+    /// Keep the display change GNOME Settings made (the shell's "Keep
+    /// Changes", M8.53); whether one was waiting.
+    async fn keep_display_change(&self) -> bool {
+        self.displays.keep().await
+    }
+
+    /// Undo it now (the shell's "Revert"); whether one was waiting.
+    async fn revert_display_change(&self) -> bool {
+        self.displays.revert().await
+    }
+
+    /// GNOME Settings changed the screens: the shell asks whether to keep
+    /// them; without an answer within `seconds` kojed reverts.
+    #[zbus(signal)]
+    async fn display_change_pending(emitter: &SignalEmitter<'_>, seconds: u32) -> zbus::Result<()>;
 
     /// New memory readings were taken (every tick).
     #[zbus(signal)]
