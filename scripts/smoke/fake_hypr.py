@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A fake Hyprland for koje-shell smoke tests: answers `j/…` requests from a
 fixed desktop (two contexts, a stash, host workspaces) and logs every other
-request – dispatches – to LOG. ACTIVE (env) names the active workspace.
+request – dispatches – to LOG. ACTIVE (env) names the active workspace;
+PLUGIN=1 lists koje's Hyprland plugin as loaded.
 
 Usage: fake_hypr.py <instance dir> <log>"""
 import json, os, socket, sys, threading, time
@@ -36,6 +37,9 @@ desktop = {
     ],
     "j/activewindow": {"address": "0x2"},
 }
+# PLUGIN=1: koje's plugin is loaded (the shell then sends it the cards).
+if os.environ.get("PLUGIN"):
+    desktop["j/plugin list"] = [{"name": "koje", "author": "koje", "handle": "0x1", "version": "1", "description": ""}]
 
 
 def log_line(text):

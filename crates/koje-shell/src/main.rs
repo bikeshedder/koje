@@ -170,7 +170,6 @@ fn remote_action(action: &str) -> glib::ExitCode {
 
 fn start(app: &adw::Application) {
     let (tx, rx) = async_channel::unbounded();
-    let capture = capture::spawn(tx.clone());
     let (actions, actions_rx) = tokio::sync::mpsc::unbounded_channel();
     let actions_for_confirm = actions.clone();
     if let Err(e) = backend::spawn(tx, actions_rx) {
@@ -212,7 +211,7 @@ fn start(app: &adw::Application) {
 
     follow_config(&shell, &bars);
     follow_favorites(&shell, &bars);
-    overview_actions(app, &bars, &shell, &actions_for_confirm, &capture);
+    overview_actions(app, &bars, &shell, &actions_for_confirm);
     follow_host_apps(&shell, &bars);
     switcher_actions(app, &bars, &shell, &actions_for_confirm);
     // GNOME's questions with a countdown: a display change, ending the session.
@@ -223,13 +222,6 @@ fn start(app: &adw::Application) {
     glib::spawn_future_local(async move {
         let mut accents_css = accents_css;
         while let Ok(update) = rx.recv().await {
-            if let Update::Thumbnail { address, thumb } = update {
-                let texture = texture(&thumb);
-                for bar in bars.borrow().iter() {
-                    bar.overview().set_thumbnail(&address, &texture);
-                }
-                continue;
-            }
             if let Update::DisplayChangePending(seconds) = update {
                 display_dialog.ask(
                     dialog_ui::Question {
@@ -408,24 +400,12 @@ fn overview_actions(
     bars: &Bars,
     shell: &Rc<RefCell<Shell>>,
     actions: &UnboundedSender<Action>,
-    capture: &std::sync::mpsc::Sender<Vec<String>>,
 ) {
     for (name, mode) in [("overview", Mode::Windows), ("app-grid", Mode::Apps)] {
         let action = gio::SimpleAction::new(name, None);
         let (bars, shell, actions) = (bars.clone(), shell.clone(), actions.clone());
-        let capture = capture.clone();
         action.connect_activate(move |_, _| {
             toggle_overview(&bars, &shell, &actions, mode);
-            // Fresh pictures of the windows it shows.
-            let windows: Vec<String> = bars
-                .borrow()
-                .iter()
-                .filter(|b| b.overview().is_visible())
-                .flat_map(|b| b.overview().windows())
-                .collect();
-            if !windows.is_empty() {
-                let _ = capture.send(windows);
-            }
         });
         app.add_action(&action);
     }

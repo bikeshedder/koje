@@ -17,6 +17,9 @@ pub struct OverviewView {
     pub stash: Option<Stash>,
     /// The dash; empty on monitors without the focus.
     pub dash: Vec<DashEntry>,
+    /// koje's plugin draws the windows into the cards (ADR 0051); else the
+    /// cards show the app's icon.
+    pub live: bool,
 }
 
 /// A window in the overview.
@@ -59,6 +62,28 @@ pub fn on_workspace<'a>(windows: &'a [WindowState], workspace: &str) -> Vec<&'a 
         .collect();
     on.sort_by_key(|w| (w.at.1, w.at.0, w.address.clone()));
     on
+}
+
+/// A window's card for the plugin: its address and place, logical pixels
+/// relative to the overview's surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    pub address: String,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+/// The arguments of `dispatch koje:overview` (plugin/src/main.cpp): `open`
+/// flies the windows in, `update` moves them.
+pub fn plugin_command(open: bool, monitor: &str, places: &[Place]) -> String {
+    use std::fmt::Write as _;
+    let mut out = format!("{} {monitor}", if open { "open" } else { "update" });
+    for p in places {
+        let _ = write!(out, " {}:{},{},{},{}", p.address, p.x, p.y, p.w, p.h);
+    }
+    out
 }
 
 /// A window's place in the overview.
@@ -231,6 +256,22 @@ mod tests {
             let (w, h) = sizes[i];
             assert!((a.w / a.h - w / h).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn the_plugin_gets_the_cards() {
+        let p = |a: &str, x| Place {
+            address: a.into(),
+            x,
+            y: 80,
+            w: 640,
+            h: 400,
+        };
+        assert_eq!(
+            plugin_command(true, "DP-1", &[p("0xa", 10), p("0xb", 700)]),
+            "open DP-1 0xa:10,80,640,400 0xb:700,80,640,400"
+        );
+        assert_eq!(plugin_command(false, "DP-1", &[]), "update DP-1");
     }
 
     #[test]

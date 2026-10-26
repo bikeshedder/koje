@@ -48,6 +48,7 @@ doc:
 # Build the koje package into target/debian/ (ADR 0045); on the host:
 # sudo apt install ./target/debian/koje_<version>_amd64.deb && koje setup
 deb:
+    scripts/build-plugin.sh
     cargo build --release --locked -p koje -p kojed -p koje-shell
     cargo build --release --locked -p koje-forward --target x86_64-unknown-linux-musl
     mkdir -p target/deb-staging

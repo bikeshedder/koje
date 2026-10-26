@@ -76,6 +76,7 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
     let monitors: Vec<Monitor> = json(hypr, "j/monitors").await?;
     let workspaces: Vec<Workspace> = json(hypr, "j/workspaces").await?;
     let clients: Vec<Client> = json(hypr, "j/clients").await?;
+    let plugins: Vec<Plugin> = json(hypr, "j/plugin list").await.unwrap_or_default();
     Ok(Desktop {
         monitors: monitors
             .into_iter()
@@ -107,7 +108,16 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
                 context: tagged_context(&c.tags),
             })
             .collect(),
+        plugin: plugins.iter().any(|p| p.name == PLUGIN),
     })
+}
+
+/// koje's Hyprland plugin as `hyprctl plugin list` names it (ADR 0051).
+const PLUGIN: &str = "koje";
+
+#[derive(Debug, Deserialize)]
+struct Plugin {
+    name: String,
 }
 
 /// Hyprland events after which the shell reads the desktop again. A context's

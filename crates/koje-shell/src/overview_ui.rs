@@ -16,7 +16,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::dash::DashEntry;
 use crate::model::{Accent, Action, Shell, WorkspaceButton};
-use crate::overview::{OverviewView, WindowCard};
+use crate::overview::{OverviewView, Place, WindowCard, plugin_command};
 use crate::search::{AppHit, AppItem, AppSection, SearchView, WindowHit};
 
 /// Room between the cards.
@@ -26,6 +26,10 @@ const TITLE_HEIGHT: i32 = 32;
 
 pub const CSS: &str = "
 window.koje-overview { background: #1d1d20; color: #ffffff; }
+/* koje's plugin draws the background and the windows (ADR 0051). */
+window.koje-overview.live { background: transparent; }
+window.koje-overview.live.covered { background: #1d1d20; }
+window.koje-overview.live .window-preview { background: transparent; box-shadow: none; }
 .overview-strip { margin: 16px 0 8px 0; }
 .overview-strip button {
   min-height: 28px; padding: 0 14px; border-radius: 9999px;
@@ -42,7 +46,6 @@ window.koje-overview { background: #1d1d20; color: #ffffff; }
   border: 3px solid transparent; box-shadow: 0 2px 8px alpha(black, 0.4);
 }
 .window-preview:hover { border-color: alpha(#ffffff, 0.6); }
-.window-picture { border-radius: 9px; }
 .window-preview.koje-host { background: alpha(#ffffff, 0.08); }
 .window-card .window-close { opacity: 0; min-width: 28px; min-height: 28px; padding: 0; margin: 6px; }
 .window-card:hover .window-close { opacity: 1; }
@@ -84,10 +87,20 @@ mod imp {
     use gtk4::subclass::prelude::*;
 
     /// Places the cards with [`crate::overview::arrange`].
-    #[derive(Debug, Default)]
+    #[derive(Default)]
     pub struct CardsLayout {
         /// Each card's window size, in child order.
         pub sizes: RefCell<Vec<(f64, f64)>>,
+        /// Called after the cards got their places (the plugin follows them).
+        pub allocated: RefCell<Option<Box<dyn Fn()>>>,
+    }
+
+    impl std::fmt::Debug for CardsLayout {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("CardsLayout")
+                .field("sizes", &self.sizes)
+                .finish_non_exhaustive()
+        }
     }
 
     #[glib::object_subclass]
@@ -136,6 +149,9 @@ mod imp {
                     -1,
                 );
             }
+            if let Some(f) = self.allocated.borrow().as_ref() {
+                f();
+            }
         }
     }
 }
@@ -177,10 +193,15 @@ pub struct OverviewSurface {
     grid: gtk::Box,
     mode: Cell<Mode>,
     shown: RefCell<Option<OverviewView>>,
-    /// Window pictures (M8.67) by address, and the cards' pictures showing
-    /// them.
-    thumbnails: RefCell<std::collections::HashMap<String, gdk::Texture>>,
-    pictures: RefCell<std::collections::HashMap<String, gtk::Picture>>,
+    /// The monitor's connector, as Hyprland names it.
+    monitor: String,
+    /// Each card's window and the area its window is drawn into by koje's
+    /// plugin (ADR 0051).
+    previews: RefCell<Vec<(String, gtk::Button)>>,
+    /// The plugin was told to fly the windows in since it was shown.
+    opened: Cell<bool>,
+    /// The places it was told last.
+    sent: RefCell<String>,
     shown_search: RefCell<Option<SearchView>>,
     shown_grid: RefCell<Option<Vec<AppSection>>>,
 }
@@ -280,10 +301,23 @@ impl OverviewSurface {
             shown: RefCell::new(None),
             shown_search: RefCell::new(None),
             shown_grid: RefCell::new(None),
-            thumbnails: RefCell::default(),
-            pictures: RefCell::default(),
+            monitor: monitor.connector().map(String::from).unwrap_or_default(),
+            previews: RefCell::default(),
+            opened: Cell::new(false),
+            sent: RefCell::default(),
         });
         me.connect_controls();
+        // Where the cards are, the plugin draws the windows – after each
+        // layout, once GTK is done with it.
+        let weak = Rc::downgrade(&me);
+        me.layout.set_allocated(move || {
+            let weak = weak.clone();
+            glib::idle_add_local_once(move || {
+                if let Some(me) = weak.upgrade() {
+                    me.send_places();
+                }
+            });
+        });
         me
     }
 
@@ -339,6 +373,13 @@ impl OverviewSurface {
     /// The page for the search and the mode, its content current.
     fn update_page(&self) {
         let query = self.entry.text();
+        // The search and the app grid cover the plugin's windows.
+        let covered = !query.trim().is_empty() || self.mode.get() == Mode::Apps;
+        if covered {
+            self.window.add_css_class("covered");
+        } else {
+            self.window.remove_css_class("covered");
+        }
         if !query.trim().is_empty() {
             let view = self.shell.borrow().search(&query);
             if self.shown_search.borrow().as_ref() != Some(&view) {
@@ -392,49 +433,69 @@ impl OverviewSurface {
         self.window.set_visible(false);
         self.entry.set_text("");
         self.set_mode(Mode::Windows);
+        // The plugin flies the windows back.
+        if self.opened.replace(false) {
+            self.sent.replace(String::new());
+            let _ = self
+                .actions
+                .send(Action::Overview(format!("close {}", self.monitor)));
+        }
     }
 
     pub fn close(&self) {
         self.window.destroy();
     }
 
-    /// A window's picture arrived: shown on its card, kept for the next
-    /// render.
-    pub fn set_thumbnail(&self, address: &str, texture: &gdk::Texture) {
-        self.thumbnails
-            .borrow_mut()
-            .insert(address.to_owned(), texture.clone());
-        if let Some(picture) = self.pictures.borrow().get(address) {
-            picture.set_paintable(Some(texture));
-            if let Some(icon) = picture.next_sibling() {
-                place_icon(&icon, true);
-            }
+    /// Tell koje's plugin where the cards are, when that changed: the first
+    /// time since shown it flies the windows in.
+    fn send_places(&self) {
+        let live = self.shown.borrow().as_ref().is_some_and(|v| v.live);
+        if !live || !self.window.is_visible() {
+            return;
         }
-    }
-
-    /// The windows whose pictures it shows (to capture on opening).
-    pub fn windows(&self) -> Vec<String> {
-        self.shown
+        let places: Vec<Place> = self
+            .previews
             .borrow()
-            .as_ref()
-            .map(|v| v.windows.iter().map(|w| w.address.clone()).collect())
-            .unwrap_or_default()
+            .iter()
+            .filter_map(|(address, preview)| {
+                let b = preview.compute_bounds(&self.window)?;
+                (b.width() >= 1.0 && b.height() >= 1.0).then(|| Place {
+                    address: address.clone(),
+                    x: px(f64::from(b.x())),
+                    y: px(f64::from(b.y())),
+                    w: px(f64::from(b.width())),
+                    h: px(f64::from(b.height())),
+                })
+            })
+            .collect();
+        let open = !self.opened.get();
+        let command = plugin_command(open, &self.monitor, &places);
+        let key = plugin_command(false, &self.monitor, &places);
+        if !open && *self.sent.borrow() == key {
+            return;
+        }
+        self.opened.set(true);
+        self.sent.replace(key);
+        let _ = self.actions.send(Action::Overview(command));
     }
 
     pub fn render(&self, view: &OverviewView) {
         if self.shown.borrow().as_ref() == Some(view) {
             return;
         }
+        self.shown.replace(Some(view.clone()));
         clear(&self.strip);
         for w in &view.workspaces {
             self.strip.append(&self.workspace(w));
         }
         clear(&self.cards);
-        self.pictures.borrow_mut().clear();
-        // Pictures of windows that are gone go too.
-        self.thumbnails
-            .borrow_mut()
-            .retain(|a, _| view.windows.iter().any(|w| &w.address == a));
+        self.previews.borrow_mut().clear();
+        // With the plugin the windows show through: no background.
+        if view.live {
+            self.window.add_css_class("live");
+        } else {
+            self.window.remove_css_class("live");
+        }
         self.layout.replace_sizes(
             view.windows
                 .iter()
@@ -442,7 +503,7 @@ impl OverviewSurface {
                 .collect(),
         );
         for card in &view.windows {
-            self.cards.append(&self.card(card));
+            self.cards.append(&self.card(card, view.live));
         }
         self.cards.set_visible(!view.windows.is_empty());
         self.empty.set_visible(view.windows.is_empty());
@@ -474,7 +535,6 @@ impl OverviewSurface {
             self.dash.append(&self.grid_button);
         }
         self.dash.set_visible(!view.dash.is_empty());
-        self.shown.replace(Some(view.clone()));
         self.update_page();
     }
 
@@ -508,32 +568,30 @@ impl OverviewSurface {
         b
     }
 
-    /// A window: its preview (the app's icon until thumbnails, M8.67),
-    /// a close button on hover, its title below. A click focuses it.
-    fn card(&self, card: &WindowCard) -> gtk::Box {
-        // The window's picture once captured, its app's icon on top – at the
-        // bottom edge as in GNOME, in the middle while there is no picture.
+    /// A window: koje's plugin draws it into its preview, the app's icon
+    /// on the bottom edge as in GNOME – without the plugin the icon in the
+    /// middle; a close button on hover, its title below. A click focuses it.
+    fn card(&self, card: &WindowCard, live: bool) -> gtk::Box {
         let icon = gtk::Image::from_gicon(&crate::app_info::icon(&card.app));
-        icon.set_pixel_size(64);
-        let picture = gtk::Picture::builder()
-            .can_shrink(true)
-            .content_fit(gtk::ContentFit::Contain)
-            .css_classes(["window-picture"])
-            .build();
-        let thumbnail = self.thumbnails.borrow().get(&card.address).cloned();
-        picture.set_paintable(thumbnail.as_ref());
-        let layers = gtk::Overlay::builder().child(&picture).build();
-        layers.add_overlay(&icon);
-        place_icon(&icon, thumbnail.is_some());
-        self.pictures
-            .borrow_mut()
-            .insert(card.address.clone(), picture);
+        icon.set_pixel_size(if live { 48 } else { 64 });
+        icon.set_halign(gtk::Align::Center);
+        icon.set_valign(if live {
+            gtk::Align::End
+        } else {
+            gtk::Align::Center
+        });
+        if live {
+            icon.set_margin_bottom(10);
+        }
         let preview = gtk::Button::builder()
-            .child(&layers)
+            .child(&icon)
             .css_classes(["window-preview", &card.accent.css_class()])
             .vexpand(true)
             .tooltip_text(&card.title)
             .build();
+        self.previews
+            .borrow_mut()
+            .push((card.address.clone(), preview.clone()));
         let send = self.send(Action::FocusWindow(card.address.clone()));
         preview.connect_clicked(move |b| {
             send();
@@ -983,19 +1041,6 @@ fn close_on_escape_and_click(window: &gtk::Window, content: &gtk::Box) {
     window.add_controller(keys);
 }
 
-/// The app icon on a card: in the middle without a picture, else at the
-/// bottom edge.
-fn place_icon(icon: &impl IsA<gtk::Widget>, picture: bool) {
-    let icon = icon.as_ref();
-    icon.set_halign(gtk::Align::Center);
-    icon.set_valign(if picture {
-        gtk::Align::End
-    } else {
-        gtk::Align::Center
-    });
-    icon.set_margin_bottom(if picture { 8 } else { 0 });
-}
-
 /// A flow of app tiles, as GNOME's grid.
 fn tiles() -> gtk::FlowBox {
     gtk::FlowBox::builder()
@@ -1048,6 +1093,11 @@ fn launch_on_host(id: &str) {
 }
 
 impl CardsLayout {
+    fn set_allocated(&self, f: impl Fn() + 'static) {
+        use gtk4::subclass::prelude::ObjectSubclassIsExt as _;
+        self.imp().allocated.replace(Some(Box::new(f)));
+    }
+
     fn replace_sizes(&self, sizes: Vec<(f64, f64)>) {
         use gtk4::subclass::prelude::ObjectSubclassIsExt as _;
         self.imp().sizes.replace(sizes);

@@ -174,6 +174,15 @@ async fn act(
                     tracing::warn!("kojed: Focus {context}: {e:#}");
                 }
             }
+            Action::Overview(args) => {
+                let request = format!("dispatch koje:overview {args}");
+                match tokio::time::timeout(TIMEOUT, hypr.request(&request)).await {
+                    Ok(Ok(reply)) if reply.trim() == "ok" => {}
+                    Ok(Ok(reply)) => tracing::warn!("koje:overview: {}", reply.trim()),
+                    Ok(Err(e)) => tracing::warn!("koje:overview: {e}"),
+                    Err(_) => tracing::warn!("Hyprland did not answer within {TIMEOUT:?}"),
+                }
+            }
             Action::RefreshApps(contexts) => {
                 let tx = tx.clone();
                 tokio::spawn(async move {

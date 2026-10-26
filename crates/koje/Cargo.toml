@@ -48,8 +48,8 @@ layouts, states and memory limits. Run `koje setup` as your user after \
 installing or upgrading."""
 section = "utils"
 priority = "optional"
-depends = "$auto, podman, uidmap, passt, fuse-overlayfs, xdg-dbus-proxy, fontconfig, fuzzel, jq"
-recommends = "hyprland, waybar, foot, mako-notifier, hypridle, hyprlock, grim, slurp, wl-clipboard, wireplumber, xdg-desktop-portal-hyprland, xdg-desktop-portal-gnome, xdg-desktop-portal-gtk"
+depends = "$auto, hyprland (>= 0.53.3), hyprland (<< 0.53.4~), podman, uidmap, passt, fuse-overlayfs, xdg-dbus-proxy, fontconfig, fuzzel, jq"
+recommends = "waybar, foot, mako-notifier, hypridle, hyprlock, grim, slurp, wl-clipboard, wireplumber, xdg-desktop-portal-hyprland, xdg-desktop-portal-gnome, xdg-desktop-portal-gtk"
 assets = [
     ["target/release/koje", "usr/bin/", "755"],
     ["target/release/kojed", "usr/bin/", "755"],
@@ -70,6 +70,9 @@ assets = [
     ["../../assets/session/koje.desktop", "usr/share/wayland-sessions/", "644"],
     ["../../assets/portals/koje-portals.conf", "usr/share/xdg-desktop-portal/", "644"],
     ["../../assets/hyprland/koje.conf", "usr/share/koje/hyprland/", "644"],
+    # koje's Hyprland plugin (ADR 0051), built for exactly the Hyprland the
+    # package depends on (scripts/build-plugin.sh).
+    ["../../target/plugin/koje-hyprland.so", "usr/lib/koje/", "644"],
     ["../../assets/hyprland/hyprbars.conf", "usr/share/koje/hyprland/", "644"],
     ["../../assets/lock/hypridle.conf", "usr/share/koje/lock/", "644"],
     ["../../assets/lock/hyprlock.conf", "usr/share/koje/lock/", "644"],

@@ -77,17 +77,28 @@ pub fn hyprland_args(conf: &Path, watchdog: bool) -> Vec<String> {
     args
 }
 
+/// koje's Hyprland plugin (ADR 0051), as the package installs it.
+pub const PLUGIN: &str = "/usr/lib/koje/koje-hyprland.so";
+
 /// The session's Hyprland config, generated at login into the runtime
-/// directory (ADR 0048): koje's snippet, then the monitors from
-/// `monitors.xml` (ADR 0046), then the user's own file – each only when
-/// given; later settings win.
-pub fn session_conf(snippet: &Path, monitors: Option<&Path>, user: Option<&Path>) -> String {
+/// directory (ADR 0048): koje's plugin (ADR 0051), koje's snippet, then the
+/// monitors from `monitors.xml` (ADR 0046), then the user's own file – each
+/// only when given; later settings win.
+pub fn session_conf(
+    plugin: Option<&Path>,
+    snippet: &Path,
+    monitors: Option<&Path>,
+    user: Option<&Path>,
+) -> String {
     use std::fmt::Write as _;
     let mut conf = String::from(
         "# The koje session's Hyprland config (ADR 0048), written by `koje session\n\
          # start` at every login – edits are lost. Your own settings go into\n\
          # ~/.config/koje/hyprland.conf; GNOME Settings is the place for most.\n",
     );
+    if let Some(p) = plugin {
+        let _ = writeln!(conf, "plugin = {}", p.display());
+    }
     let mut source = |p: &Path| {
         let _ = writeln!(conf, "source = {}", p.display());
     };
@@ -255,6 +266,7 @@ mod tests {
     #[test]
     fn the_session_config_sources_what_there_is() {
         let full = session_conf(
+            Some(Path::new(PLUGIN)),
             Path::new(SNIPPET),
             Some(Path::new("/run/user/1000/koje/monitors.conf")),
             Some(Path::new("/h/.config/koje/hyprland.conf")),
@@ -268,10 +280,12 @@ mod tests {
                 "source = /h/.config/koje/hyprland.conf"
             ]
         );
+        assert!(full.contains("\nplugin = /usr/lib/koje/koje-hyprland.so\n"));
         assert!(full.contains("\nexec-once = koje session ready\n"));
         assert!(full.contains("\nmisc:disable_xdg_env_checks = true\n"));
-        let bare = session_conf(Path::new(SNIPPET), None, None);
+        let bare = session_conf(None, Path::new(SNIPPET), None, None);
         assert_eq!(bare.lines().filter(|l| l.starts_with("source")).count(), 1);
+        assert!(!bare.contains("plugin ="));
     }
 
     #[test]

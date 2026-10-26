@@ -52,7 +52,7 @@ pub enum Update {
     /// GNOME Settings changed the screens: ask to keep them within that many
     /// seconds (M8.53). Not part of the bar's state.
     DisplayChangePending(u32),
-    /// A window's picture for the overview (M8.67). Not part of the state.
+    /// A window's picture (the screen sharing picker). Not part of the state.
     Thumbnail {
         address: String,
         thumb: crate::capture::Thumbnail,
@@ -168,6 +168,9 @@ pub struct Desktop {
     pub monitors: Vec<MonitorState>,
     pub workspaces: Vec<WorkspaceState>,
     pub windows: Vec<WindowState>,
+    /// koje's Hyprland plugin is loaded: it draws the overview's windows
+    /// (ADR 0051).
+    pub plugin: bool,
 }
 
 /// A mapped window.
@@ -292,6 +295,9 @@ pub enum Action {
     FocusWindow(String),
     /// Ask a window to close.
     CloseWindow(String),
+    /// Tell koje's plugin where the overview's windows go
+    /// ([`crate::overview::plugin_command`]).
+    Overview(String),
     /// Start a program in a context by its desktop file id (`koje apps
     /// --start`; the dash).
     Launch {
@@ -393,6 +399,7 @@ impl Action {
             | Self::Unstash { .. }
             | Self::Launch { .. }
             | Self::RefreshApps(_)
+            | Self::Overview(_)
             | Self::FocusContext(_)
             | Self::Quick(_)
             | Self::KeepDisplayChange
@@ -633,6 +640,7 @@ impl Shell {
             Vec::new()
         };
         OverviewView {
+            live: self.desktop.plugin,
             dash,
             workspaces: self.workspace_buttons(mon),
             windows: on_workspace(windows, current)
@@ -767,6 +775,7 @@ mod tests {
                 win("0xd", "special:stash-kp", (0, 40), 2),
                 win("0xe", "1", (0, 40), 4),
             ],
+            plugin: false,
         }
     }
 

@@ -32,11 +32,14 @@ way for that is a plugin – which must match the running Hyprland exactly
   layer surface above. Clicks still go to the shell.
 - **Built with the package for the distribution's Hyprland:** `just deb`
   compiles the plugin in an Ubuntu 26.04 container (nested Podman, M0.8)
-  against `hyprland-dev`, and the package depends on exactly that Hyprland
-  version. The koje session loads it (`plugin =` in the generated session
-  config, ADR 0048). No hyprpm, no build on the host.
+  against `hyprland-dev` (`scripts/build-plugin.sh`), and the package depends
+  on that upstream Hyprland version (`>= 0.53.3, << 0.53.4~`; the script
+  stops when Ubuntu's differs). The koje session loads it (`plugin =` in the
+  generated session config, ADR 0048). No hyprpm, no build on the host.
 - **Without the plugin** (not loaded, a Hyprland version it was not built
-  for) the overview shows icons on its cards; the capture code of M8.67 goes.
+  for) the overview shows icons on its cards. The overview no longer captures
+  windows; the capture code of M8.67 stays for the screen sharing picker
+  (ADR 0050).
 
 ## Consequences
 
@@ -48,5 +51,7 @@ way for that is a plugin – which must match the running Hyprland exactly
   the exact version dependency makes the package manager hold Hyprland back
   until then.
 - koje keeps a plugin although title bars (ADR 0039) may lose theirs later.
+- A new plugin build reaches a running session only at the next login
+  (Hyprland keeps the loaded one).
 - Follow-ups: M8.72 (build in the Ubuntu container, packaging, loading),
   M8.73 (drawing and animating the windows), M8.67 dropped in favour of them.

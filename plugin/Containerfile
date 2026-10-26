@@ -1,0 +1,9 @@
+# Builds koje's Hyprland plugin against the distribution's Hyprland (ADR 0051):
+# the plugin must match the running Hyprland exactly, so it is built with the
+# headers of the Hyprland the package will depend on.
+FROM docker.io/library/ubuntu:26.04
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        g++ make pkg-config hyprland-dev libpango1.0-dev libpixman-1-dev \
+        libdrm-dev libinput-dev libudev-dev libwayland-dev libxkbcommon-dev libgles-dev \
+    && rm -rf /var/lib/apt/lists/*

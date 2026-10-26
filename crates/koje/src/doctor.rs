@@ -229,6 +229,42 @@ fn duplicates_line(dups: &[Duplicate]) -> String {
     }
 }
 
+/// Whether `hyprctl plugin list` (JSON) has koje's plugin.
+pub fn plugin_listed(json: &str) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Plugin {
+        name: String,
+    }
+    serde_json::from_str::<Vec<Plugin>>(json).is_ok_and(|ps| ps.iter().any(|p| p.name == "koje"))
+}
+
+/// In the koje session: koje's plugin draws the overview's windows (ADR 0051).
+fn plugin() -> Option<Check> {
+    if std::env::var("XDG_SESSION_DESKTOP").as_deref() != Ok("koje") {
+        return None;
+    }
+    let reply = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?
+        .block_on(koje_hyprland::Hyprland::from_env().request("j/plugin list"))
+        .ok()?;
+    Some(if plugin_listed(&reply) {
+        Check::ok("plugin: koje's Hyprland plugin is loaded")
+    } else if std::path::Path::new(koje_core::session::PLUGIN).is_file() {
+        Check::warn(
+            "plugin: koje's Hyprland plugin is not loaded – the overview shows icons",
+            "it loads at login (koje session start); after a Hyprland update rebuild koje (just deb) – \
+             Hyprland shows why it refused it",
+        )
+    } else {
+        Check::warn(
+            format!("plugin: {} is missing", koje_core::session::PLUGIN),
+            "reinstall the koje package",
+        )
+    })
+}
+
 /// Key combinations the running Hyprland binds twice.
 fn bindings() -> Option<Check> {
     let reply = tokio::runtime::Builder::new_current_thread()
@@ -457,6 +493,7 @@ fn nvidia() -> Option<Check> {
 pub fn run(paths: &Paths) -> Result<()> {
     let mut checks = vec![package(), packages(), hyprland()];
     checks.extend(bindings());
+    checks.extend(plugin());
     checks.extend(screens(paths));
     checks.extend(session_units());
     checks.extend(installed(paths));
@@ -539,6 +576,15 @@ mod tests {
             bind("alterzorder", "top")
         );
         assert_eq!(duplicate_bindings(&twice).len(), 1);
+    }
+
+    #[test]
+    fn the_plugin_in_hyprlands_list() {
+        assert!(plugin_listed(
+            r#"[{"name": "koje", "author": "koje", "handle": "7f01", "version": "1", "description": ""}]"#
+        ));
+        assert!(!plugin_listed(r#"[{"name": "hyprbars"}]"#));
+        assert!(!plugin_listed("no plugins loaded"));
     }
 
     #[test]

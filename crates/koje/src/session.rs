@@ -95,7 +95,11 @@ fn write_session_conf(paths: &Paths, dir: &Path) -> Result<PathBuf> {
         koje_core::monitors::hyprland_conf(&lines).as_bytes(),
     )?;
     let user = paths.session_hyprland_conf();
+    // The plugin (ADR 0051) when the package has it; Hyprland refuses one
+    // built for another version itself, with a notification.
+    let plugin = Path::new(session::PLUGIN);
     let conf = session::session_conf(
+        plugin.is_file().then_some(plugin),
         Path::new(session::SNIPPET),
         Some(&monitors),
         user.is_file().then_some(user.as_path()),
