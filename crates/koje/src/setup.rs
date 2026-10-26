@@ -57,7 +57,11 @@ pub const DEPENDENCIES: [(&str, &str); 18] = [
     ("wpctl", "wireplumber"),
 ];
 /// Portal backends (packages, checked with `dpkg-query` where it exists).
-pub const PORTALS: [&str; 2] = ["xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk"];
+pub const PORTALS: [&str; 3] = [
+    "xdg-desktop-portal-hyprland",
+    "xdg-desktop-portal-gnome",
+    "xdg-desktop-portal-gtk",
+];
 
 pub fn on_path(command: &str) -> bool {
     find_on_path(command).is_some()
