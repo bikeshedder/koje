@@ -203,7 +203,17 @@ void COverview::draw() {
     CHyprColor          bg{(uint64_t)**PBG};
     bg.a *= t;
     g_pHyprOpenGL->renderRect(CBox{{0, 0}, M->m_pixelSize}, bg, {.damage = &all});
+    // In Hyprland's stacking order, bottom first (read every frame: the
+    // window clicked is raised and flies back on top).
+    std::vector<std::pair<size_t, SOverviewWindow*>> stacked;
     for (auto& w : m_windows) {
+        const auto W  = w.window.lock();
+        const auto it = std::ranges::find(g_pCompositor->m_windows, W);
+        stacked.emplace_back(it - g_pCompositor->m_windows.begin(), &w);
+    }
+    std::ranges::stable_sort(stacked, {}, &std::pair<size_t, SOverviewWindow*>::first);
+    for (auto& [_, wp] : stacked) {
+        auto&      w = *wp;
         const auto W = w.window.lock();
         if (w.chain.empty() || !W)
             continue;
