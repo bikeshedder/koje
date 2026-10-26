@@ -109,7 +109,7 @@ impl Clock {
         let button = gtk::MenuButton::builder()
             .child(&label)
             .popover(&popover)
-            .css_classes(["flat", "clock-button"])
+            .css_classes(["panel-button", "clock-button"])
             .build();
 
         let settings = settings();

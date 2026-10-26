@@ -1,25 +1,24 @@
-//! One bar: a layer-shell surface along the top of a monitor that reserves
-//! its height (exclusive zone). It renders a [`BarView`] and turns clicks
-//! into [`Action`]s.
+//! One bar, a clone of GNOME's top bar (ADR 0047): a layer-shell surface
+//! along the top of a monitor that reserves its height (exclusive zone),
+//! workspaces on the left, the clock in the middle, tray, koje menu and Quick
+//! Settings on the right. It renders a [`BarView`] and turns clicks into
+//! [`Action`]s.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use gtk4 as gtk;
+use gtk4::gdk;
 use gtk4::prelude::*;
-use gtk4::{gdk, gio};
 use gtk4_layer_shell::{Edge, Layer, LayerShell as _};
+use koje_core::config::WorkspaceStyle;
 use libadwaita as adw;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::bar_layout::bar_box;
 use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
-use crate::model::{Accent, Action, BarView, Task, WorkspaceButton};
+use crate::model::{Action, BarView, WorkspaceButton};
 use crate::quick_ui::QuickWidget;
-
-/// Widest a task's title gets, in characters.
-const TITLE_CHARS: i32 = 24;
 
 #[derive(Debug)]
 pub struct Bar {
@@ -27,7 +26,6 @@ pub struct Bar {
     window: gtk::Window,
     actions: UnboundedSender<Action>,
     workspaces: gtk::Box,
-    tasks: gtk::Box,
     menu: MenuWidget,
     quick: QuickWidget,
     warning: gtk::Box,
@@ -58,16 +56,9 @@ impl Bar {
         window.auto_exclusive_zone_enable();
 
         let workspaces = gtk::Box::builder()
-            .spacing(4)
-            .css_classes(["workspaces"])
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Start)
             .build();
-        let tasks = gtk::Box::builder()
-            .spacing(2)
-            .css_classes(["tasks"])
-            .build();
-        let start = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        start.append(&workspaces);
-        start.append(&tasks);
 
         let menu = MenuWidget::new(&actions);
         let warning_text = gtk::Label::new(None);
@@ -78,16 +69,14 @@ impl Bar {
             .build();
         warning.append(&gtk::Image::from_icon_name("dialog-warning-symbolic"));
         warning.append(&warning_text);
-        let end = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let end = gtk::Box::builder().halign(gtk::Align::End).build();
+        end.append(&warning);
         end.append(menu.widget());
         let quick = QuickWidget::new(&actions);
         end.append(quick.widget());
-        end.append(&warning);
 
         let clock = Clock::new();
-        let layout = bar_box(&start, clock.widget(), &end);
-        layout.set_margin_start(6);
-        layout.set_margin_end(12);
+        let layout = bar_box(&workspaces, clock.widget(), &end);
         window.set_child(Some(&layout));
         window.present();
 
@@ -96,7 +85,6 @@ impl Bar {
             window,
             actions,
             workspaces,
-            tasks,
             menu,
             quick,
             warning,
@@ -118,14 +106,27 @@ impl Bar {
         if self.shown.borrow().as_ref() == Some(view) {
             return;
         }
-        clear(&self.workspaces);
-        for w in &view.workspaces {
-            self.workspaces.append(&self.workspace_button(w));
+        while let Some(child) = self.workspaces.first_child() {
+            self.workspaces.remove(&child);
         }
-        clear(&self.tasks);
-        set_accent(&self.tasks, &view.tasks_accent);
-        for t in &view.tasks {
-            self.tasks.append(&self.task_button(t));
+        match view.style {
+            WorkspaceStyle::Names => {
+                for w in &view.workspaces {
+                    self.workspaces.append(&self.name_button(w));
+                }
+            }
+            WorkspaceStyle::Dots | WorkspaceStyle::ColoredDots => {
+                let colored = view.style == WorkspaceStyle::ColoredDots;
+                // GNOME's workspace indicator: one pill holding the dots.
+                let indicator = gtk::Box::builder()
+                    .css_classes(["panel-button", "workspace-indicator"])
+                    .spacing(6)
+                    .build();
+                for w in &view.workspaces {
+                    indicator.append(&self.dot(w, colored));
+                }
+                self.workspaces.append(&indicator);
+            }
         }
         self.menu.render(view.menu.as_ref());
         self.quick.render(&view.quick);
@@ -139,19 +140,9 @@ impl Bar {
         self.shown.replace(Some(view.clone()));
     }
 
-    fn workspace_button(&self, w: &WorkspaceButton) -> gtk::Button {
-        let button = gtk::Button::builder()
-            .label(&w.name)
-            .css_classes(["flat", &w.accent.css_class()])
-            .build();
-        if w.active {
-            button.add_css_class("active");
-        }
-        if w.empty {
-            button.add_css_class("empty");
-            button.set_tooltip_text(Some(&format!("{} – no windows", w.name)));
-        }
-        // An empty context's workspace through kojed, like `koje focus`.
+    /// What a click on a workspace does: an empty context's workspace through
+    /// kojed, like `koje focus`.
+    fn on_click(&self, button: &gtk::Button, w: &WorkspaceButton) {
         let action = if w.empty {
             Action::FocusContext(w.name.clone())
         } else {
@@ -161,31 +152,30 @@ impl Bar {
         button.connect_clicked(move |_| {
             let _ = actions.send(action.clone());
         });
+    }
+
+    fn name_button(&self, w: &WorkspaceButton) -> gtk::Button {
+        let button = gtk::Button::builder()
+            .label(&w.name)
+            .css_classes(["panel-button", "workspace-name", &w.accent.css_class()])
+            .build();
+        mark(&button, w);
+        self.on_click(&button, w);
         button
     }
 
-    fn task_button(&self, t: &Task) -> gtk::Button {
-        let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        content.append(&gtk::Image::from_gicon(&icon(&t.class)));
-        content.append(
-            &gtk::Label::builder()
-                .label(&t.title)
-                .ellipsize(gtk4::pango::EllipsizeMode::End)
-                .max_width_chars(TITLE_CHARS)
-                .build(),
-        );
+    fn dot(&self, w: &WorkspaceButton, colored: bool) -> gtk::Button {
         let button = gtk::Button::builder()
-            .child(&content)
-            .tooltip_text(&t.title)
-            .css_classes(["flat"])
+            .css_classes(["workspace-dot"])
+            .valign(gtk::Align::Center)
+            .tooltip_text(&w.name)
             .build();
-        if t.focused {
-            button.add_css_class("focused");
+        if colored {
+            button.add_css_class("colored");
+            button.add_css_class(&w.accent.css_class());
         }
-        let (actions, address) = (self.actions.clone(), t.address.clone());
-        button.connect_clicked(move |_| {
-            let _ = actions.send(Action::FocusWindow(address.clone()));
-        });
+        mark(&button, w);
+        self.on_click(&button, w);
         button
     }
 
@@ -194,52 +184,13 @@ impl Bar {
     }
 }
 
-fn clear(container: &gtk::Box) {
-    while let Some(child) = container.first_child() {
-        container.remove(&child);
+/// `active` and `empty` for the CSS; a hint on an empty context.
+fn mark(button: &gtk::Button, w: &WorkspaceButton) {
+    if w.active {
+        button.add_css_class("active");
     }
-}
-
-/// Give `widget` the accent class of `accent`, replacing any earlier one.
-fn set_accent(widget: &impl IsA<gtk::Widget>, accent: &Accent) {
-    for class in widget.css_classes() {
-        if class.starts_with("koje-ctx-") || class == "koje-host" {
-            widget.remove_css_class(&class);
-        }
+    if w.empty {
+        button.add_css_class("empty");
+        button.set_tooltip_text(Some(&format!("{} – no windows", w.name)));
     }
-    widget.add_css_class(&accent.css_class());
-}
-
-thread_local! {
-    static ICONS: RefCell<HashMap<String, gio::Icon>> = RefCell::default();
-}
-
-/// A window's icon from its app id: the `.desktop` entry's, an icon of that
-/// name, else a generic one. Programs in contexts have their entries in the
-/// container (M8.18), so they often get the generic one.
-fn icon(class: &str) -> gio::Icon {
-    ICONS.with(|cache| {
-        if let Some(icon) = cache.borrow().get(class) {
-            return icon.clone();
-        }
-        let icon = lookup(class);
-        cache.borrow_mut().insert(class.to_owned(), icon.clone());
-        icon
-    })
-}
-
-fn lookup(class: &str) -> gio::Icon {
-    let from_entry = [class.to_owned(), class.to_lowercase()]
-        .iter()
-        .find_map(|id| gio_unix::DesktopAppInfo::new(&format!("{id}.desktop")))
-        .and_then(|info| info.icon());
-    if let Some(icon) = from_entry {
-        return icon;
-    }
-    let theme = gdk::Display::default().map(|d| gtk::IconTheme::for_display(&d));
-    let name = class.to_lowercase();
-    if !name.is_empty() && theme.is_some_and(|t| t.has_icon(&name)) {
-        return gio::ThemedIcon::new(&name).upcast();
-    }
-    gio::ThemedIcon::new("application-x-executable-symbolic").upcast()
 }

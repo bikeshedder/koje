@@ -243,7 +243,7 @@ impl QuickWidget {
         let button = gtk::MenuButton::builder()
             .child(&face)
             .popover(&popover)
-            .css_classes(["flat", "quick-settings"])
+            .css_classes(["panel-button", "quick-settings"])
             .tooltip_text("Quick Settings")
             .build();
 

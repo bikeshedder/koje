@@ -163,6 +163,30 @@ pub struct GlobalConfig {
     /// Overlays (Hyprland special workspaces) for cross-context apps.
     #[serde(default)]
     pub overlay: BTreeMap<String, Overlay>,
+    /// koje's bar (ADR 0047).
+    #[serde(default)]
+    pub bar: BarConfig,
+}
+
+/// `[bar]` in `config.toml` (ADR 0047).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BarConfig {
+    #[serde(default)]
+    pub workspaces: WorkspaceStyle,
+}
+
+/// How the bar shows workspaces.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkspaceStyle {
+    /// GNOME's workspace indicator, a context's dot in its color.
+    #[default]
+    ColoredDots,
+    /// GNOME's workspace indicator unchanged.
+    Dots,
+    /// Panel buttons with the workspace names.
+    Names,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,6 +249,19 @@ fresh   = "fresh"
             home: "/home/mj".into(),
             protected: vec!["/home/mj/.config/koje".into()],
         }
+    }
+
+    #[test]
+    fn bar_workspace_styles() {
+        let p = Path::new("config.toml");
+        assert_eq!(
+            GlobalConfig::from_toml("", p).unwrap().bar.workspaces,
+            WorkspaceStyle::ColoredDots
+        );
+        let names = GlobalConfig::from_toml("[bar]\nworkspaces = \"names\"\n", p).unwrap();
+        assert_eq!(names.bar.workspaces, WorkspaceStyle::Names);
+        assert!(GlobalConfig::from_toml("[bar]\nworkspaces = \"stars\"\n", p).is_err());
+        assert!(GlobalConfig::from_toml("[bar]\nstyle = \"dots\"\n", p).is_err());
     }
 
     #[test]

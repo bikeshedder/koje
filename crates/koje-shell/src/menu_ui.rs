@@ -265,7 +265,7 @@ impl MenuWidget {
         let button = gtk::MenuButton::builder()
             .child(&face)
             .popover(&popover)
-            .css_classes(["flat", "koje-menu"])
+            .css_classes(["panel-button", "koje-menu"])
             .tooltip_text("koje")
             .visible(false)
             .build();

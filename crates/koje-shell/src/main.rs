@@ -25,7 +25,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing_subscriber::EnvFilter;
 
 use crate::bar::Bar;
-use crate::model::{Action, Shell, reconcile};
+use crate::model::{Action, Shell, Update, reconcile};
 
 /// Also the shell's name on the session bus: `GApplication` keeps it to one
 /// instance, and the systemd unit waits for it.
@@ -34,21 +34,41 @@ const APP_ID: &str = "io.koje.Shell";
 /// The CLI the shell runs for changes (`koje limit`); the package's.
 pub const KOJE: &str = "koje";
 
-/// The bar's look; the accents come from [`Shell::accent_css`]. Workspace
-/// buttons are pills, the active one filled with its accent; the focused
-/// task is underlined with its workspace's accent.
+/// The bar's look: GNOME's top bar (ADR 0047) – black in both styles, white
+/// bold text, panel buttons that light up on hover and while their menu is
+/// open, the workspace indicator's dots. Scoped to the bar's own widgets:
+/// the dropdowns keep libadwaita's light and dark. The accents come from
+/// [`Shell::accent_css`].
 const CSS: &str = "
-.koje-bar { min-height: 32px; }
-.koje-bar button { min-height: 24px; padding: 0 10px; }
-.koje-bar .workspaces, .koje-bar .tasks { margin: 4px 0; }
-.koje-bar .workspaces button { border-radius: 9999px; }
-.koje-bar .workspaces button.active {
-  background: var(--accent-bg-color);
-  color: var(--accent-fg-color);
+window.koje-bar { background: #000000; min-height: 32px; }
+.panel-button, .panel-button > button {
+  color: #ffffff;
+  font-weight: bold;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 9999px;
+  min-height: 24px;
 }
-.koje-bar .workspaces button.empty { opacity: 0.55; }
-.koje-bar .tasks button { border-radius: 6px; padding: 0 8px; }
-.koje-bar .tasks button.focused { box-shadow: inset 0 -2px var(--accent-bg-color); }
+.panel-button { margin: 3px 0; padding: 0 12px; }
+.panel-button > button { padding: 0 12px; margin: 0; }
+button.panel-button:hover, .panel-button > button:hover, .workspace-indicator:hover {
+  background: alpha(#ffffff, 0.17);
+}
+button.panel-button:active, .panel-button > button:checked, .panel-button > button:active {
+  background: alpha(#ffffff, 0.25);
+}
+.workspace-indicator { padding: 0 10px; }
+window.koje-bar button.workspace-dot {
+  min-width: 7px; min-height: 7px; padding: 0; margin: 0;
+  border-radius: 9999px; background: #ffffff; background-image: none;
+  box-shadow: none; opacity: 0.5;
+}
+window.koje-bar button.workspace-dot:hover { opacity: 0.8; }
+window.koje-bar button.workspace-dot.colored { background: var(--accent-bg-color); opacity: 0.8; }
+window.koje-bar button.workspace-dot.colored.koje-host { background: #ffffff; opacity: 0.5; }
+window.koje-bar button.workspace-dot.active { min-width: 32px; opacity: 1; }
+window.koje-bar button.workspace-dot.empty { opacity: 0.45; }
+button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .capsule {
   background: var(--accent-bg-color);
   color: var(--accent-fg-color);
@@ -57,9 +77,9 @@ const CSS: &str = "
   font-weight: bold;
 }
 .koje-bar .koje-icon { color: var(--accent-color); }
+.koje-icon.koje-host { color: #ffffff; }
 .koje-graph { color: var(--accent-color); }
-.koje-bar .clock-button { font-weight: bold; }
-.koje-bar .warning { color: var(--warning-color); }
+.koje-bar .warning { color: var(--warning-color); margin: 0 8px; }
 ";
 
 type Bars = Rc<RefCell<Vec<Bar>>>;
@@ -116,6 +136,8 @@ fn start(app: &adw::Application) {
         move |monitors, _, _, _| sync_bars(&app, monitors, &bars, &shell, &actions)
     });
 
+    follow_config(&shell, &bars);
+
     glib::spawn_future_local(async move {
         let mut accents_css = accents_css;
         while let Ok(update) = rx.recv().await {
@@ -149,6 +171,45 @@ fn swatch_css() -> String {
         );
     }
     css
+}
+
+/// `[bar]` of `config.toml` now and whenever the file changes (ADR 0047);
+/// an invalid file keeps the last good settings.
+fn follow_config(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
+    let Ok(paths) = koje_core::paths::Paths::from_env() else {
+        return;
+    };
+    let path = paths.global_config();
+    let load = {
+        let (shell, bars, path) = (shell.clone(), bars.clone(), path.clone());
+        move || match koje_core::config::GlobalConfig::load(&path) {
+            Ok(cfg) => {
+                shell.borrow_mut().apply(Update::Bar(cfg.bar));
+                render(&bars, &shell);
+            }
+            Err(e) => tracing::warn!("{e}"),
+        }
+    };
+    load();
+    match gio::File::for_path(&path)
+        .monitor_file(gio::FileMonitorFlags::NONE, None::<&gio::Cancellable>)
+    {
+        Ok(monitor) => {
+            monitor.connect_changed(move |_, _, _, event| {
+                if matches!(
+                    event,
+                    gio::FileMonitorEvent::ChangesDoneHint
+                        | gio::FileMonitorEvent::Created
+                        | gio::FileMonitorEvent::Deleted
+                ) {
+                    load();
+                }
+            });
+            // Watches as long as the shell runs.
+            std::mem::forget(monitor);
+        }
+        Err(e) => tracing::warn!("watching {}: {e}", path.display()),
+    }
 }
 
 fn render(bars: &Bars, shell: &Rc<RefCell<Shell>>) {

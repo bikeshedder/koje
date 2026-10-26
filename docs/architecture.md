@@ -80,8 +80,9 @@ browser profile per project. Put common programs into the base image.
   power, night light, background); koje's settings app is only about koje.
 - **Border color** per context: kojed sees each new window on the event socket,
   maps PID → context, sets active/inactive border colors. A window that gets
-  focus flashes its border white for a moment (focus feedback). The bar's
-  task list underlines windows in their context's color.
+  focus flashes its border white for a moment (focus feedback). The bar
+  (a clone of GNOME's top bar, ADR 0047) shows a context's workspace dot in
+  its color.
 - **Workspaces:** one per context per monitor. Several work areas inside a context
   are **layouts**, not workspaces.
 - **Snapping:** Hyprland edge snapping (built in); zones per monitor via
@@ -189,7 +190,7 @@ to the stash first. Memory stays allocated (can be swapped out).
 
 | Path | Content |
 |---|---|
-| `~/.config/koje/config.toml` | global: zones, overlays, default limits |
+| `~/.config/koje/config.toml` | global: zones, overlays, default limits, the bar's workspace style (`[bar]`) |
 | `~/.config/koje/contexts/<context>/context.toml` | hand-written: name, prefix, color, image, mounts, limits, state roles |
 | `~/.config/koje/integrations/*.toml` | user integrations |
 | `~/.local/share/koje/<context>/states/<state>.toml` | states incl. layouts |

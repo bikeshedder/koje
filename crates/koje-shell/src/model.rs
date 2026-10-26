@@ -4,6 +4,7 @@
 //! and [`Action`]s say what clicks do.
 
 use koje_core::color::Color;
+use koje_core::config::{BarConfig, WorkspaceStyle};
 use koje_core::ports::CompositorCommand;
 
 use std::collections::BTreeMap;
@@ -15,7 +16,7 @@ use crate::system::Change;
 /// Something the shell learned from kojed or Hyprland.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Update {
-    /// Monitors, workspaces and windows (Hyprland).
+    /// Monitors and workspaces (Hyprland).
     Desktop(Desktop),
     /// The running contexts (kojed's `RunningContexts`).
     Contexts(Vec<RunningContext>),
@@ -37,6 +38,8 @@ pub enum Update {
     KojedGone,
     /// Sound, network, battery, … for Quick Settings.
     System(System),
+    /// `config.toml` changed.
+    Bar(BarConfig),
 }
 
 /// kojed's `Memory`: the working set, what the cgroup charges and the limits
@@ -142,15 +145,11 @@ impl From<(String, String, u32, bool)> for RunningContext {
     }
 }
 
-/// Hyprland's monitors, workspaces and windows, as read at one moment.
+/// Hyprland's monitors and workspaces, as read at one moment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Desktop {
     pub monitors: Vec<MonitorState>,
     pub workspaces: Vec<WorkspaceState>,
-    /// Mapped, visible windows in Hyprland's order.
-    pub windows: Vec<Window>,
-    /// The focused window's address.
-    pub focused: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,16 +169,6 @@ pub struct WorkspaceState {
     pub monitor: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Window {
-    /// `0x…`.
-    pub address: String,
-    pub workspace: String,
-    /// The app id; the icon comes from it.
-    pub class: String,
-    pub title: String,
-}
-
 /// What kojed told the shell last.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 enum Kojed {
@@ -191,16 +180,11 @@ enum Kojed {
 }
 
 /// The shell's view of the desktop. kojed and Hyprland hold the real state
-/// (ADR 0030); this is only their latest answers, plus the order in which
-/// windows appeared.
+/// (ADR 0030); this is only their latest answers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Shell {
     desktop: Desktop,
     kojed: Kojed,
-    /// Window addresses in the order the shell first saw them. Hyprland
-    /// lists windows in stacking order, which every raise changes; the task
-    /// list must not jump when a window gets focus.
-    order: Vec<String>,
     memory: Vec<MemoryReading>,
     history: HistoryReading,
     /// Every context with its status; empty from a kojed without `Contexts`.
@@ -210,6 +194,8 @@ pub struct Shell {
     /// The last failed command per context.
     errors: BTreeMap<String, String>,
     system: System,
+    /// `[bar]` of `config.toml`.
+    bar: BarConfig,
 }
 
 /// Whose color an element shows as its accent: a context's, or the grey of
@@ -242,24 +228,13 @@ pub struct WorkspaceButton {
     pub empty: bool,
 }
 
-/// One window of the task list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Task {
-    pub address: String,
-    pub class: String,
-    pub title: String,
-    pub focused: bool,
-}
-
 /// What one bar shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BarView {
     /// The monitor's workspaces, numbered ones first.
     pub workspaces: Vec<WorkspaceButton>,
-    /// The windows of the monitor's active workspace.
-    pub tasks: Vec<Task>,
-    /// The accent of the task list: its workspace's.
-    pub tasks_accent: Accent,
+    /// How to show them (ADR 0047).
+    pub style: WorkspaceStyle,
     /// The koje menu; `None` while kojed does not answer.
     pub menu: Option<MenuView>,
     pub quick: QuickView,
@@ -273,8 +248,6 @@ pub const KOJED_GONE: &str = "kojed is not running";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     FocusWorkspace(String),
-    /// Focus and raise a window.
-    FocusWindow(String),
     /// Show a context's workspace (kojed's `Focus`).
     FocusContext(String),
     /// Change a context's limits with `koje limit`: sizes as it takes them,
@@ -305,9 +278,6 @@ impl Action {
         match self {
             Self::FocusWorkspace(workspace) => Some(CompositorCommand::FocusWorkspace {
                 workspace: workspace.clone(),
-            }),
-            Self::FocusWindow(address) => Some(CompositorCommand::FocusWindow {
-                address: address.clone(),
             }),
             _ => None,
         }
@@ -347,10 +317,7 @@ impl Action {
                     vec![new, cmd(&["up", name])],
                 )
             }
-            Self::FocusWorkspace(_)
-            | Self::FocusWindow(_)
-            | Self::FocusContext(_)
-            | Self::Quick(_) => return None,
+            Self::FocusWorkspace(_) | Self::FocusContext(_) | Self::Quick(_) => return None,
         })
     }
 }
@@ -358,16 +325,8 @@ impl Action {
 impl Shell {
     pub fn apply(&mut self, update: Update) {
         match update {
-            Update::Desktop(desktop) => {
-                self.order
-                    .retain(|a| desktop.windows.iter().any(|w| &w.address == a));
-                for w in &desktop.windows {
-                    if !self.order.contains(&w.address) {
-                        self.order.push(w.address.clone());
-                    }
-                }
-                self.desktop = desktop;
-            }
+            Update::Desktop(desktop) => self.desktop = desktop,
+            Update::Bar(bar) => self.bar = bar,
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
             Update::History(history) => self.history = history,
@@ -456,26 +415,9 @@ impl Shell {
         }
         workspaces.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let mut windows: Vec<&Window> = d
-            .windows
-            .iter()
-            .filter(|w| Some(w.workspace.as_str()) == active)
-            .collect();
-        windows.sort_by_key(|w| self.order.iter().position(|a| a == &w.address));
-        let tasks = windows
-            .into_iter()
-            .map(|w| Task {
-                address: w.address.clone(),
-                class: w.class.clone(),
-                title: w.title.clone(),
-                focused: d.focused.as_ref() == Some(&w.address),
-            })
-            .collect();
-
         BarView {
             workspaces: workspaces.into_iter().map(|(_, b)| b).collect(),
-            tasks,
-            tasks_accent: active.map_or(Accent::Host, |a| self.accent(a)),
+            style: self.bar.workspaces,
             menu: matches!(self.kojed, Kojed::Running(_)).then(|| {
                 menu(&MenuInput {
                     running: self.contexts(),
@@ -585,15 +527,6 @@ mod tests {
         }
     }
 
-    fn win(address: &str, workspace: &str, title: &str) -> Window {
-        Window {
-            address: address.into(),
-            workspace: workspace.into(),
-            class: "foot".into(),
-            title: title.into(),
-        }
-    }
-
     /// Two monitors: eDP-1 shows `kp`, DP-1 shows `3`.
     fn desktop() -> Desktop {
         Desktop {
@@ -617,13 +550,6 @@ mod tests {
                 ws(-98, "special:koje-stash-kp", "eDP-1"),
                 ws(3, "3", "DP-1"),
             ],
-            windows: vec![
-                win("0xa", "kp", "editor"),
-                win("0xb", "1", "host"),
-                win("0xc", "kp", "browser"),
-                win("0xd", "3", "other monitor"),
-            ],
-            focused: Some("0xc".into()),
         }
     }
 
@@ -637,9 +563,9 @@ mod tests {
     #[test]
     fn starts_empty_and_without_warning() {
         let bar = Shell::default().bar(None);
-        assert_eq!((bar.workspaces.len(), bar.tasks.len()), (0, 0));
+        assert_eq!(bar.workspaces.len(), 0);
         assert_eq!(bar.warning, None);
-        assert_eq!(bar.tasks_accent, Accent::Host);
+        assert_eq!(bar.style, WorkspaceStyle::ColoredDots);
     }
 
     #[test]
@@ -689,49 +615,10 @@ mod tests {
     }
 
     #[test]
-    fn tasks_are_the_active_workspaces_windows() {
-        let bar = shell().bar(Some("eDP-1"));
-        let tasks: Vec<_> = bar
-            .tasks
-            .iter()
-            .map(|t| (t.title.as_str(), t.focused))
-            .collect();
-        assert_eq!(tasks, [("editor", false), ("browser", true)]);
-        assert_eq!(bar.tasks_accent, Accent::Context("kp".into()));
-    }
-
-    #[test]
-    fn raising_a_window_keeps_the_task_order() {
-        let mut s = shell();
-        // Focus and raise `editor`: Hyprland now lists it last.
-        let mut d = desktop();
-        let editor = d.windows.remove(0);
-        d.windows.push(editor);
-        d.focused = Some("0xa".into());
-        s.apply(Update::Desktop(d.clone()));
-        let titles = |s: &Shell| -> Vec<String> {
-            s.bar(Some("eDP-1"))
-                .tasks
-                .into_iter()
-                .map(|t| t.title)
-                .collect()
-        };
-        assert_eq!(titles(&s), ["editor", "browser"]);
-
-        // A new window goes last; a closed one is forgotten.
-        d.windows.insert(0, win("0xe", "kp", "new"));
-        d.windows.retain(|w| w.address != "0xc");
-        s.apply(Update::Desktop(d));
-        assert_eq!(titles(&s), ["editor", "new"]);
-    }
-
-    #[test]
     fn each_monitor_gets_its_own_bar() {
         let bar = shell().bar(Some("DP-1"));
         let names: Vec<_> = bar.workspaces.iter().map(|w| w.name.as_str()).collect();
         assert_eq!(names, ["3"]);
-        assert_eq!(bar.tasks.len(), 1);
-        assert_eq!(bar.tasks_accent, Accent::Host);
     }
 
     #[test]
@@ -781,7 +668,7 @@ mod tests {
         assert_eq!(bar.menu, None);
         assert_eq!(bar.warning, Some(KOJED_GONE));
         // Without kojed no context colors: all grey.
-        assert_eq!(bar.tasks_accent, Accent::Host);
+        assert!(bar.workspaces.iter().all(|w| w.accent == Accent::Host));
         s.apply(Update::Contexts(vec![]));
         assert_eq!(s.bar(None).warning, None);
     }
@@ -836,12 +723,6 @@ mod tests {
             Action::FocusWorkspace("kp".into()).command(),
             Some(CompositorCommand::FocusWorkspace {
                 workspace: "kp".into()
-            })
-        );
-        assert_eq!(
-            Action::FocusWindow("0xa".into()).command(),
-            Some(CompositorCommand::FocusWindow {
-                address: "0xa".into()
             })
         );
         assert_eq!(Action::FocusContext("kp".into()).command(), None);
@@ -903,6 +784,15 @@ mod tests {
         assert_eq!(e.status, Status::Paused);
         let odd = ContextEntry::from(("kp".to_owned(), "#ff0000".to_owned(), "weird".to_owned()));
         assert_eq!(odd.status, Status::Stopped);
+    }
+
+    #[test]
+    fn the_workspace_style_follows_config_toml() {
+        let mut s = shell();
+        s.apply(Update::Bar(BarConfig {
+            workspaces: WorkspaceStyle::Names,
+        }));
+        assert_eq!(s.bar(None).style, WorkspaceStyle::Names);
     }
 
     #[test]
