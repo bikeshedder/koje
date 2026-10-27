@@ -17,6 +17,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::hypr;
 use crate::menu::HistoryReading;
 use crate::model::{Action, ContextEntry, MemoryReading, RunningContext, Update};
+use crate::notify_server;
 use crate::system;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
@@ -83,9 +84,11 @@ pub fn spawn(tx: Sender<Update>, actions: UnboundedReceiver<Action>) -> Result<(
                     }
                 };
                 let wake = Arc::new(tokio::sync::Notify::new());
+                // The session's notification server (M8.36).
+                let notify = notify_server::start(tx.clone()).await;
                 tokio::select! {
                     () = desktop(&hypr, tx.clone()) => {}
-                    () = act(&hypr, system_bus.as_ref(), &wake, actions, tx.clone()) => {}
+                    () = act(&hypr, system_bus.as_ref(), &wake, notify.as_ref(), actions, tx.clone()) => {}
                     () = system::watch(&hypr, system_bus.clone(), tx.clone(), wake.clone()) => {}
                     () = kojed_forever(tx) => {}
                 }
@@ -185,11 +188,18 @@ async fn act(
     hypr: &Hyprland,
     system_bus: Option<&zbus::Connection>,
     wake: &tokio::sync::Notify,
+    notify: Option<&(notify_server::Server, zbus::Connection)>,
     mut actions: UnboundedReceiver<Action>,
     tx: Sender<Update>,
 ) {
     while let Some(action) = actions.recv().await {
         tracing::debug!(?action, "click");
+        if let Action::Notification(request) = action {
+            if let Some((server, conn)) = notify {
+                server.handle(conn, request).await;
+            }
+            continue;
+        }
         if let Action::Quick(change) = action {
             if let Some(osd) = system::change(hypr, system_bus, change).await {
                 let _ = tx.send(Update::Osd(osd)).await;

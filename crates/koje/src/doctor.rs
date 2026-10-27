@@ -329,7 +329,6 @@ fn session_units() -> Vec<Check> {
         "koje-session.target",
         "kojed.service",
         "koje-shell.service",
-        "mako.service",
         "koje-idle.service",
         "koje-polkit-agent.service",
     ]

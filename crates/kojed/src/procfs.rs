@@ -53,9 +53,34 @@ pub fn observe(proc_root: &Path, pid: u32) -> Option<Proc> {
     Some(p)
 }
 
+/// Both processes are in one PID namespace – one container (the shell's
+/// notifications, M8.36); `false` when either is gone.
+pub fn same_pid_namespace(proc_root: &Path, a: u32, b: u32) -> bool {
+    let ns = |pid: u32| std::fs::read_link(proc_root.join(pid.to_string()).join("ns/pid")).ok();
+    matches!((ns(a), ns(b)), (Some(x), Some(y)) if x == y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pid_namespaces() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        for (pid, ns) in [
+            (1, "pid:[4026531836]"),
+            (2, "pid:[4026532999]"),
+            (3, "pid:[4026532999]"),
+        ] {
+            let d = root.join(pid.to_string()).join("ns");
+            std::fs::create_dir_all(&d).unwrap();
+            std::os::unix::fs::symlink(ns, d.join("pid")).unwrap();
+        }
+        assert!(same_pid_namespace(root, 2, 3));
+        assert!(!same_pid_namespace(root, 1, 3));
+        assert!(!same_pid_namespace(root, 1, 9));
+    }
 
     #[test]
     fn reads_a_fake_proc() {

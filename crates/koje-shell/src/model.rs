@@ -64,6 +64,14 @@ pub enum Update {
     OverviewLanded(String),
     /// Show the OSD (scrolling over the volume indicator). Not part of the state.
     Osd(koje_core::media::Osd),
+    /// The notifications there are, newest first, and whether the clock
+    /// shows GNOME's dot for unseen ones (M8.36, M8.81).
+    Notifications {
+        list: Vec<crate::notifications::Notification>,
+        unseen: bool,
+    },
+    /// Show this banner (M8.36). Not part of the state.
+    Banner(crate::notifications::Notification),
     /// A window's picture (the screen sharing picker). Not part of the state.
     Thumbnail {
         address: String,
@@ -251,6 +259,8 @@ pub struct Shell {
     bar: BarConfig,
     /// The configured overlays: name and label.
     overlays: Vec<(String, String)>,
+    notifications: Vec<crate::notifications::Notification>,
+    unseen: bool,
     favorites: Vec<String>,
     /// The programs of each context that ran when they were read.
     apps: BTreeMap<String, Vec<AppItem>>,
@@ -279,6 +289,14 @@ impl Accent {
 }
 
 /// One button of the workspace list.
+/// The clock's date menu: the notifications, each with its context's
+/// accent class, and GNOME's dot next to the clock.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DateView {
+    pub notifications: Vec<(crate::notifications::Notification, Option<String>)>,
+    pub unseen: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverlayButton {
     pub name: String,
@@ -333,6 +351,8 @@ pub struct BarView {
     pub workspaces: Vec<WorkspaceButton>,
     /// The overlays after them (M8.34), in `config.toml`'s order.
     pub overlays: Vec<OverlayButton>,
+    /// The date menu (M8.81).
+    pub date: DateView,
     /// How to show them (ADR 0047).
     pub style: WorkspaceStyle,
     /// The koje menu; `None` while kojed does not answer.
@@ -350,6 +370,8 @@ pub enum Action {
     FocusWorkspace(String),
     /// Show or hide an overlay (M8.34).
     ToggleOverlay(String),
+    /// A notification's banner or list entry (M8.36).
+    Notification(crate::notify_server::Request),
     /// Focus and raise a window (the overview).
     FocusWindow(String),
     /// Ask a window to close.
@@ -473,6 +495,7 @@ impl Action {
             }
             Self::FocusWorkspace(_)
             | Self::ToggleOverlay(_)
+            | Self::Notification(_)
             | Self::FocusWindow(_)
             | Self::CloseWindow(_)
             | Self::MoveWindow { .. }
@@ -497,6 +520,10 @@ impl Shell {
             Update::Desktop(desktop) => self.desktop = desktop,
             Update::Bar(bar) => self.bar = bar,
             Update::Overlays(overlays) => self.overlays = overlays,
+            Update::Notifications { list, unseen } => {
+                self.notifications = list;
+                self.unseen = unseen;
+            }
             Update::Favorites(favorites) => self.favorites = favorites,
             Update::Apps { context, apps } => {
                 self.apps.insert(context, apps);
@@ -508,6 +535,7 @@ impl Shell {
             Update::DisplayChangePending(_)
             | Update::OverviewLanded(_)
             | Update::Osd(_)
+            | Update::Banner(_)
             | Update::Thumbnail { .. } => {}
             Update::Contexts(contexts) => self.kojed = Kojed::Running(contexts),
             Update::Memory(readings) => self.memory = readings,
@@ -619,6 +647,20 @@ impl Shell {
                     open: mon.and_then(|m| m.special.as_deref()) == Some(name.as_str()),
                 })
                 .collect(),
+            date: DateView {
+                notifications: self
+                    .notifications
+                    .iter()
+                    .map(|n| {
+                        let accent = n
+                            .context
+                            .as_ref()
+                            .map(|c| Accent::Context(c.clone()).css_class());
+                        (n.clone(), accent)
+                    })
+                    .collect(),
+                unseen: self.unseen,
+            },
             style: self.bar.workspaces,
             menu: matches!(self.kojed, Kojed::Running(_)).then(|| {
                 menu(&MenuInput {

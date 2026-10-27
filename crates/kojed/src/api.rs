@@ -233,6 +233,26 @@ impl Api {
         Ok(self.players.control(action).await.unwrap_or_default())
     }
 
+    /// The running context a process belongs to (same PID namespace as the
+    /// context's container), `""` for the host – the shell marks a
+    /// notification with its sender's context (M8.36).
+    async fn context_of_pid(&self, pid: u32) -> String {
+        let running = self.daemon.lock().await.running().await;
+        let podman = Podman::new();
+        for ctx in running {
+            let p = podman.clone();
+            let c = ctx.clone();
+            let Ok(Ok(Some(main))) = tokio::task::spawn_blocking(move || p.running_pid(&c)).await
+            else {
+                continue;
+            };
+            if crate::procfs::same_pid_namespace(std::path::Path::new("/proc"), pid, main) {
+                return ctx.to_string();
+            }
+        }
+        String::new()
+    }
+
     /// Running contexts: `(name, color, windows, active)` – the bar (M5.15).
     async fn running_contexts(&self) -> Vec<(String, String, u32, bool)> {
         let mut d = self.daemon.lock().await;

@@ -158,7 +158,7 @@ pub struct QuickWidget {
     keyboard: Toggle,
     tiles: gtk::Grid,
     /// In their order on the grid.
-    tile_order: [gtk::ToggleButton; 3],
+    tile_order: [gtk::ToggleButton; 4],
     load: gtk::Label,
     actions: UnboundedSender<Action>,
     /// What scrolling over the volume indicator left over (a touchpad's
@@ -195,6 +195,7 @@ impl QuickWidget {
             })
         };
         let dark = dark_toggle();
+        let dnd = do_not_disturb_toggle();
         let keyboard = {
             let actions = actions.clone();
             Toggle::new(move |_| {
@@ -208,7 +209,7 @@ impl QuickWidget {
             .column_homogeneous(true)
             .build();
         // Placed by `arrange`, which skips hidden ones.
-        for t in [&network.button, &dark.button, &keyboard.button] {
+        for t in [&network.button, &dark.button, &keyboard.button, &dnd.button] {
             tiles.attach(t, 0, 0, 1, 1);
         }
         let load = gtk::Label::builder()
@@ -264,6 +265,7 @@ impl QuickWidget {
             tile_order: [
                 network.button.clone(),
                 dark.button.clone(),
+                dnd.button.clone(),
                 keyboard.button.clone(),
             ],
             network,
@@ -379,6 +381,36 @@ impl QuickWidget {
         }
         self.shown.replace(Some(q.clone()));
     }
+}
+
+/// GNOME 50's "Do Not Disturb" (`status/doNotDisturb.js`):
+/// `org.gnome.desktop.notifications show-banners` turned off; the
+/// notification server follows the setting (M8.36).
+fn do_not_disturb_toggle() -> Toggle {
+    let settings = crate::notifications_ui::notification_settings();
+    let toggle = {
+        let settings = settings.clone();
+        Toggle::new(move |on| {
+            if let Some(s) = &settings {
+                let _ = s.set_boolean("show-banners", !on);
+            }
+        })
+    };
+    let now = {
+        let toggle = toggle.clone();
+        move |s: &gio::Settings| {
+            let on = !s.boolean("show-banners");
+            toggle.set("notifications-disabled-symbolic", "Do Not Disturb", "", on);
+        }
+    };
+    match &settings {
+        Some(s) => {
+            now(s);
+            s.connect_changed(Some("show-banners"), move |s, _| now(s));
+        }
+        None => toggle.button.set_visible(false),
+    }
+    toggle
 }
 
 /// Dark style: `org.gnome.desktop.interface color-scheme`, which GTK and the

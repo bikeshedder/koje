@@ -49,7 +49,7 @@ installing or upgrading."""
 section = "utils"
 priority = "optional"
 depends = "$auto, hyprland (>= 0.53.3), hyprland (<< 0.53.4~), podman, uidmap, passt, fuse-overlayfs, xdg-dbus-proxy, fontconfig, fuzzel, jq"
-recommends = "waybar, foot, mako-notifier, hypridle, hyprlock, grim, slurp, wl-clipboard, wireplumber, xdg-desktop-portal-hyprland, xdg-desktop-portal-gnome, xdg-desktop-portal-gtk"
+recommends = "waybar, foot, hypridle, hyprlock, grim, slurp, wl-clipboard, wireplumber, xdg-desktop-portal-hyprland, xdg-desktop-portal-gnome, xdg-desktop-portal-gtk"
 assets = [
     ["target/release/koje", "usr/bin/", "755"],
     ["target/release/kojed", "usr/bin/", "755"],
@@ -66,6 +66,7 @@ assets = [
     ["../../assets/systemd/koje-idle.service", "usr/lib/systemd/user/", "644"],
     ["../../assets/systemd/koje-polkit-agent.service", "usr/lib/systemd/user/", "644"],
     ["../../assets/systemd/waybar.service.d/koje.conf", "usr/lib/systemd/user/waybar.service.d/", "644"],
+    ["../../assets/systemd/mako.service.d/koje.conf", "usr/lib/systemd/user/mako.service.d/", "644"],
     ["../../assets/systemd/xdg-desktop-portal-hyprland.service.d/koje.conf", "usr/lib/systemd/user/xdg-desktop-portal-hyprland.service.d/", "644"],
     ["../../assets/session/koje.desktop", "usr/share/wayland-sessions/", "644"],
     ["../../assets/portals/koje-portals.conf", "usr/share/xdg-desktop-portal/", "644"],

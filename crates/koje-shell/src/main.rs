@@ -18,6 +18,9 @@ mod hypr;
 mod menu;
 mod menu_ui;
 mod model;
+mod notifications;
+mod notifications_ui;
+mod notify_server;
 mod osd_ui;
 mod overview;
 mod overview_ui;
@@ -222,25 +225,9 @@ fn start(app: &adw::Application) {
         app.quit();
         return;
     };
-    let style = |css: &str| {
-        let provider = gtk4::CssProvider::new();
-        provider.load_from_string(css);
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-        provider
-    };
-    style(CSS);
-    style(&swatch_css());
-    style(quick_ui::CSS);
-    style(overview_ui::CSS);
-    style(switcher_ui::CSS);
-    style(osd_ui::CSS);
     let shell = Rc::new(RefCell::new(Shell::default()));
     let accents_css = shell.borrow().accent_css();
-    let accents = style(&accents_css);
+    let accents = load_css(&display, &accents_css);
 
     let bars: Bars = Rc::default();
     let monitors = display.monitors();
@@ -268,6 +255,9 @@ fn start(app: &adw::Application) {
     workspace_action(app, &shell, &actions_for_confirm);
     let osd = osd_ui::Osd::new(app);
     osd_action(app, &osd);
+    // Notification banners (M8.36); "Do Not Disturb" from GNOME's settings.
+    let banners = notifications_ui::Banners::new(app, actions_for_confirm.clone());
+    follow_do_not_disturb(&actions_for_confirm);
     // GNOME's questions with a countdown: a display change, ending the session.
     let display_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
     let end_dialog = dialog_ui::CountdownDialog::new(app, &actions_for_confirm);
@@ -297,6 +287,9 @@ fn start(app: &adw::Application) {
                 osd.show(o);
                 continue;
             }
+            if banner(&banners, &update) {
+                continue;
+            }
             if let Update::OverviewLanded(monitor) = &update {
                 for bar in bars.borrow().iter() {
                     if bar.connector().as_ref() == Some(monitor) {
@@ -317,6 +310,34 @@ fn start(app: &adw::Application) {
 
     // Keep running without monitors (all unplugged): bars come back with them.
     std::mem::forget(app.hold());
+}
+
+/// The shell's stylesheets; the returned one holds the contexts' accents
+/// (`accents`), reloaded when they change.
+fn load_css(display: &gdk::Display, accents: &str) -> gtk4::CssProvider {
+    let style = |css: &str| {
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_string(css);
+        gtk4::style_context_add_provider_for_display(
+            display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        provider
+    };
+    for css in [
+        CSS,
+        &swatch_css(),
+        quick_ui::CSS,
+        overview_ui::CSS,
+        switcher_ui::CSS,
+        osd_ui::CSS,
+        notifications_ui::CSS,
+        clock::CSS,
+    ] {
+        style(css);
+    }
+    style(accents)
 }
 
 /// The color buttons of "New context…": each in its palette color.
@@ -421,6 +442,46 @@ fn follow_favorites(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
     load(&settings);
     settings.connect_changed(Some("favorite-apps"), move |s, _| load(s));
     // Follows as long as the shell runs.
+    std::mem::forget(settings);
+}
+
+/// A banner to show, or the list its banner may have left: `true` when
+/// the update was only for the banners.
+fn banner(banners: &Rc<notifications_ui::Banners>, update: &Update) -> bool {
+    match update {
+        Update::Banner(n) => {
+            let accent = n
+                .context
+                .as_ref()
+                .map(|c| model::Accent::Context(c.clone()).css_class());
+            let now = glib::DateTime::now_local().map_or(0, |d| d.to_unix());
+            banners.show(n, now, accent);
+            true
+        }
+        Update::Notifications { list, .. } => {
+            // Dismissed in the list or closed by its app: its banner goes.
+            banners.keep_only(list);
+            false
+        }
+        _ => false,
+    }
+}
+
+/// GNOME's "Do Not Disturb" is `show-banners` turned off; the server
+/// follows it.
+fn follow_do_not_disturb(actions: &UnboundedSender<Action>) {
+    let Some(settings) = notifications_ui::notification_settings() else {
+        return;
+    };
+    let send = {
+        let actions = actions.clone();
+        move |s: &gio::Settings| {
+            let dnd = !s.boolean("show-banners");
+            let _ = actions.send(Action::Notification(notify_server::Request::SetDnd(dnd)));
+        }
+    };
+    send(&settings);
+    settings.connect_changed(Some("show-banners"), move |s, _| send(s));
     std::mem::forget(settings);
 }
 

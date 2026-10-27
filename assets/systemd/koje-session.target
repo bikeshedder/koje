@@ -9,6 +9,6 @@ Documentation=https://github.com/bikeshedder/koje
 BindsTo=graphical-session.target
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target
-# Notifications: mako's own unit until the shell shows them (M8.36).
-Wants=kojed.service koje-shell.service mako.service koje-idle.service koje-polkit-agent.service
+# Notifications come from koje-shell (M8.36); mako is skipped in this session.
+Wants=kojed.service koje-shell.service koje-idle.service koje-polkit-agent.service
 Wants=xdg-desktop-autostart.target

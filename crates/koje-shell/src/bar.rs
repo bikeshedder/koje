@@ -42,6 +42,7 @@ pub struct Bar {
     overview: Rc<OverviewSurface>,
     /// The monitor's background (M8.82).
     background: Rc<Background>,
+    clock: Rc<Clock>,
 }
 
 impl Bar {
@@ -86,7 +87,7 @@ impl Bar {
         let quick = QuickWidget::new(&actions);
         end.append(quick.widget());
 
-        let clock = Clock::new();
+        let clock = Clock::new(&actions);
         let layout = bar_box(&workspaces, clock.widget(), &end);
         window.set_child(Some(&layout));
         window.present();
@@ -106,6 +107,7 @@ impl Bar {
             buttons: RefCell::default(),
             overview,
             background,
+            clock,
         }
     }
 
@@ -153,6 +155,7 @@ impl Bar {
             self.render_workspaces(view);
         }
         self.menu.render(view.menu.as_ref());
+        self.clock.render(&view.date);
         self.quick.render(&view.quick);
         match view.warning {
             Some(text) => {

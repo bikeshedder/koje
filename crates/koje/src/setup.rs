@@ -35,7 +35,7 @@ const WAYBAR: [(&str, &[u8]); 2] = [
 const WAYBAR_READS: [&str; 3] = ["config", "config.jsonc", "style.css"];
 
 /// Command → Debian/Ubuntu package koje needs on the host.
-pub const DEPENDENCIES: [(&str, &str); 18] = [
+pub const DEPENDENCIES: [(&str, &str); 17] = [
     ("podman", "podman"),
     ("newuidmap", "uidmap"),
     ("pasta", "passt"),
@@ -48,7 +48,6 @@ pub const DEPENDENCIES: [(&str, &str); 18] = [
     ("jq", "jq"),
     // The session koje's Hyprland snippet sets up (ADR 0037).
     ("foot", "foot"),
-    ("mako", "mako-notifier"),
     ("hypridle", "hypridle"),
     ("hyprlock", "hyprlock"),
     ("grim", "grim"),
