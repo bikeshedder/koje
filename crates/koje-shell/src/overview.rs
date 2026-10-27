@@ -86,6 +86,23 @@ pub fn plugin_command(open: bool, monitor: &str, places: &[Place]) -> String {
     out
 }
 
+/// What to send the plugin now, if anything: the command, and the key that
+/// tells next time whether anything changed (`sent`). `opened`: the plugin
+/// has the overview already. A workspace without windows is sent as well –
+/// the plugin then stops drawing the previous one's (M8.79).
+pub fn plugin_send(
+    opened: bool,
+    sent: &str,
+    monitor: &str,
+    places: &[Place],
+) -> Option<(String, String)> {
+    let key = plugin_command(false, monitor, places);
+    if opened && sent == key {
+        return None;
+    }
+    Some((plugin_command(!opened, monitor, places), key))
+}
+
 /// A window's place in the overview.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
@@ -272,6 +289,25 @@ mod tests {
             "open DP-1 0xa:10,80,640,400 0xb:700,80,640,400"
         );
         assert_eq!(plugin_command(false, "DP-1", &[]), "update DP-1");
+    }
+
+    #[test]
+    fn an_empty_workspace_clears_the_plugins_windows() {
+        let p = |a: &str| Place {
+            address: a.to_owned(),
+            x: 1,
+            y: 2,
+            w: 3,
+            h: 4,
+        };
+        let (open, key) = plugin_send(false, "", "DP-1", &[p("0xa")]).unwrap();
+        assert!(open.starts_with("open DP-1 0xa:"));
+        assert_eq!(plugin_send(true, &key, "DP-1", &[p("0xa")]), None);
+        // Switched to an empty workspace: the plugin is told so.
+        assert_eq!(
+            plugin_send(true, &key, "DP-1", &[]),
+            Some(("update DP-1".to_owned(), "update DP-1".to_owned()))
+        );
     }
 
     #[test]

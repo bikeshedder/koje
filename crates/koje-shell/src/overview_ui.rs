@@ -16,7 +16,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::dash::DashEntry;
 use crate::model::{Accent, Action, Shell, WorkspaceButton};
-use crate::overview::{OverviewView, Place, WindowCard, plugin_command};
+use crate::overview::{OverviewView, Place, WindowCard, plugin_send};
 use crate::search::{AppHit, AppItem, AppSection, SearchView, WindowHit};
 
 /// Room between the cards.
@@ -496,12 +496,14 @@ impl OverviewSurface {
                 })
             })
             .collect();
-        let open = !self.opened.get();
-        let command = plugin_command(open, &self.monitor, &places);
-        let key = plugin_command(false, &self.monitor, &places);
-        if !open && *self.sent.borrow() == key {
+        let Some((command, key)) = plugin_send(
+            self.opened.get(),
+            &self.sent.borrow(),
+            &self.monitor,
+            &places,
+        ) else {
             return;
-        }
+        };
         self.opened.set(true);
         self.sent.replace(key);
         let _ = self.actions.send(Action::Overview(command));
@@ -535,6 +537,11 @@ impl OverviewSurface {
         }
         self.cards.set_visible(!view.windows.is_empty());
         self.empty.set_visible(view.windows.is_empty());
+        // Hidden, the cards get no layout and nothing would tell the plugin
+        // that this workspace has no windows (M8.79).
+        if view.windows.is_empty() {
+            self.send_places();
+        }
         clear(&self.stash);
         match &view.stash {
             Some(stash) if !stash.windows.is_empty() => {
