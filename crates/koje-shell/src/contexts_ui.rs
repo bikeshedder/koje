@@ -73,7 +73,24 @@ impl ContextListPage {
                 .build(),
         );
         root.append(&list);
-        root.append(&form.reveal);
+        let settings = gtk::Button::builder()
+            .label("koje Settings…")
+            .css_classes(["flat"])
+            .halign(gtk::Align::Start)
+            .build();
+        settings.connect_clicked(|b| {
+            if let Some(p) = b
+                .ancestor(gtk::Popover::static_type())
+                .and_downcast::<gtk::Popover>()
+            {
+                p.popdown();
+            }
+            crate::settings_ui::open(None);
+        });
+        let buttons = gtk::Box::builder().spacing(6).build();
+        buttons.append(&form.reveal);
+        buttons.append(&settings);
+        root.append(&buttons);
         root.append(&form.revealer);
         Rc::new(Self {
             root,

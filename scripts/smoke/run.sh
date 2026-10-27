@@ -10,6 +10,7 @@
 #   overview          koje-shell overview (show or hide)
 #   hover X Y         move the pointer to X,Y (logical pixels)
 #   click X Y         left click at X,Y
+#   scroll N          N wheel steps at the pointer, down positive
 #   rclick X Y        right click at X,Y
 #   key KEY           press a key: Escape, Return, BackSpace, Tab, arrows
 #   type TEXT         type letters, digits, space
@@ -85,6 +86,7 @@ dbus-run-session -- bash -c '
   click() { echo "move $1 $2" >"$INPUT"; sleep 0.2; echo click >"$INPUT"; sleep 0.5; }
   rclick() { echo "move $1 $2" >"$INPUT"; sleep 0.2; echo rclick >"$INPUT"; sleep 0.5; }
   key() { echo "key $1" >"$INPUT"; sleep 0.3; }
+  scroll() { echo "scroll $1" >"$INPUT"; sleep 0.3; }
   type() { echo "type $1" >"$INPUT"; sleep 0.3; }
   down() { echo "down $1" >"$INPUT"; sleep 0.2; }
   up() { echo "up $1" >"$INPUT"; sleep 0.3; }

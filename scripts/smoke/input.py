@@ -38,7 +38,7 @@ MODS = {"Alt": (56, 8), "Super": (125, 64)}
 held = 0
 # evdev key codes (US layout).
 KEYS = {"Escape": 1, "BackSpace": 14, "Tab": 15, "Return": 28, "space": 57, "Shift": 42,
-        "Up": 103, "Down": 108, "Left": 105, "Right": 106}
+        "Up": 103, "Down": 108, "Left": 105, "Right": 106, "Home": 102, "End": 107}
 for row, first in (("1234567890-=", 2), ("qwertyuiop", 16), ("asdfghjkl;'", 30), ("zxcvbnm,./", 44)):
     for i, c in enumerate(row):
         KEYS[c] = first + i
@@ -107,6 +107,12 @@ while True:
                 display.flush()
                 time.sleep(0.05)
                 pointer.button(now(), button, 0)
+                pointer.frame()
+            elif cmd == "scroll":
+                # Wheel steps, down positive (15 px each, as libinput's).
+                steps = int(rest)
+                pointer.axis_source(0)
+                pointer.axis_discrete(now(), 0, 15.0 * steps, steps)
                 pointer.frame()
             elif cmd == "key":
                 press(KEYS[rest])

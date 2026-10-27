@@ -13,6 +13,8 @@ XML = """<node><interface name="io.koje.Daemon1">
 <method name="Contexts"><arg type="a(sss)" direction="out"/></method>
 <method name="Memory"><arg type="s" direction="in"/><arg type="(stttt)" direction="out"/></method>
 <method name="MemoryHistory"><arg type="s" direction="in"/><arg type="(suat)" direction="out"/></method>
+<method name="State"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
+<method name="ContextOfPid"><arg type="u" direction="in"/><arg type="s" direction="out"/></method>
 <method name="Focus"><arg type="s" direction="in"/></method>
 <method name="Unstash"><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
 <method name="KeepDisplayChange"><arg type="b" direction="out"/></method>
@@ -26,6 +28,23 @@ ACTIVE = os.environ.get("ACTIVE", "kundenportal")
 LOG = os.environ.get("LOG", "/dev/null")
 COLORS = {"kundenportal": "#26a269", "privat": "#c64600", "alt": "#9141ac"}
 MEM = {"kundenportal": (int(5.6 * GIB), 6 * GIB, 8 * GIB), "privat": (int(1.2 * GIB), 0, 4 * GIB)}
+
+
+# A running context's live state (the settings app's Layouts and Windows).
+STATE = """active_layout = "code"
+windows = [
+  { id = "editor", integration = "editor", path = "~/src/kundenportal" },
+  { id = "browser", integration = "browser" },
+  { id = "term", command = "foot" },
+]
+[layout.code.windows]
+editor = { monitor = "HEADLESS-1", x = 0, y = 32, w = 960, h = 1048 }
+browser = { monitor = "HEADLESS-1", x = 960, y = 32, w = 960, h = 1048 }
+[layout.review]
+autosave = false
+[layout.review.windows]
+browser = { monitor = "HEADLESS-1", x = 0, y = 32, w = 1920, h = 1048 }
+"""
 
 
 def call(conn, sender, path, iface, method, params, inv):
@@ -42,6 +61,10 @@ def call(conn, sender, path, iface, method, params, inv):
         name = params[0] or ACTIVE
         used, soft, hard = MEM.get(name, (0, 0, 0))
         inv.return_value(GLib.Variant("((stttt))", ((name if name in MEM else "", used, used, soft, hard),)))
+    elif method == "State":
+        inv.return_value(GLib.Variant("(s)", (STATE,)))
+    elif method == "ContextOfPid":
+        inv.return_value(GLib.Variant("(s)", (os.environ.get("NOTIFY_CONTEXT", ""),)))
     elif method == "MemoryHistory":
         name = params[0] or ACTIVE
         used = MEM.get(name, (0, 0, 0))[0]

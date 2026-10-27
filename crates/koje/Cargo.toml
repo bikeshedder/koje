@@ -79,5 +79,6 @@ assets = [
     ["../../assets/lock/hyprlock.conf", "usr/share/koje/lock/", "644"],
     ["../../assets/fonts/lucide/lucide.ttf", "usr/share/fonts/truetype/koje/", "644"],
     ["../../assets/icons/io.koje.Koje-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
+    ["../../assets/applications/io.koje.Settings.desktop", "usr/share/applications/", "644"],
     ["../../assets/fonts/lucide/LICENSE", "usr/share/doc/koje/lucide-LICENSE", "644"],
 ]

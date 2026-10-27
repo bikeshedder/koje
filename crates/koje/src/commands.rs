@@ -35,6 +35,7 @@ pub fn run(command: &Command) -> Result<()> {
         } => crate::bar::names(&paths, *memory),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
+        Command::Settings { context } => settings(&paths, context.as_deref()),
         Command::Edit { ctx, stdin } => {
             if *stdin {
                 edit_from_stdin(&paths, ctx)
@@ -168,6 +169,23 @@ fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
     let _ = std::fs::remove_file(&draft);
     result?;
     apply_edit(paths, &name, &before);
+    Ok(())
+}
+
+/// `koje settings`: the settings app (`koje-shell settings`), detached.
+fn settings(paths: &Paths, context: Option<&str>) -> Result<()> {
+    let mut args = vec!["settings".to_owned()];
+    if let Some(c) = context {
+        let name = ContextName::new(c)?;
+        context::load(paths, &name)?;
+        args.push(name.to_string());
+    }
+    std::process::Command::new("koje-shell")
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .context("starting koje-shell (the settings app)")?;
     Ok(())
 }
 

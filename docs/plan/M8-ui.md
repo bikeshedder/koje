@@ -248,16 +248,23 @@ M8.15; M8.37 after M3.24. Each page reads and writes through kojed and
 - [-] **M8.5 Layout overview** (Super+L): thumbnails, drag windows between layouts
   - Dropped (ADR 0036): moved into the settings app's layouts page (M8.12).
   - Notes: until then (M2.1): Waybar's task list (the current workspace's windows: `hyprland/workspaces` in taskbar mode, `active-only`), Alt+Tab, Super+Tab picker (`assets/bin/koje-window-picker`).
-- [ ] **M8.9 Settings app skeleton** (`koje-shell settings`): a libadwaita window like GNOME's apps, in its own process (ADR 0042, 0043); client of kojed (ADR 0027) with live updates; context list with color and status; start, stop, pause, wake per context; one instance (a second start brings the window up, optionally on a given context)
+- [x] **M8.9 Settings app skeleton** (`koje-shell settings`): a libadwaita window like GNOME's apps, in its own process (ADR 0042, 0043); client of kojed (ADR 0027) with live updates; context list with color and status; start, stop, pause, wake per context; one instance (a second start brings the window up, optionally on a given context)
   - Also: a desktop file and icon ("koje Settings") so it is in the overview's search and app grid; "Context settings…" in the koje menu (M8.55) opens it on the active context.
   - Notes: shares the shell's code and look (M8.27).
-- [ ] **M8.10 Contexts page**: create and edit a context – name, color, access profile and overrides, mounts, memory limits; recreate with confirmation
+  - Done (2026-10-27): `koje-shell settings [<context>]` – `settings_ui.rs` (`io.koje.Settings`, one instance through `HANDLES_COMMAND_LINE`: a second start shows the window on the given context), `settings.rs` (pure: sidebar, form ⇄ `ContextSettings` with per-field errors, effective switches, state rows, the layouts × windows matrix, memory texts; tested), `settings_backend.rs` (a tokio thread: koje's files through `koje-core`, kojed's `Contexts`, `Memory`, `State`; refreshed every 3 s and after each command – not yet on kojed's signals; changes run `koje`). A libadwaita window as GNOME's apps: the contexts in a sidebar with their color and status, Memory first; per context Context, States, Layouts and Windows in a view switcher; Start, Stop, Pause, Wake in the header (a spinner while `koje` runs, its error as a toast); "New Context…" in the sidebar's header. Pages are rebuilt only when their data changed. `assets/applications/io.koje.Settings.desktop` ("koje Settings") in the package. Smoke-tested in sway with the fake kojed (it now answers `State`).
+- [x] **M8.10 Contexts page**: create and edit a context – name, color, access profile and overrides, mounts, memory limits; recreate with confirmation
   - Notes: writes `context.toml` through the same core functions as `koje new`/`edit`; validation errors from core shown per field.
-- [ ] **M8.11 States page**: states of a context with a thumbnail of the active layout; load, copy, rename, delete; roles `default` and `fresh`
-- [ ] **M8.12 Layouts page**: the windows × layouts matrix (visible / stashed), "Save automatically" per layout, new and renamed layouts, double-click switches; layout thumbnails with dragging windows between them (from M8.5)
-- [ ] **M8.13 Windows page**: a context's windows with their IDs (renamable) and integration
-- [ ] **M8.14 Memory page**: all contexts against their soft and hard limits; change limits
-- [ ] **M8.15 Open the settings app from the bar and the CLI**: click on the context capsule or a `koje` command opens the app on that context
+  - Done: label, color (the palette or #RRGGBB), the access profile (or `config.toml`'s) with every switch showing what applies – a changed switch becomes the context's own –, folders (add, remove; an `unsafe` mark is kept), memory limits; Save checks the fields (bad ones marked) and writes through `koje edit <context> --stdin` (new: the whole file on stdin, checked as the editor path, then mounts and dotfiles follow as after `edit`), built by `koje_core::context::with_settings` (toml_edit: comments and order kept; tested). Recreate… and Remove Context… ask first (`koje recreate --yes`, `koje rm --yes`). Not editable here: name, image, dotfiles presets, state role names.
+- [x] **M8.11 States page**: states of a context with a thumbnail of the active layout; load, copy, rename, delete; roles `default` and `fresh`
+  - Done: every state with its role and what it holds (windows, layouts, unreadable ones with the reason); Load (`koje up -s`), Copy…, Rename…, Delete… (asks). Left: a thumbnail of the active layout.
+- [~] **M8.12 Layouts page**: the windows × layouts matrix (visible / stashed), "Save automatically" per layout, new and renamed layouts, double-click switches; layout thumbnails with dragging windows between them (from M8.5)
+  - Started: the layouts of the live state (a stopped context: the state `up` loads), the active one checked, "Save automatically" switches, Switch, New layout (a copy of the active one), and the windows × layouts matrix (shown or in the stash), read-only. Left: rename and delete, changing the matrix, thumbnails with dragging (needs kojed calls to move a window between layouts).
+- [~] **M8.13 Windows page**: a context's windows with their IDs (renamable) and integration
+  - Started: the remembered windows with their id and how they start (integration or command). Left: renaming ids and choosing the integration – there is no command for it yet (kojed or `koje window …` first).
+- [x] **M8.14 Memory page**: all contexts against their soft and hard limits; change limits
+  - Done: every context with its working set against its limit (a level bar) from kojed; a row opens the context, whose page changes the limits.
+- [x] **M8.15 Open the settings app from the bar and the CLI**: click on the context capsule or a `koje` command opens the app on that context
+  - Done: "Context Settings…" in the koje menu's context panel and "koje Settings…" beside "New context…" on a host workspace; `koje settings [<context>]` in the CLI (architecture table updated).
 
 ## Extra surfaces
 

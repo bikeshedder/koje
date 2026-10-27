@@ -28,6 +28,10 @@ mod popup;
 mod quick;
 mod quick_ui;
 mod search;
+mod settings;
+mod settings_backend;
+mod settings_form;
+mod settings_ui;
 mod share;
 mod share_ui;
 mod sound;
@@ -155,6 +159,11 @@ fn main() -> glib::ExitCode {
                     glib::ExitCode::FAILURE
                 }
             };
+        }
+        // The settings app, its own process (M8.9).
+        Some("settings") => {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            return settings_ui::run(&args);
         }
         Some("share-picker") => {
             let args: Vec<String> = std::env::args().skip(2).collect();

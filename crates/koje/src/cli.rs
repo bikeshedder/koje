@@ -226,6 +226,11 @@ pub enum Command {
         #[arg(long)]
         prefix: Option<String>,
     },
+    /// Open koje's settings app, on a context if one is given.
+    Settings {
+        /// The context to show.
+        context: Option<String>,
+    },
     /// Open a context's configuration in $EDITOR.
     Edit {
         #[command(flatten)]

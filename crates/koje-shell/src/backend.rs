@@ -44,6 +44,9 @@ pub trait Daemon {
 
     fn memory_history(&self, context: &str) -> zbus::Result<(String, u32, Vec<u64>)>;
 
+    /// A running context's live state as TOML (the settings app).
+    fn state(&self, context: &str) -> zbus::Result<String>;
+
     fn focus(&self, context: &str) -> zbus::Result<()>;
 
     fn unstash(&self, context: &str, window: &str, to: &str) -> zbus::Result<String>;

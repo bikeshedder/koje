@@ -183,6 +183,25 @@ impl ContextPage {
             root.append(w);
         }
         let shown: Rc<RefCell<(String, String, String)>> = Rc::default();
+        // The rest of the context's settings: the settings app (M8.15).
+        let settings = gtk::Button::builder()
+            .label("Context Settings…")
+            .css_classes(["flat"])
+            .halign(gtk::Align::Start)
+            .build();
+        {
+            let shown = shown.clone();
+            settings.connect_clicked(move |b| {
+                if let Some(p) = b
+                    .ancestor(gtk::Popover::static_type())
+                    .and_downcast::<gtk::Popover>()
+                {
+                    p.popdown();
+                }
+                crate::settings_ui::open(Some(&shown.borrow().0));
+            });
+        }
+        root.append(&settings);
 
         apply_limits(&soft, &hard, &error, &shown, actions);
 

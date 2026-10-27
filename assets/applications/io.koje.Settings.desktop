@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=koje Settings
+Comment=Contexts, their states, layouts, windows and memory
+Exec=koje-shell settings
+Icon=io.koje.Koje-symbolic
+Categories=Settings;System;
+Keywords=koje;context;container;layout;state;memory;
+StartupNotify=true
