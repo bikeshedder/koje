@@ -213,6 +213,9 @@ pub struct WindowState {
     pub focus_history: i32,
     /// The context kojed tagged it with; `None` for host windows.
     pub context: Option<String>,
+    /// Floating, neither fullscreen nor maximized: Hyprland can pin it, so
+    /// it can go along to another workspace on screen.
+    pub pinnable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -417,9 +420,16 @@ pub enum Action {
     },
     /// Show a context's workspace (kojed's `Focus`).
     FocusContext(String),
-    /// Move a window to a workspace, staying where one is (a workspace
-    /// shortcut with Shift: the focus follows with `FocusWorkspace`).
+    /// Move a window to a workspace, staying where one is (a drop in the
+    /// overview; a workspace shortcut with Shift for a window that cannot
+    /// be carried).
     MoveWindow {
+        address: String,
+        workspace: String,
+    },
+    /// Show a workspace with the window going along, on screen and focused
+    /// (a workspace shortcut with Shift).
+    CarryWindow {
         address: String,
         workspace: String,
     },
@@ -479,6 +489,10 @@ impl Action {
                 address: address.clone(),
                 workspace: workspace.clone(),
             }),
+            Self::CarryWindow { address, workspace } => Some(CompositorCommand::CarryToWorkspace {
+                address: address.clone(),
+                workspace: workspace.clone(),
+            }),
             _ => None,
         }
     }
@@ -523,6 +537,7 @@ impl Action {
             | Self::FocusWindow(_)
             | Self::CloseWindow(_)
             | Self::MoveWindow { .. }
+            | Self::CarryWindow { .. }
             | Self::Unstash { .. }
             | Self::Launch { .. }
             | Self::RefreshApps(_)
@@ -705,22 +720,26 @@ impl Shell {
         workspaces.into_iter().map(|(_, b)| b).collect()
     }
 
+    /// The overlays of `config.toml`, the one open on `mon` marked.
+    fn overlay_buttons(&self, mon: Option<&MonitorState>) -> Vec<OverlayButton> {
+        self.overlays
+            .iter()
+            .map(|o| OverlayButton {
+                name: o.name.clone(),
+                label: o.label.clone(),
+                icon: o.icon.clone(),
+                open: mon.and_then(|m| m.special.as_deref()) == Some(o.name.as_str()),
+            })
+            .collect()
+    }
+
     /// The bar of the monitor with connector `monitor`; the first monitor
     /// when GDK does not know the connector.
     pub fn bar(&self, monitor: Option<&str>) -> BarView {
         let mon = self.monitor(monitor);
         BarView {
             workspaces: self.workspace_buttons(mon),
-            overlays: self
-                .overlays
-                .iter()
-                .map(|o| OverlayButton {
-                    name: o.name.clone(),
-                    label: o.label.clone(),
-                    icon: o.icon.clone(),
-                    open: mon.and_then(|m| m.special.as_deref()) == Some(o.name.as_str()),
-                })
-                .collect(),
+            overlays: self.overlay_buttons(mon),
             date: DateView {
                 notifications: self
                     .notifications
@@ -814,7 +833,6 @@ impl Shell {
         let Some(target) = buttons.get(target).filter(|_| Some(target) != current) else {
             return Vec::new();
         };
-        let mut actions = Vec::new();
         let focused = self.desktop.windows.iter().find(|w| {
             w.focus_history == 0 && mon.is_none_or(|m| w.workspace == m.active_workspace)
         });
@@ -826,19 +844,25 @@ impl Shell {
             if !fits {
                 return Vec::new();
             }
-            actions.push(Action::MoveWindow {
-                address: w.address.clone(),
-                workspace: target.name.clone(),
-            });
+            // On screen while the workspace changes behind it, as in GNOME;
+            // the workspace is made for it. A maximized or fullscreen one
+            // cannot be pinned: moved first, then focused again.
+            if w.pinnable {
+                return vec![Action::CarryWindow {
+                    address: w.address.clone(),
+                    workspace: target.name.clone(),
+                }];
+            }
+            return vec![
+                Action::MoveWindow {
+                    address: w.address.clone(),
+                    workspace: target.name.clone(),
+                },
+                Action::FocusWorkspace(target.name.clone()),
+                Action::FocusWindow(w.address.clone()),
+            ];
         }
-        // A context without a workspace opens through kojed – unless a
-        // window was just moved there, which made its workspace.
-        actions.push(if actions.is_empty() {
-            target.focus()
-        } else {
-            Action::FocusWorkspace(target.name.clone())
-        });
-        actions
+        vec![target.focus()]
     }
 
     /// The monitor with the keyboard focus.
@@ -901,15 +925,31 @@ impl Shell {
         } else {
             Vec::new()
         };
+        // An open overlay is what the overview shows, as a workspace; its
+        // windows in their own contexts' colors.
+        let overlays = self.overlay_buttons(mon);
+        let overlay = overlays.iter().find(|o| o.open).map(|o| o.name.clone());
+        let windows = match &overlay {
+            Some(name) => on_workspace(windows, &format!("special:{name}"))
+                .into_iter()
+                .map(|w| {
+                    let accent = w.context.clone().map_or(Accent::Host, Accent::Context);
+                    WindowCard::new(w, accent)
+                })
+                .collect(),
+            None => on_workspace(windows, current)
+                .into_iter()
+                .map(|w| WindowCard::new(w, accent.clone()))
+                .collect(),
+        };
         OverviewView {
             live: self.desktop.plugin,
             dash,
             workspaces: self.workspace_buttons(mon),
-            windows: on_workspace(windows, current)
-                .into_iter()
-                .map(|w| WindowCard::new(w, accent.clone()))
-                .collect(),
-            stash,
+            stash: stash.filter(|_| overlay.is_none()),
+            overlays,
+            overlay,
+            windows,
         }
     }
 
@@ -1045,6 +1085,7 @@ mod tests {
 
     fn win(address: &str, workspace: &str, at: (i32, i32), focus_history: i32) -> WindowState {
         WindowState {
+            pinnable: true,
             address: address.into(),
             class: "foot".into(),
             title: format!("title {address}"),
@@ -1156,11 +1197,23 @@ mod tests {
         // kp's window stays in kp.
         assert_eq!(s.workspace_step(WorkspaceStep::Nth(2), true), []);
         assert_eq!(s.workspace_step(WorkspaceStep::Next, true), []);
-        // A host window goes to host workspaces.
+        // A host window goes to host workspaces – on screen and focused
+        // while the workspace changes behind it.
         let mut d = desktop();
         d.monitors[0].active_workspace = "1".into();
         d.windows[4].focus_history = 0;
         d.windows[1].focus_history = 5;
+        s.apply(Update::Desktop(d.clone()));
+        assert_eq!(
+            s.workspace_step(WorkspaceStep::Next, true),
+            [Action::CarryWindow {
+                address: "0xe".into(),
+                workspace: "2".into()
+            }]
+        );
+        assert_eq!(s.workspace_step(WorkspaceStep::Nth(4), true), []);
+        // Maximized it cannot be pinned: moved, then focused again.
+        d.windows[4].pinnable = false;
         s.apply(Update::Desktop(d));
         assert_eq!(
             s.workspace_step(WorkspaceStep::Next, true),
@@ -1169,10 +1222,10 @@ mod tests {
                     address: "0xe".into(),
                     workspace: "2".into()
                 },
-                Action::FocusWorkspace("2".into())
+                Action::FocusWorkspace("2".into()),
+                Action::FocusWindow("0xe".into()),
             ]
         );
-        assert_eq!(s.workspace_step(WorkspaceStep::Nth(4), true), []);
     }
 
     #[test]
@@ -1434,6 +1487,102 @@ mod tests {
         config.bar.workspaces = WorkspaceStyle::Names;
         s.apply(Update::Config(config));
         assert_eq!(s.bar(None).style, WorkspaceStyle::Names);
+    }
+
+    #[test]
+    fn the_overview_shows_an_open_overlay_as_a_workspace() {
+        use crate::overview::{StripTarget, drop_window, strip_click};
+        let mut s = shell();
+        // No `[overlay]` table: mail and chat.
+        s.apply(Update::Config(GlobalConfig::default()));
+        let mut d = desktop();
+        d.windows.push(win("0xf", "special:mail", (0, 40), 6));
+        d.windows[5].context = Some("kp".into());
+        d.monitors[0].special = Some("mail".into());
+        s.apply(Update::Desktop(d));
+        let o = s.overview(Some("eDP-1"), &NO_HOST);
+        let names: Vec<(&str, bool)> = o
+            .overlays
+            .iter()
+            .map(|o| (o.name.as_str(), o.open))
+            .collect();
+        assert_eq!(names, [("chat", false), ("mail", true)]);
+        assert_eq!(o.overlay.as_deref(), Some("mail"));
+        // The overlay's windows in their contexts' colors; no stash.
+        let cards: Vec<(&str, &Accent)> = o
+            .windows
+            .iter()
+            .map(|c| (c.address.as_str(), &c.accent))
+            .collect();
+        assert_eq!(cards, [("0xf", &Accent::Context("kp".into()))]);
+        assert_eq!(o.stash, None);
+
+        // A workspace click closes the overlay first; an overlay toggles.
+        let kp = o.workspaces.iter().find(|w| w.name == "kp").unwrap();
+        assert_eq!(
+            strip_click(&o, StripTarget::Workspace(kp)),
+            [
+                Action::ToggleOverlay("mail".into()),
+                Action::FocusWorkspace("kp".into())
+            ]
+        );
+        assert_eq!(
+            strip_click(&o, StripTarget::Overlay(&o.overlays[0])),
+            [Action::ToggleOverlay("chat".into())]
+        );
+
+        // kp's window back to kp or to another overlay; not to a host
+        // workspace, not where it is.
+        let card = &o.windows[0];
+        let host = o.workspaces.iter().find(|w| w.name == "1").unwrap();
+        let to = |w: &str| {
+            vec![Action::MoveWindow {
+                address: "0xf".into(),
+                workspace: w.into(),
+            }]
+        };
+        assert_eq!(drop_window(&o, card, StripTarget::Workspace(kp)), to("kp"));
+        assert_eq!(drop_window(&o, card, StripTarget::Workspace(host)), []);
+        assert_eq!(
+            drop_window(&o, card, StripTarget::Overlay(&o.overlays[0])),
+            to("special:chat")
+        );
+        assert_eq!(
+            drop_window(&o, card, StripTarget::Overlay(&o.overlays[1])),
+            []
+        );
+    }
+
+    #[test]
+    fn host_windows_drop_on_host_workspaces_and_overlays() {
+        use crate::overview::{StripTarget, drop_window};
+        let mut s = shell();
+        s.apply(Update::Config(GlobalConfig::default()));
+        let mut d = desktop();
+        d.monitors[0].active_workspace = "1".into();
+        s.apply(Update::Desktop(d));
+        let o = s.overview(Some("eDP-1"), &NO_HOST);
+        let card = &o.windows[0];
+        assert_eq!(card.context, None);
+        let ws =
+            |n: &str| StripTarget::Workspace(o.workspaces.iter().find(|w| w.name == n).unwrap());
+        assert_eq!(
+            drop_window(&o, card, ws("2")),
+            [Action::MoveWindow {
+                address: "0xe".into(),
+                workspace: "2".into()
+            }]
+        );
+        // Where it is, and a context's workspace: nothing.
+        assert_eq!(drop_window(&o, card, ws("1")), []);
+        assert_eq!(drop_window(&o, card, ws("kp")), []);
+        assert_eq!(
+            drop_window(&o, card, StripTarget::Overlay(&o.overlays[1])),
+            [Action::MoveWindow {
+                address: "0xe".into(),
+                workspace: "special:mail".into()
+            }]
+        );
     }
 
     /// Regression: Hyprland drops empty workspaces, so only host workspaces

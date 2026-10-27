@@ -70,6 +70,8 @@ class COverview {
     PHLMONITORREF monitor;
     bool          closing     = false;
     bool          blockDamage = false;
+    // An overlay shows: drawn after Hyprland darkened and blurred behind it.
+    bool          deferred    = false;
 
   private:
     void                         damage();

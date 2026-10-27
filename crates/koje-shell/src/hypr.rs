@@ -49,6 +49,11 @@ struct Client {
     class: String,
     #[serde(default)]
     title: String,
+    #[serde(default)]
+    floating: bool,
+    /// 0: not; 1: maximized; 2: fullscreen.
+    #[serde(default)]
+    fullscreen: i32,
     /// 0 for the focused window, 1 for the one before, …
     #[serde(rename = "focusHistoryID", default)]
     focus_history: i32,
@@ -113,6 +118,7 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
                 size: c.size,
                 focus_history: c.focus_history,
                 context: tagged_context(&c.tags),
+                pinnable: c.floating && c.fullscreen == 0,
             })
             .collect(),
         plugin: plugins.iter().any(|p| p.name == PLUGIN),

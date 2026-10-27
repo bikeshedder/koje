@@ -117,6 +117,16 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
                 workspace_selector(workspace)?
             )]
         }
+        // Pinned, a window goes along with its monitor's workspace (Hyprland
+        // moves it, `movewindowv2`) and keeps the focus; unpinned it stays.
+        C::CarryToWorkspace { address, workspace } => {
+            let pin = format!("dispatch pin address:{}", arg(address)?);
+            vec![
+                pin.clone(),
+                format!("dispatch workspace {}", workspace_selector(workspace)?),
+                pin,
+            ]
+        }
     })
 }
 
@@ -291,6 +301,17 @@ mod tests {
                 workspace: "work".into()
             }),
             ["dispatch movetoworkspacesilent name:work,address:0xa"]
+        );
+        assert_eq!(
+            one(CompositorCommand::CarryToWorkspace {
+                address: "0xa".into(),
+                workspace: "2".into()
+            }),
+            [
+                "dispatch pin address:0xa",
+                "dispatch workspace 2",
+                "dispatch pin address:0xa"
+            ]
         );
         assert_eq!(
             one(CompositorCommand::FocusWorkspace {

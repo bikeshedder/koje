@@ -21,6 +21,7 @@
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/helpers/Monitor.hpp>
+#include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 
 #include <sstream>
@@ -49,13 +50,20 @@ static COverview* overviewOf(const CMonitor* monitor) {
 
 // Only the windows are replaced: the wallpaper and the layers below them and
 // above (the bar, the shell's overview) are drawn as always. Windows of a
-// shown special workspace (a stash, an overlay) are left out meanwhile.
+// shown special workspace (a stash, an overlay) are left out meanwhile. With
+// one shown, Hyprland darkens and blurs after the workspace's windows: the
+// overview waits until all windows are drawn (`RENDER_POST_WINDOWS`), so it
+// lies sharp on top – showing the overlay's windows, as the shell lists them.
 static bool replaceWindows(PHLMONITOR monitor, PHLWORKSPACE workspace) {
     const auto O = overviewOf(monitor.get());
     if (!O)
         return false;
-    if (!workspace || !workspace->m_isSpecialWorkspace)
-        O->render();
+    if (!workspace || !workspace->m_isSpecialWorkspace) {
+        if (monitor->m_specialFade->value() > 0.F)
+            O->deferred = true;
+        else
+            O->render();
+    }
     return true;
 }
 
@@ -78,12 +86,29 @@ static void hkRenderFullscreen(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE w
     renderWindows(g_renderFullscreenHook, thisptr, monitor, workspace, now);
 }
 
+// Behind a shown overlay (or stash) Hyprland blurs what this frame drew
+// (`blur:special`). With only part of the monitor damaged, that blur reads
+// the last frame around the damage – already blurred, dimmed and holding the
+// overlay's windows – so it smeared around the cursor and the windows and
+// let the workspace show through. The whole monitor is redrawn instead, as
+// Hyprland does while the cursor zooms: the workspace first, blurred, the
+// overlay on top.
+static bool wholeMonitor(CMonitor* monitor) {
+    if (!monitor || monitor->m_specialFade->value() <= 0.F)
+        return false;
+    monitor->m_damage.damageEntire();
+    g_pCompositor->scheduleFrameForMonitor(monitor->m_self.lock(), Aquamarine::IOutput::AQ_SCHEDULE_DAMAGE);
+    return true;
+}
+
 static void hkAddDamageBox(void* thisptr, const CBox& box) {
     const auto O = overviewOf((CMonitor*)thisptr);
     if (O && !O->blockDamage) {
         O->onDamage();
         return;
     }
+    if (wholeMonitor((CMonitor*)thisptr))
+        return;
     ((origAddDamageBox)g_addDamageBoxHook->m_original)(thisptr, box);
 }
 
@@ -93,6 +118,8 @@ static void hkAddDamageRegion(void* thisptr, const pixman_region32_t* region) {
         O->onDamage();
         return;
     }
+    if (wholeMonitor((CMonitor*)thisptr))
+        return;
     ((origAddDamageRegion)g_addDamageRegionHook->m_original)(thisptr, region);
 }
 
@@ -222,6 +249,18 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
             for (auto& [_, overview] : g_overviews)
                 overview->onPreRender();
         }
+    });
+
+    static auto render = HyprlandAPI::registerCallbackDynamic(PHANDLE, "render", [](void*, SCallbackInfo&, std::any data) {
+        try {
+            if (std::any_cast<eRenderStage>(data) != RENDER_POST_WINDOWS)
+                return;
+            const auto O = overviewOf(g_pHyprOpenGL->m_renderData.pMonitor.get());
+            if (O && O->deferred) {
+                O->deferred = false;
+                O->render();
+            }
+        } catch (const std::bad_any_cast&) {}
     });
 
     HyprlandAPI::addDispatcherV2(PHANDLE, "koje:overview", ::onOverview);

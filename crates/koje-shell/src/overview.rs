@@ -1,19 +1,25 @@
 //! The overview, as GNOME's (ADR 0049): what it shows, without GTK – the
 //! current workspace's windows, the workspace strip, the context's stash –
-//! and where the windows go ([`arrange`]).
+//! where the windows go ([`arrange`]) and what clicks and drops on the
+//! strip do.
 
 use crate::dash::DashEntry;
-use crate::model::{Accent, WindowState, WorkspaceButton};
+use crate::model::{Accent, Action, OverlayButton, WindowState, WorkspaceButton};
 
 /// What one monitor's overview shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverviewView {
     /// The monitor's workspaces, as in the bar.
     pub workspaces: Vec<WorkspaceButton>,
-    /// The current workspace's windows (a context's active layout), in the
-    /// order [`arrange`] places them.
+    /// The overlays, as in the bar: after the workspaces.
+    pub overlays: Vec<OverlayButton>,
+    /// The overlay open on the monitor: the overview shows its windows.
+    pub overlay: Option<String>,
+    /// The current workspace's windows (a context's active layout) or the
+    /// open overlay's, in the order [`arrange`] places them.
     pub windows: Vec<WindowCard>,
-    /// The active context's stash; `None` on a host workspace.
+    /// The active context's stash; `None` on a host workspace or while an
+    /// overlay is open.
     pub stash: Option<Stash>,
     /// The dash; empty on monitors without the focus.
     pub dash: Vec<DashEntry>,
@@ -30,6 +36,8 @@ pub struct WindowCard {
     /// The app id: its icon and name come from its desktop file.
     pub app: String,
     pub accent: Accent,
+    /// The window's context; `None`: a host window.
+    pub context: Option<String>,
     /// Its size on screen: thumbnails keep its proportions.
     pub size: (i32, i32),
 }
@@ -48,9 +56,61 @@ impl WindowCard {
             title: w.title.clone(),
             app: w.class.clone(),
             accent,
+            context: w.context.clone(),
             size: w.size,
         }
     }
+}
+
+/// A place in the overview's strip.
+#[derive(Debug, Clone, Copy)]
+pub enum StripTarget<'a> {
+    Workspace(&'a WorkspaceButton),
+    Overlay(&'a OverlayButton),
+}
+
+/// What a click on the strip does: a workspace is shown – the open overlay
+/// closed first, so it is seen; an overlay opens or closes, as in the bar.
+pub fn strip_click(view: &OverviewView, target: StripTarget<'_>) -> Vec<Action> {
+    match target {
+        StripTarget::Workspace(w) => view
+            .overlay
+            .iter()
+            .map(|o| Action::ToggleOverlay(o.clone()))
+            .chain([w.focus()])
+            .collect(),
+        StripTarget::Overlay(o) => vec![Action::ToggleOverlay(o.name.clone())],
+    }
+}
+
+/// What dropping a window's card on the strip does (M8.71): it moves
+/// there, the focus stays. A context's window only to its own context's
+/// workspace, a host window only to host workspaces – as with Super+Shift
+/// and a number; any window to an overlay, as with an overlay's key and
+/// Shift. Empty: refused, or where it is already.
+pub fn drop_window(view: &OverviewView, card: &WindowCard, target: StripTarget<'_>) -> Vec<Action> {
+    let workspace = match target {
+        StripTarget::Workspace(w) => {
+            let fits = match &w.accent {
+                Accent::Context(c) => card.context.as_ref() == Some(c),
+                Accent::Host => card.context.is_none(),
+            };
+            if !fits || (w.active && view.overlay.is_none()) {
+                return Vec::new();
+            }
+            w.name.clone()
+        }
+        StripTarget::Overlay(o) => {
+            if o.open {
+                return Vec::new();
+            }
+            format!("special:{}", o.name)
+        }
+    };
+    vec![Action::MoveWindow {
+        address: card.address.clone(),
+        workspace,
+    }]
 }
 
 /// The windows of `workspace`, top to bottom, left to right – the order
@@ -331,6 +391,7 @@ mod tests {
     #[test]
     fn windows_in_reading_order() {
         let w = |address: &str, ws: &str, x: i32, y: i32| WindowState {
+            pinnable: true,
             address: address.into(),
             class: "foot".into(),
             title: String::new(),

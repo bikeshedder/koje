@@ -271,6 +271,7 @@ mod tests {
     #[test]
     fn windows_by_title() {
         let w = |address: &str, title: &str, workspace: &str, focus: i32| WindowState {
+            pinnable: true,
             address: address.into(),
             class: "foot".into(),
             title: title.into(),

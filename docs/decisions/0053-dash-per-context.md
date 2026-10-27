@@ -44,7 +44,10 @@ numbered host workspaces, never a context's named one.
   Up/Down and Ctrl+Alt+Left/Right the one before or after, no wrapping; a
   running context without a workspace opens. With Shift the focused window
   goes along – only where it belongs: a host window to host workspaces, a
-  context's window stays in its context (as M8.71's dragging).
+  context's window stays in its context (as M8.71's dragging). It stays on
+  screen and focused while the workspace changes behind it, as in GNOME
+  (added 2026-10-27; Hyprland pins it for the switch – a maximized or
+  fullscreen window, which cannot be pinned, moves and is focused again).
 
 ## Consequences
 

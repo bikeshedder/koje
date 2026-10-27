@@ -15,8 +15,10 @@ use libadwaita as adw;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::dash::DashEntry;
-use crate::model::{Accent, Action, Shell, WorkspaceButton};
-use crate::overview::{OverviewView, Place, WindowCard, plugin_send};
+use crate::model::{Accent, Action, Shell};
+use crate::overview::{
+    OverviewView, Place, StripTarget, WindowCard, drop_window, plugin_send, strip_click,
+};
 use crate::search::{AppHit, AppItem, AppSection, SearchView, WindowHit};
 
 /// Room between the cards.
@@ -47,6 +49,11 @@ window.koje-overview.live.arriving .window-card { opacity: 0; }
 .overview-strip button.context { background: alpha(var(--accent-bg-color), 0.45); }
 .overview-strip button.context.active { background: var(--accent-bg-color); color: var(--accent-fg-color); }
 .overview-strip button.empty { opacity: 0.6; }
+.overview-strip button label { font-weight: normal; }
+.overview-strip button.active label { font-weight: bold; }
+.overview-strip .overlay-gap { min-width: 16px; }
+/* A window's card dragged over a place it may go. */
+.overview-strip button:drop(active) { box-shadow: inset 0 0 0 2px #ffffff; }
 .window-preview {
   border-radius: 12px; padding: 0;
   background: alpha(var(--accent-bg-color), 0.22);
@@ -516,7 +523,17 @@ impl OverviewSurface {
         self.shown.replace(Some(view.clone()));
         clear(&self.strip);
         for w in &view.workspaces {
-            self.strip.append(&self.workspace(w));
+            self.strip
+                .append(&self.strip_button(view, StripTarget::Workspace(w)));
+        }
+        // The overlays after a gap, as in the bar.
+        if !view.overlays.is_empty() {
+            self.strip
+                .append(&gtk::Box::builder().css_classes(["overlay-gap"]).build());
+        }
+        for o in &view.overlays {
+            self.strip
+                .append(&self.strip_button(view, StripTarget::Overlay(o)));
         }
         clear(&self.cards);
         self.previews.borrow_mut().clear();
@@ -580,29 +597,85 @@ impl OverviewSurface {
         }
     }
 
-    /// A workspace in the strip: switching keeps the overview open – the
-    /// strip has no thumbnails, so it shows the other workspace's windows.
-    fn workspace(&self, w: &WorkspaceButton) -> gtk::Button {
-        // Its icon and label, as in the bar (ADR 0055).
-        let content = gtk::Box::builder().spacing(6).build();
-        content.append(&gtk::Image::from_icon_name(&w.icon));
-        content.append(&gtk::Label::new(Some(&w.label)));
+    /// A workspace or an overlay in the strip, with its icon and label as
+    /// in the bar (ADR 0055): switching keeps the overview open – the strip
+    /// has no thumbnails, so it shows the other one's windows. A window's
+    /// card dropped on it moves the window there.
+    fn strip_button(&self, view: &OverviewView, target: StripTarget<'_>) -> gtk::Button {
+        let (icon, label) = match target {
+            StripTarget::Workspace(w) => (&w.icon, &w.label),
+            StripTarget::Overlay(o) => (&o.icon, &o.label),
+        };
         let b = gtk::Button::builder()
-            .child(&content)
-            .tooltip_text(&w.label)
+            .child(&crate::bar::icon_label(icon, label))
+            .tooltip_text(label)
             .build();
-        b.add_css_class(&w.accent.css_class());
-        if matches!(w.accent, Accent::Context(_)) {
-            b.add_css_class("context");
+        match target {
+            StripTarget::Workspace(w) => {
+                b.add_css_class(&w.accent.css_class());
+                if matches!(w.accent, Accent::Context(_)) {
+                    b.add_css_class("context");
+                }
+                // Under an open overlay the overview shows the overlay.
+                if w.active && view.overlay.is_none() {
+                    b.add_css_class("active");
+                }
+                if w.empty {
+                    b.add_css_class("empty");
+                }
+            }
+            StripTarget::Overlay(o) => {
+                b.add_css_class(&Accent::Host.css_class());
+                if o.open {
+                    b.add_css_class("active");
+                }
+            }
         }
-        if w.active {
-            b.add_css_class("active");
-        }
-        if w.empty {
-            b.add_css_class("empty");
-        }
-        let send = self.send(w.focus());
-        b.connect_clicked(move |_| send());
+        let clicks = strip_click(view, target);
+        let actions = self.actions.clone();
+        b.connect_clicked(move |_| {
+            for a in &clicks {
+                let _ = actions.send(a.clone());
+            }
+        });
+        // Each card's moves, decided now: the view does not live on.
+        let drops: Rc<Vec<(String, Vec<Action>)>> = Rc::new(
+            view.windows
+                .iter()
+                .map(|c| (c.address.clone(), drop_window(view, c, target)))
+                .collect(),
+        );
+        let moves = move |address: Option<String>| -> Vec<Action> {
+            address
+                .and_then(|a| drops.iter().find(|(d, _)| *d == a))
+                .map(|(_, m)| m.clone())
+                .unwrap_or_default()
+        };
+        let dragged = |t: &gtk::DropTarget| t.value().and_then(|v| v.get::<String>().ok());
+        let drop = gtk::DropTarget::new(glib::Type::STRING, gdk::DragAction::MOVE);
+        drop.set_preload(true);
+        let accept = {
+            let moves = moves.clone();
+            move |t: &gtk::DropTarget| {
+                if moves(dragged(t)).is_empty() {
+                    gdk::DragAction::empty()
+                } else {
+                    gdk::DragAction::MOVE
+                }
+            }
+        };
+        let on_enter = accept.clone();
+        drop.connect_enter(move |t, _, _| on_enter(t));
+        drop.connect_motion(move |t, _, _| accept(t));
+        let actions = self.actions.clone();
+        drop.connect_drop(move |_, value, _, _| {
+            let moves = moves(value.get::<String>().ok());
+            for a in &moves {
+                let _ = actions.send(a.clone());
+            }
+            !moves.is_empty()
+        });
+        b.add_controller(drop);
         b
     }
 
@@ -630,6 +703,27 @@ impl OverviewSurface {
         self.previews
             .borrow_mut()
             .push((card.address.clone(), preview.clone()));
+        // Dragged onto the strip it moves to that workspace or overlay; the
+        // app's icon goes along.
+        let source = gtk::DragSource::builder()
+            .actions(gdk::DragAction::MOVE)
+            .content(&gdk::ContentProvider::for_value(&card.address.to_value()))
+            .build();
+        let app = card.app.clone();
+        source.connect_drag_begin(move |source, _| {
+            let Some(display) = gdk::Display::default() else {
+                return;
+            };
+            let paintable = gtk::IconTheme::for_display(&display).lookup_by_gicon(
+                &crate::app_info::icon(&app),
+                48,
+                1,
+                gtk::TextDirection::None,
+                gtk::IconLookupFlags::empty(),
+            );
+            source.set_icon(Some(&paintable), 24, 24);
+        });
+        preview.add_controller(source);
         let send = self.send(Action::FocusWindow(card.address.clone()));
         preview.connect_clicked(move |b| {
             send();

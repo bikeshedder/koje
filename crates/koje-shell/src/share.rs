@@ -185,6 +185,7 @@ mod tests {
 
     fn win(address: &str, workspace: &str, context: Option<&str>, recent: i32) -> WindowState {
         WindowState {
+            pinnable: true,
             address: address.to_owned(),
             class: String::new(),
             title: String::new(),

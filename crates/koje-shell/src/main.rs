@@ -128,7 +128,6 @@ window.koje-bar button.workspace-label.active:not(.koje-host):not(.overlay) {
   background: var(--accent-bg-color); color: var(--accent-fg-color);
 }
 window.koje-bar button.workspace-label.empty:not(.active) { color: alpha(#ffffff, 0.45); }
-window.koje-bar button.workspace-label.overlay { padding: 0 8px; }
 window.koje-bar .workspace-labels .overlay-gap { min-width: 10px; }
 button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .capsule {

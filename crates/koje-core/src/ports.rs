@@ -77,6 +77,13 @@ pub enum CompositorCommand {
     FocusWorkspace {
         workspace: String,
     },
+    /// Show a workspace with a window going along: it stays on screen and
+    /// focused while the workspace changes behind it, as in GNOME. Only
+    /// for a floating window that is neither fullscreen nor maximized.
+    CarryToWorkspace {
+        address: String,
+        workspace: String,
+    },
 }
 
 /// What the compositor reports (Hyprland: socket2 events, M2.2).

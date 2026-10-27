@@ -30,8 +30,10 @@ and context names are lower-case identifiers (`kundenportal`).
 - **New default bar style `labels`**: a panel button per workspace with its
   icon and label; a context's icon in its color, the active context filled
   with its color, the active host workspace lit as a GNOME panel button; a
-  running context without windows dimmed. Overlays show only their icon,
-  after a gap, lit while open. `colored-dots`, `dots` and `names` stay
+  running context without windows dimmed, as is a host workspace of
+  `config.toml` that has no windows. Overlays show their icon and label the
+  same way, after a gap, lit while open (revised 2026-10-27: first only
+  their icon). The overview's strip shows the same. `colored-dots`, `dots` and `names` stay
   selectable in `[bar] workspaces`.
 - **The settings app edits them** (M8.90): a Workspaces page for the bar's
   style, the host workspaces and the overlays, and label and icon on a

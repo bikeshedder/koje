@@ -90,6 +90,7 @@ mod tests {
         focus: i32,
     ) -> WindowState {
         WindowState {
+            pinnable: true,
             address: address.into(),
             class: class.into(),
             title: format!("t{address}"),

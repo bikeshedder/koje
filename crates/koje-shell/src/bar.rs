@@ -174,8 +174,8 @@ impl Bar {
         let mut buttons = Vec::new();
         match view.style {
             WorkspaceStyle::Labels => {
-                // Icon and label per workspace, the overlays by their icon
-                // after a gap (ADR 0055).
+                // Icon and label per workspace, the overlays the same after
+                // a gap (ADR 0055).
                 let group = gtk::Box::builder()
                     .css_classes(["workspace-labels"])
                     .spacing(2)
@@ -189,7 +189,7 @@ impl Bar {
                     group.append(&gtk::Box::builder().css_classes(["overlay-gap"]).build());
                 }
                 for o in &view.overlays {
-                    let b = self.overlay_button(o, Shape::Icon);
+                    let b = self.overlay_button(o, Shape::Label);
                     group.append(&b);
                     buttons.push((o.name.clone(), b));
                 }
@@ -259,11 +259,8 @@ impl Bar {
     /// The workspace's icon and label; a context's icon in its color, and
     /// its color while it is active.
     fn label_button(&self, w: &WorkspaceButton) -> gtk::Button {
-        let content = gtk::Box::builder().spacing(6).build();
-        content.append(&gtk::Image::from_icon_name(&w.icon));
-        content.append(&gtk::Label::builder().label(&w.label).build());
         let button = gtk::Button::builder()
-            .child(&content)
+            .child(&icon_label(&w.icon, &w.label))
             .css_classes(["panel-button", "workspace-label", &w.accent.css_class()])
             .tooltip_text(&w.label)
             .build();
@@ -300,8 +297,8 @@ impl Bar {
                 .label(&o.label)
                 .css_classes(["panel-button", "workspace-name", "overlay"])
                 .build(),
-            Shape::Icon => gtk::Button::builder()
-                .icon_name(&o.icon)
+            Shape::Label => gtk::Button::builder()
+                .child(&icon_label(&o.icon, &o.label))
                 .css_classes(["panel-button", "workspace-label", "overlay"])
                 .tooltip_text(&o.label)
                 .build(),
@@ -328,7 +325,7 @@ impl Bar {
 enum Shape {
     Dot,
     Name,
-    Icon,
+    Label,
 }
 
 /// GNOME's active dot is 8 px × 3.625 with up to two workspaces, × 3.25 up
@@ -368,6 +365,15 @@ fn same_buttons(old: &BarView, new: &BarView) -> bool {
 }
 
 /// `active` and `empty` for the CSS; a hint on an empty context.
+/// A workspace's or an overlay's icon and label, as the bar and the
+/// overview's strip show them (ADR 0055).
+pub fn icon_label(icon: &str, label: &str) -> gtk::Box {
+    let content = gtk::Box::builder().spacing(6).build();
+    content.append(&gtk::Image::from_icon_name(icon));
+    content.append(&gtk::Label::new(Some(label)));
+    content
+}
+
 fn mark(button: &gtk::Button, w: &WorkspaceButton) {
     if w.active {
         button.add_css_class("active");
