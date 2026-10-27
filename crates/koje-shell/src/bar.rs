@@ -239,11 +239,7 @@ impl Bar {
     /// What a click on a workspace does: an empty context's workspace through
     /// kojed, like `koje focus`.
     fn on_click(&self, button: &gtk::Button, w: &WorkspaceButton) {
-        let action = if w.empty {
-            Action::FocusContext(w.name.clone())
-        } else {
-            Action::FocusWorkspace(w.name.clone())
-        };
+        let action = w.focus();
         let actions = self.actions.clone();
         button.connect_clicked(move |_| {
             let _ = actions.send(action.clone());

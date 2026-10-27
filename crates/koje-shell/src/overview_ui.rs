@@ -583,7 +583,14 @@ impl OverviewSurface {
     /// A workspace in the strip: switching keeps the overview open – the
     /// strip has no thumbnails, so it shows the other workspace's windows.
     fn workspace(&self, w: &WorkspaceButton) -> gtk::Button {
-        let b = gtk::Button::builder().label(&w.name).build();
+        // Its icon and label, as in the bar (ADR 0055).
+        let content = gtk::Box::builder().spacing(6).build();
+        content.append(&gtk::Image::from_icon_name(&w.icon));
+        content.append(&gtk::Label::new(Some(&w.label)));
+        let b = gtk::Button::builder()
+            .child(&content)
+            .tooltip_text(&w.label)
+            .build();
         b.add_css_class(&w.accent.css_class());
         if matches!(w.accent, Accent::Context(_)) {
             b.add_css_class("context");
@@ -594,11 +601,7 @@ impl OverviewSurface {
         if w.empty {
             b.add_css_class("empty");
         }
-        let send = self.send(if w.empty {
-            Action::FocusContext(w.name.clone())
-        } else {
-            Action::FocusWorkspace(w.name.clone())
-        });
+        let send = self.send(w.focus());
         b.connect_clicked(move |_| send());
         b
     }

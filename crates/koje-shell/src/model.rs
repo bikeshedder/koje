@@ -322,9 +322,21 @@ pub struct WorkspaceButton {
     pub icon: String,
     pub active: bool,
     pub accent: Accent,
-    /// A running context whose workspace Hyprland dropped: it has no
+    /// A running context or a host workspace of `config.toml` that
+    /// Hyprland has no workspace for (it drops empty ones): it has no
     /// windows (or they are stashed while it sleeps). A click opens it.
     pub empty: bool,
+}
+
+impl WorkspaceButton {
+    /// What a click does: a running context without a workspace opens
+    /// through kojed, like `koje focus`; Hyprland makes any other.
+    pub fn focus(&self) -> Action {
+        match &self.accent {
+            Accent::Context(_) if self.empty => Action::FocusContext(self.name.clone()),
+            _ => Action::FocusWorkspace(self.name.clone()),
+        }
+    }
 }
 
 /// Lookups in the host's desktop files (GIO, outside the pure model).
@@ -618,7 +630,8 @@ impl Shell {
     }
 
     /// A monitor's workspaces, numbered ones first, with the running
-    /// contexts Hyprland has no workspace for on the focused monitor.
+    /// contexts and the host workspaces of `config.toml` Hyprland has no
+    /// workspace for on the focused monitor.
     fn workspace_buttons(&self, mon: Option<&MonitorState>) -> Vec<WorkspaceButton> {
         let d = &self.desktop;
         let active = mon.map(|m| m.active_workspace.as_str());
@@ -658,6 +671,30 @@ impl Shell {
                             icon,
                             active: false,
                             accent: Accent::Context(c.name.clone()),
+                            empty: true,
+                        },
+                    ));
+                }
+            }
+            // Host workspaces of `config.toml` (ADR 0055), as Hyprland
+            // would make them: `dispatch workspace <n>`.
+            for id in self
+                .config
+                .workspace
+                .keys()
+                .filter_map(|k| k.parse::<i64>().ok())
+            {
+                if id >= 1 && !d.workspaces.iter().any(|w| w.id == id) {
+                    let name = id.to_string();
+                    let Look { label, icon } = self.look(id, &name);
+                    workspaces.push((
+                        key(id, &name),
+                        WorkspaceButton {
+                            name,
+                            label,
+                            icon,
+                            active: false,
+                            accent: Accent::Host,
                             empty: true,
                         },
                     ));
@@ -796,8 +833,8 @@ impl Shell {
         }
         // A context without a workspace opens through kojed – unless a
         // window was just moved there, which made its workspace.
-        actions.push(if target.empty && actions.is_empty() {
-            Action::FocusContext(target.name.clone())
+        actions.push(if actions.is_empty() {
+            target.focus()
         } else {
             Action::FocusWorkspace(target.name.clone())
         });
@@ -1397,6 +1434,49 @@ mod tests {
         config.bar.workspaces = WorkspaceStyle::Names;
         s.apply(Update::Config(config));
         assert_eq!(s.bar(None).style, WorkspaceStyle::Names);
+    }
+
+    /// Regression: Hyprland drops empty workspaces, so only host workspaces
+    /// with windows showed – those of `config.toml` belong in the bar too.
+    #[test]
+    fn host_workspaces_of_config_toml_show_without_windows() {
+        let mut s = shell();
+        s.apply(Update::Config(
+            GlobalConfig::from_toml(
+                "[workspace.3]\n[workspace.10]\n[workspace.4]\nlabel = \"Mail\"\n",
+                std::path::Path::new("config.toml"),
+            )
+            .unwrap(),
+        ));
+        let shown = |bar: BarView| -> Vec<(String, String, bool)> {
+            bar.workspaces
+                .into_iter()
+                .map(|w| (w.name, w.label, w.empty))
+                .collect()
+        };
+        let w = |n: &str, l: &str, empty: bool| (n.to_owned(), l.to_owned(), empty);
+        // On the focused monitor, by number; 3 is DP-1's.
+        assert_eq!(
+            shown(s.bar(Some("eDP-1"))),
+            [
+                w("1", "1", false),
+                w("2", "2", false),
+                w("4", "Mail", true),
+                w("10", "10", true),
+                w("admin", "admin", false),
+                w("kp", "kp", false),
+            ]
+        );
+        assert_eq!(shown(s.bar(Some("DP-1"))), [w("3", "3", false)]);
+        // Hyprland makes it; the overview's strip is the same.
+        assert_eq!(
+            s.workspace_step(WorkspaceStep::Nth(3), false),
+            [Action::FocusWorkspace("4".into())]
+        );
+        assert_eq!(
+            s.overview(Some("eDP-1"), &NO_HOST).workspaces,
+            s.bar(Some("eDP-1")).workspaces
+        );
     }
 
     #[test]
