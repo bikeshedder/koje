@@ -35,6 +35,7 @@ pub mod mount;
 pub mod mutter;
 pub mod name;
 pub mod open;
+pub mod overlay;
 pub mod paths;
 pub mod ports;
 pub mod recovery;

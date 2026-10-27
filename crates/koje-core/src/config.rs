@@ -165,9 +165,10 @@ pub struct GlobalConfig {
     /// Snap zones per monitor connector name (e.g. `DP-1`), then per zone name.
     #[serde(default)]
     pub zones: BTreeMap<String, BTreeMap<String, Rect>>,
-    /// Overlays (Hyprland special workspaces) for cross-context apps.
+    /// Overlays (Hyprland special workspaces) for cross-context apps; unset:
+    /// koje's `mail` and `chat` ([`crate::overlay::overlays`]).
     #[serde(default)]
-    pub overlay: BTreeMap<String, Overlay>,
+    pub overlay: Option<BTreeMap<String, Overlay>>,
     /// koje's bar (ADR 0047).
     #[serde(default)]
     pub bar: BarConfig,
@@ -199,6 +200,9 @@ pub enum WorkspaceStyle {
 pub struct Overlay {
     /// Hyprland key combination, e.g. `SUPER+M`.
     pub key: String,
+    /// The name shown in the bar; the overlay's own name when unset.
+    #[serde(default)]
+    pub label: Option<String>,
     /// Integrations or launch commands started in the `global` context.
     #[serde(default)]
     pub apps: Vec<String>,
@@ -211,6 +215,7 @@ impl GlobalConfig {
             source: Box::new(e),
         })?;
         cfg.default_limits.validate()?;
+        crate::overlay::overlays(&cfg)?;
         Ok(cfg)
     }
 
@@ -391,7 +396,7 @@ apps = ["mail", "calendar"]
 "#;
         let cfg = GlobalConfig::from_toml(text, Path::new("config.toml")).unwrap();
         assert_eq!(cfg.zones["DP-1"]["links"].w, 1700);
-        assert_eq!(cfg.overlay["mail"].apps, ["mail", "calendar"]);
+        assert_eq!(cfg.overlay.unwrap()["mail"].apps, ["mail", "calendar"]);
     }
 
     #[test]

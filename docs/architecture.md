@@ -87,8 +87,10 @@ browser profile per project. Put common programs into the base image.
   are **layouts**, not workspaces.
 - **Snapping:** Hyprland edge snapping (built in); zones per monitor via
   `koje snap <zone>`; drag-into-zone preview would need a plugin (later).
-- **Overlays:** special workspaces toggled by a key (`mail`, `chat`), apps run in
-  the non-isolated context `global`. `koje pin` puts an overlay window onto the
+- **Overlays:** special workspaces toggled by a key, configured as
+  `[overlay.<name>]` in `config.toml` (`key`, `label`, `apps`; without any, `mail`
+  on Super+M and `chat` on Super+C); kojed binds the keys, the bar shows them
+  after the workspaces. Apps run in the non-isolated context `global`. `koje pin` puts an overlay window onto the
   current workspace and keeps it visible; `koje unpin` sends it back.
 - **Files between contexts:** clipboard text/images always work. Drag & drop of
   files passes paths, so koje mounts folders at the same path as on the host. A

@@ -19,6 +19,9 @@ pub enum Error {
     #[error("cannot change the favorites: {0}")]
     InvalidFavorites(String),
 
+    #[error("overlay {name:?}: {reason}")]
+    InvalidOverlay { name: String, reason: String },
+
     #[error("invalid size {0:?}: expected a number with optional K, M, G or T suffix")]
     InvalidSize(String),
 

@@ -18,7 +18,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::bar_layout::bar_box;
 use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
-use crate::model::{Action, BarView, Shell, WorkspaceButton};
+use crate::model::{Action, BarView, OverlayButton, Shell, WorkspaceButton};
 use crate::overview_ui::OverviewSurface;
 use crate::quick_ui::QuickWidget;
 
@@ -128,8 +128,13 @@ impl Bar {
             .is_some_and(|old| same_buttons(old, view));
         if same {
             // Only the active one moved: the CSS transitions animate it.
-            for ((_, button), w) in self.buttons.borrow().iter().zip(&view.workspaces) {
-                if w.active {
+            let active = view
+                .workspaces
+                .iter()
+                .map(|w| w.active)
+                .chain(view.overlays.iter().map(|o| o.open));
+            for ((_, button), on) in self.buttons.borrow().iter().zip(active) {
+                if on {
                     button.add_css_class("active");
                 } else {
                     button.remove_css_class("active");
@@ -162,6 +167,11 @@ impl Bar {
                     self.workspaces.append(&b);
                     buttons.push((w.name.clone(), b));
                 }
+                for o in &view.overlays {
+                    let b = self.overlay_button(o, false);
+                    self.workspaces.append(&b);
+                    buttons.push((o.name.clone(), b));
+                }
             }
             WorkspaceStyle::Dots | WorkspaceStyle::ColoredDots => {
                 let colored = view.style == WorkspaceStyle::ColoredDots;
@@ -174,6 +184,15 @@ impl Bar {
                     let b = self.dot(w, colored);
                     indicator.append(&b);
                     buttons.push((w.name.clone(), b));
+                }
+                // The overlays after a gap, drawn like workspaces (M8.34).
+                if !view.overlays.is_empty() {
+                    indicator.append(&gtk::Box::builder().css_classes(["overlay-gap"]).build());
+                }
+                for o in &view.overlays {
+                    let b = self.overlay_button(o, true);
+                    indicator.append(&b);
+                    buttons.push((o.name.clone(), b));
                 }
                 self.workspaces.append(&indicator);
             }
@@ -220,6 +239,31 @@ impl Bar {
         button
     }
 
+    /// An overlay: a dot (or its name) that is active while it is open; a
+    /// click shows or hides it.
+    fn overlay_button(&self, o: &OverlayButton, dot: bool) -> gtk::Button {
+        let button = if dot {
+            gtk::Button::builder()
+                .css_classes(["workspace-dot", "overlay"])
+                .valign(gtk::Align::Center)
+                .tooltip_text(&o.label)
+                .build()
+        } else {
+            gtk::Button::builder()
+                .label(&o.label)
+                .css_classes(["panel-button", "workspace-name", "overlay"])
+                .build()
+        };
+        if o.open {
+            button.add_css_class("active");
+        }
+        let (actions, name) = (self.actions.clone(), o.name.clone());
+        button.connect_clicked(move |_| {
+            let _ = actions.send(Action::ToggleOverlay(name.clone()));
+        });
+        button
+    }
+
     pub fn close(&self) {
         self.overview.close();
         self.window.destroy();
@@ -229,12 +273,18 @@ impl Bar {
 /// The same workspace buttons but for which one is active: they are kept.
 fn same_buttons(old: &BarView, new: &BarView) -> bool {
     let key = |w: &WorkspaceButton| (w.name.clone(), w.accent.clone(), w.empty);
+    let overlay = |o: &OverlayButton| (o.name.clone(), o.label.clone());
     old.style == new.style
         && old
             .workspaces
             .iter()
             .map(key)
             .eq(new.workspaces.iter().map(key))
+        && old
+            .overlays
+            .iter()
+            .map(overlay)
+            .eq(new.overlays.iter().map(overlay))
 }
 
 /// `active` and `empty` for the CSS; a hint on an empty context.

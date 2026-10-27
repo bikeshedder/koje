@@ -43,6 +43,8 @@ pub enum Update {
     System(System),
     /// `config.toml` changed.
     Bar(BarConfig),
+    /// The overlays configured in `config.toml` (M7.1): name and label.
+    Overlays(Vec<(String, String)>),
     /// GNOME's favorite apps (`org.gnome.shell favorite-apps`).
     Favorites(Vec<String>),
     /// A running context's programs (`koje apps --json`).
@@ -208,6 +210,8 @@ pub struct MonitorState {
     pub active_workspace: String,
     /// It has the keyboard focus: new workspaces open there.
     pub focused: bool,
+    /// The special workspace open on it, without `special:` (`mail`).
+    pub special: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,6 +249,8 @@ pub struct Shell {
     system: System,
     /// `[bar]` of `config.toml`.
     bar: BarConfig,
+    /// The configured overlays: name and label.
+    overlays: Vec<(String, String)>,
     favorites: Vec<String>,
     /// The programs of each context that ran when they were read.
     apps: BTreeMap<String, Vec<AppItem>>,
@@ -273,6 +279,14 @@ impl Accent {
 }
 
 /// One button of the workspace list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverlayButton {
+    pub name: String,
+    pub label: String,
+    /// Open on this monitor.
+    pub open: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceButton {
     pub name: String,
@@ -317,6 +331,8 @@ impl WorkspaceStep {
 pub struct BarView {
     /// The monitor's workspaces, numbered ones first.
     pub workspaces: Vec<WorkspaceButton>,
+    /// The overlays after them (M8.34), in `config.toml`'s order.
+    pub overlays: Vec<OverlayButton>,
     /// How to show them (ADR 0047).
     pub style: WorkspaceStyle,
     /// The koje menu; `None` while kojed does not answer.
@@ -332,6 +348,8 @@ pub const KOJED_GONE: &str = "kojed is not running";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     FocusWorkspace(String),
+    /// Show or hide an overlay (M8.34).
+    ToggleOverlay(String),
     /// Focus and raise a window (the overview).
     FocusWindow(String),
     /// Ask a window to close.
@@ -402,6 +420,9 @@ impl Action {
             Self::FocusWorkspace(workspace) => Some(CompositorCommand::FocusWorkspace {
                 workspace: workspace.clone(),
             }),
+            Self::ToggleOverlay(name) => {
+                Some(CompositorCommand::ToggleSpecial { name: name.clone() })
+            }
             Self::FocusWindow(address) => Some(CompositorCommand::FocusWindow {
                 address: address.clone(),
             }),
@@ -451,6 +472,7 @@ impl Action {
                 )
             }
             Self::FocusWorkspace(_)
+            | Self::ToggleOverlay(_)
             | Self::FocusWindow(_)
             | Self::CloseWindow(_)
             | Self::MoveWindow { .. }
@@ -474,6 +496,7 @@ impl Shell {
         match update {
             Update::Desktop(desktop) => self.desktop = desktop,
             Update::Bar(bar) => self.bar = bar,
+            Update::Overlays(overlays) => self.overlays = overlays,
             Update::Favorites(favorites) => self.favorites = favorites,
             Update::Apps { context, apps } => {
                 self.apps.insert(context, apps);
@@ -587,6 +610,15 @@ impl Shell {
         let mon = self.monitor(monitor);
         BarView {
             workspaces: self.workspace_buttons(mon),
+            overlays: self
+                .overlays
+                .iter()
+                .map(|(name, label)| OverlayButton {
+                    name: name.clone(),
+                    label: label.clone(),
+                    open: mon.and_then(|m| m.special.as_deref()) == Some(name.as_str()),
+                })
+                .collect(),
             style: self.bar.workspaces,
             menu: matches!(self.kojed, Kojed::Running(_)).then(|| {
                 menu(&MenuInput {
@@ -867,11 +899,13 @@ mod tests {
                     name: "eDP-1".into(),
                     active_workspace: "kp".into(),
                     focused: true,
+                    special: None,
                 },
                 MonitorState {
                     name: "DP-1".into(),
                     active_workspace: "3".into(),
                     focused: false,
+                    special: Some("mail".into()),
                 },
             ],
             workspaces: vec![
@@ -1112,6 +1146,38 @@ mod tests {
             busy: Busy::ChangingLimits,
         });
         assert_eq!(error(&s), None, "a new try clears the error");
+    }
+
+    #[test]
+    fn overlays_in_the_bar_open_per_monitor() {
+        let mut s = Shell::default();
+        s.apply(Update::Desktop(desktop()));
+        s.apply(Update::Overlays(vec![
+            ("chat".into(), "chat".into()),
+            ("mail".into(), "Mail".into()),
+        ]));
+        let open = |m| {
+            s.bar(Some(m))
+                .overlays
+                .iter()
+                .map(|o| (o.label.clone(), o.open))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            open("eDP-1"),
+            [("chat".into(), false), ("Mail".into(), false)]
+        );
+        // DP-1 has `mail` open.
+        assert_eq!(
+            open("DP-1"),
+            [("chat".into(), false), ("Mail".into(), true)]
+        );
+        assert_eq!(
+            Action::ToggleOverlay("mail".into()).command(),
+            Some(CompositorCommand::ToggleSpecial {
+                name: "mail".into()
+            })
+        );
     }
 
     #[test]

@@ -15,6 +15,7 @@ mod api;
 mod daemon;
 mod displays;
 mod gsettings;
+mod overlays;
 mod players;
 mod procfs;
 mod screens;
@@ -30,6 +31,21 @@ use koje_core::ports::CompositorEvent;
 use koje_hyprland::Hyprland;
 use koje_podman::Podman;
 use tracing_subscriber::EnvFilter;
+
+/// What kojed sets in Hyprland with `keyword`: GNOME's input settings (ADR
+/// 0044, M8.43) and the overlays' keys from `config.toml` (M7.1). Notify the
+/// returned ones after Hyprland reset its keywords.
+fn keywords(global_config: std::path::PathBuf) -> [Arc<tokio::sync::Notify>; 2] {
+    let input = Arc::new(tokio::sync::Notify::new());
+    tokio::spawn(gsettings::run(Hyprland::from_env(), input.clone()));
+    let overlays = Arc::new(tokio::sync::Notify::new());
+    tokio::spawn(overlays::run(
+        Hyprland::from_env(),
+        global_config,
+        overlays.clone(),
+    ));
+    [input, overlays]
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -50,6 +66,7 @@ async fn main() -> Result<()> {
     let hyprland = Hyprland::from_env();
     let mut events = hyprland.events();
     let screens_paths = paths.clone();
+    let global_config = paths.global_config();
     let mut daemon = daemon::Daemon::new(hyprland, Podman::new(), paths);
     // The contexts before the first client asks (errors are logged; a
     // compositor that is not up yet gets its rules on `Connected`).
@@ -92,9 +109,7 @@ async fn main() -> Result<()> {
         Arc::clone(&displays),
     ));
     tokio::spawn(relink_sound(runtime));
-    // GNOME's input settings on Hyprland (ADR 0044, M8.43).
-    let reapply_input = Arc::new(tokio::sync::Notify::new());
-    tokio::spawn(gsettings::run(Hyprland::from_env(), reapply_input.clone()));
+    let reapply = keywords(global_config);
     tokio::spawn(tick(
         Arc::clone(&daemon),
         sockets.clone(),
@@ -112,7 +127,9 @@ async fn main() -> Result<()> {
             CompositorEvent::Connected | CompositorEvent::ConfigReloaded
         ) {
             // Both reset Hyprland's `keyword` settings.
-            reapply_input.notify_one();
+            for r in &reapply {
+                r.notify_one();
+            }
         }
         // The bar (`koje bar`) follows contexts, the active one, window counts.
         let bar_relevant = !matches!(event, CompositorEvent::WindowTitle { .. });

@@ -20,6 +20,10 @@ struct Monitor {
     active_workspace: NameRef,
     #[serde(default)]
     focused: bool,
+    /// The open special workspace (an overlay, a stash): `special:mail`, or
+    /// an empty name.
+    #[serde(rename = "specialWorkspace", default)]
+    special_workspace: Option<NameRef>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +88,9 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
                 name: m.name,
                 active_workspace: m.active_workspace.name,
                 focused: m.focused,
+                special: m
+                    .special_workspace
+                    .and_then(|s| s.name.strip_prefix("special:").map(str::to_owned)),
             })
             .collect(),
         workspaces: workspaces
@@ -151,6 +158,8 @@ pub fn changes_desktop(line: &str) -> bool {
             | "windowtitlev2"
             | "activewindowv2"
             | "changefloatingmode"
+            | "activespecial"
+            | "activespecialv2"
     )
 }
 
@@ -189,6 +198,25 @@ mod tests {
     fn the_plugin_tells_when_the_windows_landed() {
         assert_eq!(overview_landed("kojeoverview>>landed,DP-1"), Some("DP-1"));
         assert_eq!(overview_landed("workspacev2>>4,kp"), None);
+    }
+
+    #[test]
+    fn the_open_overlay_per_monitor() {
+        let m: Vec<Monitor> = serde_json::from_str(
+            r#"[{"name":"a","activeWorkspace":{"name":"1"},"specialWorkspace":{"id":-98,"name":"special:mail"}},
+                {"name":"b","activeWorkspace":{"name":"2"},"specialWorkspace":{"id":0,"name":""}},
+                {"name":"c","activeWorkspace":{"name":"3"}}]"#,
+        )
+        .unwrap();
+        let special: Vec<Option<String>> = m
+            .into_iter()
+            .map(|m| {
+                m.special_workspace
+                    .and_then(|s| s.name.strip_prefix("special:").map(str::to_owned))
+            })
+            .collect();
+        assert_eq!(special, [Some("mail".to_owned()), None, None]);
+        assert!(changes_desktop("activespecial>>special:mail,DP-1"));
     }
 
     #[test]

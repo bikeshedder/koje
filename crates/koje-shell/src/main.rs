@@ -89,6 +89,9 @@ window.koje-bar button.workspace-dot:hover { opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored { background: var(--accent-bg-color); opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored.koje-host { background: #ffffff; opacity: 0.5; }
 window.koje-bar button.workspace-dot.active { min-width: 32px; opacity: 1; }
+window.koje-bar button.workspace-dot.overlay { opacity: 0.35; }
+window.koje-bar button.workspace-dot.overlay.active { opacity: 1; }
+window.koje-bar .overlay-gap { min-width: 6px; }
 button.workspace-name { transition: background 250ms cubic-bezier(0.33, 1, 0.68, 1); }
 button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .capsule {
@@ -327,6 +330,12 @@ fn follow_config(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
         let (shell, bars, path) = (shell.clone(), bars.clone(), path.clone());
         move || match koje_core::config::GlobalConfig::load(&path) {
             Ok(cfg) => {
+                let overlays = koje_core::overlay::overlays(&cfg)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|o| (o.name, o.label))
+                    .collect();
+                shell.borrow_mut().apply(Update::Overlays(overlays));
                 shell.borrow_mut().apply(Update::Bar(cfg.bar));
                 render(&bars, &shell);
             }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A fake Hyprland for koje-shell smoke tests: answers `j/…` requests from a
 fixed desktop (two contexts, a stash, host workspaces) and logs every other
-request – dispatches – to LOG; `dispatch workspace` switches the active one. ACTIVE (env) names the active workspace;
+request – dispatches – to LOG; `dispatch workspace` switches the active one, `togglespecialworkspace` an overlay. ACTIVE (env) names the active workspace;
 PLUGIN=1 lists koje's Hyprland plugin as loaded.
 
 Usage: fake_hypr.py <instance dir> <log>"""
@@ -72,6 +72,11 @@ def command(c):
         # Switching workspaces: the desktop follows and Hyprland's event goes out.
         for part in req.removeprefix("[[BATCH]]").split(";"):
             w = part.split()
+            if w[:2] == ["dispatch", "togglespecialworkspace"] and len(w) == 3:
+                mon = desktop["j/monitors"][0]
+                name = "" if mon.get("specialWorkspace", {}).get("name") == f"special:{w[2]}" else f"special:{w[2]}"
+                mon["specialWorkspace"] = {"id": -99 if name else 0, "name": name}
+                threading.Timer(0.05, emit, [f"activespecial>>{name},{mon['name']}"]).start()
             if w[:2] == ["dispatch", "workspace"] and len(w) == 3:
                 name = w[2].removeprefix("name:")
                 if name in ids:
