@@ -212,7 +212,7 @@ to the stash first. Memory stays allocated (can be swapped out).
 | `koje-forward` | static D-Bus forwarder that runs inside every context (ADR 0025) |
 | `kojed` | service: Hyprland events, colors, layouts, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027) |
 | `koje` | CLI, client of core and kojed |
-| `koje-shell` | koje's GTK4 UI with libadwaita, one binary: the shell (bar, OSD, window overlays, later notifications) and the settings app in its own process (ADR 0036, 0042, 0043); client of kojed and Hyprland, both on a tokio thread |
+| `koje-shell` | koje's GTK4 UI with libadwaita, one binary: the shell (bar, overview, OSD, notifications, background; later window overlays) and the settings app in its own process (ADR 0036, 0042, 0043); client of kojed and Hyprland, both on a tokio thread |
 
 UI (ADR 0036, 0042; the bar is Waybar until koje's own bar replaces it, M8.32):
 

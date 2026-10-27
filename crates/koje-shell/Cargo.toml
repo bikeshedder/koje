@@ -1,6 +1,6 @@
 [package]
 name = "koje-shell"
-description = "koje's UI: the bar, later the OSD, window overlays, notifications and the settings app (ADR 0042)."
+description = "koje's UI: the bar, the overview, the OSD, notifications, the background and the settings app; later window overlays (ADR 0042)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

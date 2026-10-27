@@ -29,7 +29,7 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 | access profile | Which host resources a context gets (`gpu`, `sound`, `wayland`, `nested`, `network`, …): a profile (`full`, `desktop`, `headless`, `isolated`) plus overrides; also host interfaces (`notifications`, `file_chooser`, …). ADR 0017, 0019. |
 | integration | Optional description of how koje launches/remembers a program. Programs work without one. |
 | dotfiles preset | Folder in `~/.config/koje/dotfiles/<name>` mounted read-only into contexts that list it and linked into their home (ADR 0038). |
-| shell | `koje-shell`: koje's GTK4 UI in one binary – bar, OSD, window overlays, later notifications; the settings app runs from it as its own process (ADR 0042). |
+| shell | `koje-shell`: koje's GTK4 UI in one binary – bar, overview, OSD, notifications, the background; later window overlays; the settings app (`koje-shell settings`) runs from it as its own process (ADR 0042). |
 | koje / kojed | The CLI / the background service. Never use "koje" for a context. |
 
 ## Repository layout
@@ -38,7 +38,7 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 crates/koje-core   pure domain logic: names, config, states, layouts, limits, paths, ports (traits)
 crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
 crates/kojed       background service (Hyprland events, colors, memory watch)
-crates/koje-shell  koje's GTK4 UI (ADR 0042): the bar; later OSD, overlays, notifications, settings app
+crates/koje-shell  koje's GTK4 UI (ADR 0042): bar, overview, OSD, notifications, background, the settings app; later window overlays
 build             the Ubuntu 26.04 image `just deb` builds the package in (ADR 0045)
 plugin            koje's Hyprland plugin (C++, ADR 0051): the overview's windows, new windows as in GNOME (ADR 0052); built with the package in its Ubuntu container (build/, scripts/build-deb.sh)
 assets            files koje ships besides binaries: icon font, Hyprland snippet, Waybar config, units
