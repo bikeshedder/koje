@@ -106,6 +106,7 @@ fn appearance(
             changed();
         });
     }
+    crate::settings_ui::warn_long_label(&label);
     look.add(&label);
     let icon = adw::ActionRow::builder()
         .title("Icon")

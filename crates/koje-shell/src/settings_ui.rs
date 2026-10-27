@@ -984,6 +984,27 @@ fn matrix_group(m: &settings::Matrix) -> adw::PreferencesGroup {
     group
 }
 
+/// A warning sign at the end of a label's row while the label is long
+/// (`settings::long_label`); the bar shows labels in full.
+pub(crate) fn warn_long_label(row: &adw::EntryRow) {
+    let sign = gtk::Image::builder()
+        .icon_name("dialog-warning-symbolic")
+        .css_classes(["warning"])
+        .valign(gtk::Align::Center)
+        .build();
+    let update = {
+        let sign = sign.clone();
+        move |row: &adw::EntryRow| {
+            let warning = crate::settings::long_label(&row.text());
+            sign.set_tooltip_text(warning.as_deref());
+            sign.set_visible(warning.is_some());
+        }
+    };
+    update(row);
+    row.add_suffix(&sign);
+    row.connect_changed(update);
+}
+
 pub(crate) fn clear_page(page: &adw::PreferencesPage) {
     // Groups are the page's only children it hands out through `group`.
     let mut groups = Vec::new();

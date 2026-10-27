@@ -45,8 +45,8 @@ and context names are lower-case identifiers (`kundenportal`).
 + Workspaces are recognizable at a glance, without memorizing colors.
 + One model for all three kinds; the shell follows the files live
   (`config.toml` watched, the contexts' files read every 2 s).
-- The bar is wider than with dots; with many workspaces labels are cut
-  (16 characters) and may need a compact mode later (only the active one
-  labelled).
+- The bar is wider than with dots. Labels are never cut; the settings app
+  warns at a label longer than 16 characters. Many workspaces may need a
+  compact mode later (only the active one labelled).
 - Host workspaces are configured by number: a Hyprland workspace created
   under another name shows that name with the host icon.

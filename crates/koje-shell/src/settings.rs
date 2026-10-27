@@ -223,6 +223,17 @@ pub fn settings(form: &Form) -> Result<ContextSettings, Vec<FieldError>> {
     })
 }
 
+/// Labels longer than this make the bar wide; the settings app warns.
+pub const LONG_LABEL: usize = 16;
+
+/// The warning for a label that makes the bar wide; labels are never cut.
+pub fn long_label(label: &str) -> Option<String> {
+    let n = label.trim().chars().count();
+    (n > LONG_LABEL).then(|| {
+        format!("{n} characters: long labels take room in the bar, which shows them in full")
+    })
+}
+
 /// The bar styles as the Workspaces page offers them.
 pub const STYLES: [(WorkspaceStyle, &str); 4] = [
     (WorkspaceStyle::Labels, "Icons and labels"),
@@ -568,6 +579,14 @@ mod tests {
             .map(|e| e.field)
             .collect();
         assert_eq!(fields, ["icon", "key"]);
+    }
+
+    #[test]
+    fn long_labels_are_warned_about() {
+        assert_eq!(long_label("Kundenportal"), None);
+        assert_eq!(long_label(&"x".repeat(LONG_LABEL)), None);
+        assert!(long_label("Kundenportal Relaunch 2027").is_some());
+        assert_eq!(long_label(&format!("  {}  ", "ä".repeat(LONG_LABEL))), None);
     }
 
     #[test]

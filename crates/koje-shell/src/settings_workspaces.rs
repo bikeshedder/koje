@@ -16,7 +16,7 @@ use libadwaita::prelude::*;
 
 use crate::settings::{self, BarForm, STYLES, WorkspaceRow};
 use crate::settings_icons::icon_button;
-use crate::settings_ui::{Ui, clear_page};
+use crate::settings_ui::{Ui, clear_page, warn_long_label};
 
 /// Shown as the sidebar's second row.
 pub(crate) struct WorkspacesPage {
@@ -50,7 +50,7 @@ impl WorkspacesPage {
         self.page.add(&style(&form, &changed));
         let hosts = adw::PreferencesGroup::builder()
             .title("Host Workspaces")
-            .description("Numbered workspaces outside the contexts. One that is not listed shows its number. A context's name and icon are set on its page.")
+            .description("Numbered workspaces outside the contexts. One that is not listed shows its number. A context's name and icon are set on its page. The bar shows names in full; long ones make it wide.")
             .build();
         let list = gtk::ListBox::builder()
             .css_classes(["boxed-list"])
@@ -131,6 +131,7 @@ fn fill_workspaces(list: &gtk::ListBox, form: &Rc<RefCell<BarForm>>, changed: &R
             .title(format!("Workspace {}", w.number))
             .text(&w.label)
             .build();
+        warn_long_label(&row);
         {
             let (form, changed) = (form.clone(), changed.clone());
             row.add_prefix(&icon_button(&w.icon, look::HOST_ICON, move |name| {

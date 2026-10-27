@@ -265,13 +265,7 @@ impl Bar {
     fn label_button(&self, w: &WorkspaceButton) -> gtk::Button {
         let content = gtk::Box::builder().spacing(6).build();
         content.append(&gtk::Image::from_icon_name(&w.icon));
-        content.append(
-            &gtk::Label::builder()
-                .label(&w.label)
-                .max_width_chars(16)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .build(),
-        );
+        content.append(&gtk::Label::builder().label(&w.label).build());
         let button = gtk::Button::builder()
             .child(&content)
             .css_classes(["panel-button", "workspace-label", &w.accent.css_class()])
