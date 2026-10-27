@@ -81,6 +81,7 @@ button.panel-button:active, .panel-button > button:checked, .panel-button > butt
 .workspace-indicator { padding: 0 10px; }
 window.koje-bar button.workspace-dot {
   min-width: 7px; min-height: 7px; padding: 0; margin: 0;
+  transition: min-width 250ms cubic-bezier(0.33, 1, 0.68, 1), opacity 250ms cubic-bezier(0.33, 1, 0.68, 1);
   border-radius: 9999px; background: #ffffff; background-image: none;
   box-shadow: none; opacity: 0.5;
 }
@@ -88,6 +89,7 @@ window.koje-bar button.workspace-dot:hover { opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored { background: var(--accent-bg-color); opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored.koje-host { background: #ffffff; opacity: 0.5; }
 window.koje-bar button.workspace-dot.active { min-width: 32px; opacity: 1; }
+button.workspace-name { transition: background 250ms cubic-bezier(0.33, 1, 0.68, 1); }
 button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .capsule {
   background: var(--accent-bg-color);

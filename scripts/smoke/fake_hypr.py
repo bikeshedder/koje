@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A fake Hyprland for koje-shell smoke tests: answers `j/…` requests from a
 fixed desktop (two contexts, a stash, host workspaces) and logs every other
-request – dispatches – to LOG. ACTIVE (env) names the active workspace;
+request – dispatches – to LOG; `dispatch workspace` switches the active one. ACTIVE (env) names the active workspace;
 PLUGIN=1 lists koje's Hyprland plugin as loaded.
 
 Usage: fake_hypr.py <instance dir> <log>"""
@@ -69,6 +69,14 @@ def command(c):
         c.sendall(("ok\n" * n).encode())
         # As the plugin: the windows land LANDED seconds after `open`.
         words = req.split()
+        # Switching workspaces: the desktop follows and Hyprland's event goes out.
+        for part in req.removeprefix("[[BATCH]]").split(";"):
+            w = part.split()
+            if w[:2] == ["dispatch", "workspace"] and len(w) == 3:
+                name = w[2].removeprefix("name:")
+                if name in ids:
+                    desktop["j/monitors"][0]["activeWorkspace"] = {"id": ids[name], "name": name}
+                    threading.Timer(0.05, emit, [f"workspacev2>>{ids[name]},{name}"]).start()
         if "koje:overview" in req and "open" in words:
             monitor = words[words.index("open") + 1]
             threading.Timer(float(os.environ.get("LANDED", "0.4")), emit, [f"kojeoverview>>landed,{monitor}"]).start()

@@ -34,6 +34,9 @@ pub struct Bar {
     warning_text: gtk::Label,
     /// What the bar shows now: an update that changes nothing redraws nothing.
     shown: RefCell<Option<BarView>>,
+    /// The workspace buttons, kept while only the active one changes – so
+    /// the switch animates (M8.80).
+    buttons: RefCell<Vec<(String, gtk::Button)>>,
     /// The monitor's overview (ADR 0049), hidden until asked for.
     overview: Rc<OverviewSurface>,
 }
@@ -96,6 +99,7 @@ impl Bar {
             warning,
             warning_text,
             shown: RefCell::new(None),
+            buttons: RefCell::default(),
             overview,
         }
     }
@@ -117,27 +121,22 @@ impl Bar {
         if self.shown.borrow().as_ref() == Some(view) {
             return;
         }
-        while let Some(child) = self.workspaces.first_child() {
-            self.workspaces.remove(&child);
-        }
-        match view.style {
-            WorkspaceStyle::Names => {
-                for w in &view.workspaces {
-                    self.workspaces.append(&self.name_button(w));
+        let same = self
+            .shown
+            .borrow()
+            .as_ref()
+            .is_some_and(|old| same_buttons(old, view));
+        if same {
+            // Only the active one moved: the CSS transitions animate it.
+            for ((_, button), w) in self.buttons.borrow().iter().zip(&view.workspaces) {
+                if w.active {
+                    button.add_css_class("active");
+                } else {
+                    button.remove_css_class("active");
                 }
             }
-            WorkspaceStyle::Dots | WorkspaceStyle::ColoredDots => {
-                let colored = view.style == WorkspaceStyle::ColoredDots;
-                // GNOME's workspace indicator: one pill holding the dots.
-                let indicator = gtk::Box::builder()
-                    .css_classes(["panel-button", "workspace-indicator"])
-                    .spacing(6)
-                    .build();
-                for w in &view.workspaces {
-                    indicator.append(&self.dot(w, colored));
-                }
-                self.workspaces.append(&indicator);
-            }
+        } else {
+            self.render_workspaces(view);
         }
         self.menu.render(view.menu.as_ref());
         self.quick.render(&view.quick);
@@ -149,6 +148,37 @@ impl Bar {
             None => self.warning.set_visible(false),
         }
         self.shown.replace(Some(view.clone()));
+    }
+
+    fn render_workspaces(&self, view: &BarView) {
+        while let Some(child) = self.workspaces.first_child() {
+            self.workspaces.remove(&child);
+        }
+        let mut buttons = Vec::new();
+        match view.style {
+            WorkspaceStyle::Names => {
+                for w in &view.workspaces {
+                    let b = self.name_button(w);
+                    self.workspaces.append(&b);
+                    buttons.push((w.name.clone(), b));
+                }
+            }
+            WorkspaceStyle::Dots | WorkspaceStyle::ColoredDots => {
+                let colored = view.style == WorkspaceStyle::ColoredDots;
+                // GNOME's workspace indicator: one pill holding the dots.
+                let indicator = gtk::Box::builder()
+                    .css_classes(["panel-button", "workspace-indicator"])
+                    .spacing(6)
+                    .build();
+                for w in &view.workspaces {
+                    let b = self.dot(w, colored);
+                    indicator.append(&b);
+                    buttons.push((w.name.clone(), b));
+                }
+                self.workspaces.append(&indicator);
+            }
+        }
+        self.buttons.replace(buttons);
     }
 
     /// What a click on a workspace does: an empty context's workspace through
@@ -194,6 +224,17 @@ impl Bar {
         self.overview.close();
         self.window.destroy();
     }
+}
+
+/// The same workspace buttons but for which one is active: they are kept.
+fn same_buttons(old: &BarView, new: &BarView) -> bool {
+    let key = |w: &WorkspaceButton| (w.name.clone(), w.accent.clone(), w.empty);
+    old.style == new.style
+        && old
+            .workspaces
+            .iter()
+            .map(key)
+            .eq(new.workspaces.iter().map(key))
 }
 
 /// `active` and `empty` for the CSS; a hint on an empty context.
