@@ -57,14 +57,23 @@ static bool replaceWindows(PHLMONITOR monitor, PHLWORKSPACE workspace) {
     return true;
 }
 
+// Hyprland's drawing of a workspace's windows; an opening or closing
+// overlay zoomed (overlays.cpp).
+static void renderWindows(CFunctionHook* hook, void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
+    if (replaceWindows(monitor, workspace))
+        return;
+    const bool zoomed = zoomOverlay(monitor, workspace);
+    ((origRenderWindows)hook->m_original)(thisptr, monitor, workspace, now);
+    if (zoomed)
+        unzoomOverlay();
+}
+
 static void hkRenderWindows(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
-    if (!replaceWindows(monitor, workspace))
-        ((origRenderWindows)g_renderWindowsHook->m_original)(thisptr, monitor, workspace, now);
+    renderWindows(g_renderWindowsHook, thisptr, monitor, workspace, now);
 }
 
 static void hkRenderFullscreen(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
-    if (!replaceWindows(monitor, workspace))
-        ((origRenderWindows)g_renderFullscreenHook->m_original)(thisptr, monitor, workspace, now);
+    renderWindows(g_renderFullscreenHook, thisptr, monitor, workspace, now);
 }
 
 static void hkAddDamageBox(void* thisptr, const CBox& box) {
@@ -212,7 +221,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // New windows larger than 80 % of the screen open maximized, as GNOME's
     // auto-maximize (ADR 0052); 0: off.
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:auto_maximize", Hyprlang::INT{1});
-    // Overlays zoom in when they open (M8.86); 0: Hyprland's slide.
+    // Overlays zoom in when they open and out when they close (M8.86); 0:
+    // Hyprland's slide.
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overlay_zoom", Hyprlang::INT{1});
     // Windows outside their context glow in its color and carry a badge with
     // its name (ADR 0057); 0: off.

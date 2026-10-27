@@ -123,7 +123,7 @@ impl DesktopPage {
         ));
         overlays.add(&switch(
             "Zoom In",
-            "Overlays zoom in when they open; off: they slide in",
+            "Overlays zoom in when they open and out when they close; off: they slide",
             |d| &mut d.overlay_zoom,
         ));
         self.page.add(&overlays);
