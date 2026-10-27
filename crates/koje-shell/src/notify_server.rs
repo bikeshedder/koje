@@ -248,11 +248,14 @@ impl Server {
 
     /// The list to the date menu.
     async fn publish(&self) {
-        let (list, unseen) = {
+        let (list, unseen, dnd) = {
             let s = self.state.lock().await;
-            (s.tray.list.clone(), s.tray.unseen())
+            (s.tray.list.clone(), s.tray.unseen(), s.tray.dnd)
         };
-        let _ = self.tx.send(Update::Notifications { list, unseen }).await;
+        let _ = self
+            .tx
+            .send(Update::Notifications { list, unseen, dnd })
+            .await;
     }
 
     async fn next_banner(&self) {

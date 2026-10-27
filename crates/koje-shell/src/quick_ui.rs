@@ -13,7 +13,7 @@ use gtk4::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::model::Action;
-use crate::quick::{self, QuickView};
+use crate::quick::{self, DeviceRow, QuickView};
 use crate::system::Change;
 
 const INTERFACE: &str = "org.gnome.desktop.interface";
@@ -77,6 +77,152 @@ impl Slider {
         self.scale.set_value(f64::from(value));
         self.updating.set(false);
     }
+}
+
+/// A slider's device menu, as GNOME's (`status/volume.js`): an arrow beside
+/// the slider opens a list under it – a header, the devices with the
+/// default one checked, then "Sound Settings". The arrow only with more
+/// than one device.
+#[derive(Debug, Clone)]
+struct DeviceMenu {
+    button: gtk::ToggleButton,
+    revealer: gtk::Revealer,
+    list: gtk::Box,
+    actions: UnboundedSender<Action>,
+    shown: Rc<RefCell<Vec<DeviceRow>>>,
+}
+
+impl DeviceMenu {
+    fn new(icon: &str, title: &str, actions: &UnboundedSender<Action>) -> Self {
+        let button = gtk::ToggleButton::builder()
+            .icon_name("go-next-symbolic")
+            .css_classes(["flat", "circular", "quick-menu-button"])
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        let header = gtk::Box::builder()
+            .spacing(12)
+            .css_classes(["quick-menu-header"])
+            .build();
+        header.append(&gtk::Image::from_icon_name(icon));
+        header.append(
+            &gtk::Label::builder()
+                .label(title)
+                .css_classes(["heading"])
+                .build(),
+        );
+        let list = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .build();
+        let settings = gtk::Button::builder()
+            .label("Sound Settings")
+            .css_classes(["flat", "quick-menu-item"])
+            .build();
+        if let Some(l) = settings.child().and_downcast::<gtk::Label>() {
+            l.set_xalign(0.0);
+        }
+        match gio_unix::DesktopAppInfo::new("gnome-sound-panel.desktop") {
+            Some(app) => {
+                settings.connect_clicked(move |b| {
+                    launch_gnome_settings(&app, &b.display());
+                    close_popover(b);
+                });
+            }
+            None => settings.set_visible(false),
+        }
+        let menu = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .css_classes(["quick-menu"])
+            .build();
+        menu.append(&header);
+        menu.append(&list);
+        menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        menu.append(&settings);
+        let revealer = gtk::Revealer::builder().child(&menu).build();
+        {
+            let revealer = revealer.clone();
+            button.connect_toggled(move |b| revealer.set_reveal_child(b.is_active()));
+        }
+        Self {
+            button,
+            revealer,
+            list,
+            actions: actions.clone(),
+            shown: Rc::default(),
+        }
+    }
+
+    fn set(&self, rows: &[DeviceRow]) {
+        self.button.set_visible(rows.len() > 1);
+        if rows.len() <= 1 {
+            self.button.set_active(false);
+        }
+        if self.shown.borrow().as_slice() == rows {
+            return;
+        }
+        while let Some(child) = self.list.first_child() {
+            self.list.remove(&child);
+        }
+        for (id, name, icon, active) in rows {
+            let row = gtk::Box::builder().spacing(12).build();
+            row.append(&gtk::Image::from_icon_name(icon));
+            row.append(
+                &gtk::Label::builder()
+                    .label(name)
+                    .xalign(0.0)
+                    .hexpand(true)
+                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                    .build(),
+            );
+            let check = gtk::Image::from_icon_name("object-select-symbolic");
+            check.set_opacity(if *active { 1.0 } else { 0.0 });
+            row.append(&check);
+            let item = gtk::Button::builder()
+                .child(&row)
+                .css_classes(["flat", "quick-menu-item"])
+                .build();
+            let (actions, id) = (self.actions.clone(), *id);
+            item.connect_clicked(move |_| {
+                let _ = actions.send(Action::Quick(Change::DefaultDevice(id)));
+            });
+            self.list.append(&item);
+        }
+        self.shown.replace(rows.to_vec());
+    }
+}
+
+/// The volume and microphone sliders with their device menus: a click on
+/// the icon mutes.
+fn sound_sliders(actions: &UnboundedSender<Action>) -> (Slider, DeviceMenu, Slider, DeviceMenu) {
+    let slider = |icon: &str, set: fn(u32) -> Change, mute: Change| {
+        let s = {
+            let actions = actions.clone();
+            Slider::new(icon, move |v| {
+                let _ = actions.send(Action::Quick(set(v)));
+            })
+        };
+        let actions = actions.clone();
+        s.icon.connect_clicked(move |_| {
+            let _ = actions.send(Action::Quick(mute.clone()));
+        });
+        s
+    };
+    let volume = slider(
+        "audio-volume-high-symbolic",
+        Change::Volume,
+        Change::ToggleMute,
+    );
+    let outputs = DeviceMenu::new("audio-headphones-symbolic", "Sound Output", actions);
+    volume.row.append(&outputs.button);
+    let microphone = slider(
+        "audio-input-microphone-symbolic",
+        Change::MicrophoneVolume,
+        Change::ToggleMicrophoneMute,
+    );
+    let inputs = DeviceMenu::new("audio-input-microphone-symbolic", "Sound Input", actions);
+    microphone.row.append(&inputs.button);
+    (volume, outputs, microphone, inputs)
 }
 
 /// A GNOME quick toggle: icon, title, subtitle; filled with the accent when on.
@@ -153,6 +299,9 @@ pub struct QuickWidget {
     battery_icon: gtk::Image,
     battery_label: gtk::Label,
     volume: Slider,
+    outputs: DeviceMenu,
+    microphone: Slider,
+    inputs: DeviceMenu,
     brightness: Slider,
     network: Toggle,
     keyboard: Toggle,
@@ -180,13 +329,7 @@ impl QuickWidget {
                 let _ = actions.send(Action::Quick(change(v)));
             }
         };
-        let volume = Slider::new("audio-volume-high-symbolic", send(Change::Volume));
-        {
-            let actions = actions.clone();
-            volume.icon.connect_clicked(move |_| {
-                let _ = actions.send(Action::Quick(Change::ToggleMute));
-            });
-        }
+        let (volume, outputs, microphone, inputs) = sound_sliders(actions);
         let brightness = Slider::new("display-brightness-symbolic", send(Change::Brightness));
         let network = {
             let actions = actions.clone();
@@ -229,6 +372,9 @@ impl QuickWidget {
         for w in [
             top.upcast_ref::<gtk::Widget>(),
             volume.row.upcast_ref(),
+            outputs.revealer.upcast_ref(),
+            microphone.row.upcast_ref(),
+            inputs.revealer.upcast_ref(),
             brightness.row.upcast_ref(),
             tiles.upcast_ref(),
             load.upcast_ref(),
@@ -261,6 +407,9 @@ impl QuickWidget {
             battery_icon,
             battery_label,
             volume,
+            outputs,
+            microphone,
+            inputs,
             brightness,
             tile_order: [
                 network.button.clone(),
@@ -353,6 +502,15 @@ impl QuickWidget {
             self.volume.icon.set_icon_name(icon);
             self.volume.set(*percent);
         }
+        self.outputs.set(&q.outputs);
+        self.microphone.row.set_visible(q.microphone.is_some());
+        if let Some((icon, percent, _muted)) = &q.microphone {
+            self.microphone.icon.set_icon_name(icon);
+            self.microphone.set(*percent);
+        } else {
+            self.inputs.button.set_active(false);
+        }
+        self.inputs.set(&q.inputs);
         self.brightness.row.set_visible(q.brightness.is_some());
         if let Some(b) = q.brightness {
             self.brightness.set(b);
@@ -585,6 +743,10 @@ pub fn gnome_desktop(current: Option<&str>) -> String {
 
 /// GNOME's quick toggles: pills, the accent when on.
 pub const CSS: &str = "
+.quick-menu { background: alpha(currentColor, 0.05); border-radius: 18px; padding: 12px; margin-top: 6px; }
+.quick-menu-header { padding: 0 6px 6px 6px; }
+.quick-menu-item { padding: 6px; border-radius: 9px; font-weight: normal; }
+.quick-menu-button:checked { background: alpha(currentColor, 0.15); }
 .quick-toggle { border-radius: 9999px; padding: 8px 14px; }
 .quick-toggle:checked { background: var(--accent-bg-color); color: var(--accent-fg-color); }
 ";

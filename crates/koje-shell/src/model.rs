@@ -69,6 +69,7 @@ pub enum Update {
     Notifications {
         list: Vec<crate::notifications::Notification>,
         unseen: bool,
+        dnd: bool,
     },
     /// Show this banner (M8.36). Not part of the state.
     Banner(crate::notifications::Notification),
@@ -261,6 +262,8 @@ pub struct Shell {
     overlays: Vec<(String, String)>,
     notifications: Vec<crate::notifications::Notification>,
     unseen: bool,
+    /// GNOME's Do Not Disturb.
+    dnd: bool,
     favorites: Vec<String>,
     /// The programs of each context that ran when they were read.
     apps: BTreeMap<String, Vec<AppItem>>,
@@ -520,9 +523,10 @@ impl Shell {
             Update::Desktop(desktop) => self.desktop = desktop,
             Update::Bar(bar) => self.bar = bar,
             Update::Overlays(overlays) => self.overlays = overlays,
-            Update::Notifications { list, unseen } => {
+            Update::Notifications { list, unseen, dnd } => {
                 self.notifications = list;
                 self.unseen = unseen;
+                self.dnd = dnd;
             }
             Update::Favorites(favorites) => self.favorites = favorites,
             Update::Apps { context, apps } => {
@@ -672,7 +676,7 @@ impl Shell {
                     errors: &self.errors,
                 })
             }),
-            quick: quick(&self.system),
+            quick: quick(&self.system, self.dnd),
             warning: (self.kojed == Kojed::Gone).then_some(KOJED_GONE),
         }
     }

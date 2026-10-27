@@ -22,6 +22,7 @@ const EVERY: Duration = Duration::from_secs(2);
 const TIMEOUT: Duration = Duration::from_secs(2);
 const BACKLIGHTS: &str = "/sys/class/backlight";
 const SINK: &str = "@DEFAULT_AUDIO_SINK@";
+const SOURCE: &str = "@DEFAULT_AUDIO_SOURCE@";
 
 /// A change from Quick Settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +32,11 @@ pub enum Change {
     /// Percent up (positive) or down, from scrolling over the indicator.
     VolumeStep(i32),
     ToggleMute,
+    /// The default input's level in percent (M8.84).
+    MicrophoneVolume(u32),
+    ToggleMicrophoneMute,
+    /// Make this `PipeWire` node the default output or input (M8.84).
+    DefaultDevice(u32),
     /// Perceived percent.
     Brightness(u32),
     Wifi(bool),
@@ -63,6 +69,8 @@ pub async fn watch(
         cpu_before = cpu_now;
         let system = System {
             audio: within(volume()).await,
+            microphone: within(level(SOURCE)).await,
+            devices: within(devices()).await,
             brightness: brightness().ok(),
             network: match &conn {
                 Some(c) => within(network(c)).await,
@@ -110,6 +118,11 @@ pub async fn change(
             .map(drop),
         Change::VolumeStep(d) => volume_step(d).await,
         Change::ToggleMute => wpctl(&["set-mute", SINK, "toggle"]).await.map(drop),
+        Change::MicrophoneVolume(p) => wpctl(&["set-volume", SOURCE, &format!("{}%", p.min(150))])
+            .await
+            .map(drop),
+        Change::ToggleMicrophoneMute => wpctl(&["set-mute", SOURCE, "toggle"]).await.map(drop),
+        Change::DefaultDevice(id) => wpctl(&["set-default", &id.to_string()]).await.map(drop),
         Change::Brightness(p) => match conn {
             Some(conn) => set_brightness(conn, p).await,
             None => Err(anyhow::anyhow!("no system bus")),
@@ -169,8 +182,26 @@ async fn wpctl(args: &[&str]) -> Result<String> {
 }
 
 async fn volume() -> Result<Level> {
-    let out = wpctl(&["get-volume", SINK]).await?;
+    level(SINK).await
+}
+
+async fn level(node: &str) -> Result<Level> {
+    let out = wpctl(&["get-volume", node]).await?;
     media::parse_wpctl_volume(&out).context("wpctl's volume")
+}
+
+/// Outputs, inputs and whether an app records, from `pw-dump`.
+async fn devices() -> Result<crate::sound::Devices> {
+    let out = tokio::time::timeout(
+        TIMEOUT,
+        tokio::process::Command::new("pw-dump")
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .context("pw-dump did not answer")?
+    .context("running pw-dump")?;
+    crate::sound::parse_pw_dump(&String::from_utf8_lossy(&out.stdout)).context("pw-dump's output")
 }
 
 fn read_number(path: &Path) -> Result<u32> {

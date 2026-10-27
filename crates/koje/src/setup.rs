@@ -35,7 +35,7 @@ const WAYBAR: [(&str, &[u8]); 2] = [
 const WAYBAR_READS: [&str; 3] = ["config", "config.jsonc", "style.css"];
 
 /// Command → Debian/Ubuntu package koje needs on the host.
-pub const DEPENDENCIES: [(&str, &str); 17] = [
+pub const DEPENDENCIES: [(&str, &str); 18] = [
     ("podman", "podman"),
     ("newuidmap", "uidmap"),
     ("pasta", "passt"),
@@ -54,6 +54,8 @@ pub const DEPENDENCIES: [(&str, &str); 17] = [
     ("slurp", "slurp"),
     ("wl-copy", "wl-clipboard"),
     ("wpctl", "wireplumber"),
+    // Quick Settings' sound devices (M8.84).
+    ("pw-dump", "pipewire-bin"),
 ];
 /// Portal backends (packages, checked with `dpkg-query` where it exists).
 pub const PORTALS: [&str; 3] = [

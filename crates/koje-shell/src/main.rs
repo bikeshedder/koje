@@ -30,6 +30,7 @@ mod quick_ui;
 mod search;
 mod share;
 mod share_ui;
+mod sound;
 mod switcher;
 mod switcher_ui;
 mod system;

@@ -65,6 +65,10 @@ pub struct Load {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct System {
     pub audio: Option<Level>,
+    /// The default input's level (M8.84).
+    pub microphone: Option<Level>,
+    /// Outputs and inputs to choose from (M8.84).
+    pub devices: Option<crate::sound::Devices>,
     pub brightness: Option<Brightness>,
     pub network: Option<Network>,
     pub battery: Option<Battery>,
@@ -202,6 +206,11 @@ pub struct QuickView {
     /// The active layout's short name in the bar, when there are several.
     pub layout: Option<String>,
     pub volume: Option<(String, u32, bool)>,
+    /// Outputs for the volume slider's menu (M8.84).
+    pub outputs: Vec<DeviceRow>,
+    /// The microphone slider, only while an app records, as GNOME's.
+    pub microphone: Option<(String, u32, bool)>,
+    pub inputs: Vec<DeviceRow>,
     /// Perceived level 0–100.
     pub brightness: Option<u32>,
     /// `(icon, title, subtitle, wifi on)`; `wifi on` is `None` without
@@ -215,7 +224,32 @@ pub struct QuickView {
     pub load: Option<String>,
 }
 
-pub fn quick(s: &System) -> QuickView {
+/// A device in a slider's menu: id, "port – card", icon, the default one.
+pub type DeviceRow = (u32, String, &'static str, bool);
+
+/// GNOME's microphone icon.
+pub fn microphone_icon(level: Level) -> &'static str {
+    match (level.muted, level.percent) {
+        (true, _) | (false, 0) => "microphone-sensitivity-muted-symbolic",
+        (false, 1..=33) => "microphone-sensitivity-low-symbolic",
+        (false, 34..=66) => "microphone-sensitivity-medium-symbolic",
+        (false, _) => "microphone-sensitivity-high-symbolic",
+    }
+}
+
+fn rows(list: &[crate::sound::Device], default: Option<u32>) -> Vec<DeviceRow> {
+    list.iter()
+        .map(|d| (d.id, d.name.clone(), d.icon, Some(d.id) == default))
+        .collect()
+}
+
+/// `dnd`: GNOME's Do Not Disturb, an icon in the bar while on.
+pub fn quick(s: &System, dnd: bool) -> QuickView {
+    let recording = s.devices.as_ref().is_some_and(|d| d.recording);
+    let microphone = s
+        .microphone
+        .filter(|_| recording)
+        .map(|l| (microphone_icon(l).to_owned(), l.percent.min(100), l.muted));
     let network = s.network.as_ref().map(|n| {
         let (title, subtitle) = match &n.primary {
             Some((NetKind::Wifi, name)) => ("Wi-Fi".to_owned(), name.clone()),
@@ -243,6 +277,13 @@ pub fn quick(s: &System) -> QuickView {
     if let Some((icon, ..)) = &network {
         indicators.push(icon.clone());
     }
+    // GNOME's order: the microphone (a privacy indicator) first, …
+    if let Some((icon, ..)) = &microphone {
+        indicators.insert(0, icon.clone());
+    }
+    if dnd {
+        indicators.push("notifications-disabled-symbolic".to_owned());
+    }
     if let Some(level) = s.audio {
         indicators.push(volume_icon(level).to_owned());
     }
@@ -255,6 +296,17 @@ pub fn quick(s: &System) -> QuickView {
         volume: s
             .audio
             .map(|l| (volume_icon(l).to_owned(), l.percent.min(100), l.muted)),
+        outputs: s
+            .devices
+            .as_ref()
+            .map(|d| rows(&d.outputs, d.default_output))
+            .unwrap_or_default(),
+        microphone,
+        inputs: s
+            .devices
+            .as_ref()
+            .map(|d| rows(&d.inputs, d.default_input))
+            .unwrap_or_default(),
         brightness: s
             .brightness
             .as_ref()
@@ -343,37 +395,42 @@ mod tests {
 
     #[test]
     fn the_view() {
-        let view = quick(&System {
-            audio: Some(Level {
-                percent: 45,
-                muted: false,
-            }),
-            brightness: Some(Brightness {
-                device: "intel_backlight".into(),
-                raw: 1000,
-                max: 1000,
-            }),
-            network: Some(Network {
-                primary: Some((NetKind::Wifi, "home".into())),
-                strength: Some(90),
-                wifi_enabled: Some(true),
-            }),
-            battery: Some(Battery {
-                percent: 87,
-                charging: true,
-                icon: "battery-level-90-charging-symbolic".into(),
-            }),
-            keyboard: Some(Keyboard {
-                layouts: vec!["us".into(), "de".into()],
-                active: 0,
-                name: "English (US)".into(),
-            }),
-            load: Some(Load {
-                cpu_percent: 12,
-                mem_used: 6 << 30,
-                mem_total: 32 << 30,
-            }),
-        });
+        let view = quick(
+            &System {
+                microphone: None,
+                devices: None,
+                audio: Some(Level {
+                    percent: 45,
+                    muted: false,
+                }),
+                brightness: Some(Brightness {
+                    device: "intel_backlight".into(),
+                    raw: 1000,
+                    max: 1000,
+                }),
+                network: Some(Network {
+                    primary: Some((NetKind::Wifi, "home".into())),
+                    strength: Some(90),
+                    wifi_enabled: Some(true),
+                }),
+                battery: Some(Battery {
+                    percent: 87,
+                    charging: true,
+                    icon: "battery-level-90-charging-symbolic".into(),
+                }),
+                keyboard: Some(Keyboard {
+                    layouts: vec!["us".into(), "de".into()],
+                    active: 0,
+                    name: "English (US)".into(),
+                }),
+                load: Some(Load {
+                    cpu_percent: 12,
+                    mem_used: 6 << 30,
+                    mem_total: 32 << 30,
+                }),
+            },
+            false,
+        );
         assert_eq!(
             view.indicators,
             [
@@ -399,14 +456,17 @@ mod tests {
 
     #[test]
     fn a_desktop_without_battery_and_one_layout() {
-        let view = quick(&System {
-            keyboard: Some(Keyboard {
-                layouts: vec!["us".into()],
-                active: 0,
-                name: "English (US)".into(),
-            }),
-            ..System::default()
-        });
+        let view = quick(
+            &System {
+                keyboard: Some(Keyboard {
+                    layouts: vec!["us".into()],
+                    active: 0,
+                    name: "English (US)".into(),
+                }),
+                ..System::default()
+            },
+            false,
+        );
         assert_eq!((view.layout, view.battery), (None, None));
         assert_eq!(view.indicators, Vec::<String>::new());
     }
