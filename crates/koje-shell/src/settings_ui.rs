@@ -27,6 +27,7 @@ const APP_ID: &str = "io.koje.Settings";
 const MEMORY: &str = "";
 /// The sidebar's second row; context names start with a letter.
 const WORKSPACES: &str = "@workspaces";
+const DESKTOP: &str = "@desktop";
 
 const CSS: &str = "
 .context-dot { min-width: 12px; min-height: 12px; border-radius: 999px; }
@@ -97,6 +98,7 @@ pub(crate) struct Ui {
     layouts_page: adw::PreferencesPage,
     windows_page: adw::PreferencesPage,
     workspaces: crate::settings_workspaces::WorkspacesPage,
+    desktop: crate::settings_desktop::DesktopPage,
     actions_box: gtk::Box,
     dots: gtk::CssProvider,
     snapshot: RefCell<Snapshot>,
@@ -139,6 +141,8 @@ impl Ui {
         pages.add_named(&stack, Some("context"));
         let workspaces = crate::settings_workspaces::WorkspacesPage::new();
         pages.add_named(&workspaces.page, Some("workspaces"));
+        let desktop = crate::settings_desktop::DesktopPage::new();
+        pages.add_named(&desktop.page, Some("desktop"));
         let actions_box = gtk::Box::builder().spacing(6).build();
         let header = adw::HeaderBar::new();
         header.pack_end(&actions_box);
@@ -185,6 +189,7 @@ impl Ui {
             layouts_page,
             windows_page,
             workspaces,
+            desktop,
             actions_box,
             dots,
             snapshot: RefCell::default(),
@@ -327,6 +332,11 @@ impl Ui {
             self.main_page.set_title("Workspaces");
             let global = self.global();
             self.workspaces.render(self, &global);
+        } else if *self.selected.borrow() == DESKTOP {
+            self.pages.set_visible_child_name("desktop");
+            self.main_page.set_title("Desktop");
+            let global = self.global();
+            self.desktop.render(self, &global);
         } else {
             self.pages.set_visible_child_name("memory");
             self.main_page.set_title("Memory");
@@ -379,10 +389,18 @@ impl Ui {
         self.sidebar.append(&memory);
         let workspaces = row(WORKSPACES, "Workspaces", "", Err("view-grid-symbolic"));
         self.sidebar.append(&workspaces);
+        let desktop = row(
+            DESKTOP,
+            "Desktop",
+            "",
+            Err("preferences-desktop-appearance-symbolic"),
+        );
+        self.sidebar.append(&desktop);
         let selected = self.selected.borrow().clone();
         let mut select = match selected.as_str() {
             MEMORY => Some(memory.clone()),
             WORKSPACES => Some(workspaces.clone()),
+            DESKTOP => Some(desktop.clone()),
             _ => None,
         };
         for c in &self.snapshot.borrow().contexts {

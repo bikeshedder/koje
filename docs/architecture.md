@@ -200,7 +200,7 @@ to the stash first. Memory stays allocated (can be swapped out).
 
 | Path | Content |
 |---|---|
-| `~/.config/koje/config.toml` | global: zones, overlays, default limits, the bar's workspace style (`[bar]`) |
+| `~/.config/koje/config.toml` | global: zones, overlays, default limits, the bar's workspace style (`[bar]`), the windows' and overlays' look (`[desktop]`, ADR 0056) |
 | `~/.config/koje/contexts/<context>/context.toml` | hand-written: name, prefix, color, image, mounts, limits, state roles |
 | `~/.config/koje/integrations/*.toml` | user integrations |
 | `~/.local/share/koje/<context>/states/<state>.toml` | states incl. layouts |

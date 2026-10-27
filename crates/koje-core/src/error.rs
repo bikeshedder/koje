@@ -25,6 +25,9 @@ pub enum Error {
     #[error("{what}: {reason}")]
     InvalidLook { what: String, reason: String },
 
+    #[error("[desktop] {key}: {reason}")]
+    InvalidDesktop { key: &'static str, reason: String },
+
     #[error("overlay {name:?}: {reason}")]
     InvalidOverlay { name: String, reason: String },
 

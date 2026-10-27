@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # A fake `koje` for koje-shell smoke tests: `koje apps -c <context> --json`
 # answers a fixed list (a Fedora context: Firefox as org.mozilla.firefox);
-# everything else is logged to $KOJE_LOG and succeeds.
+# everything else is logged to $KOJE_LOG and succeeds; what `--stdin` gets
+# goes to the log too, indented.
 if [[ $1 == apps && " $* " == *" --json "* ]]; then
   cat <<'JSON'
 [
@@ -14,3 +15,6 @@ JSON
   exit 0
 fi
 echo "koje $*" >>"${KOJE_LOG:-/dev/null}"
+if [[ " $* " == *" --stdin "* ]]; then
+  sed 's/^/    /' >>"${KOJE_LOG:-/dev/null}"
+fi

@@ -13,6 +13,7 @@
 
 mod api;
 mod daemon;
+mod desktop;
 mod displays;
 mod gsettings;
 mod overlays;
@@ -33,18 +34,24 @@ use koje_podman::Podman;
 use tracing_subscriber::EnvFilter;
 
 /// What kojed sets in Hyprland with `keyword`: GNOME's input settings (ADR
-/// 0044, M8.43) and the overlays' keys from `config.toml` (M7.1). Notify the
-/// returned ones after Hyprland reset its keywords.
-fn keywords(global_config: std::path::PathBuf) -> [Arc<tokio::sync::Notify>; 2] {
+/// 0044, M8.43), the overlays' keys (M7.1) and `[desktop]` (ADR 0056) from
+/// `config.toml`. Notify the returned ones after Hyprland reset its keywords.
+fn keywords(global_config: std::path::PathBuf) -> [Arc<tokio::sync::Notify>; 3] {
     let input = Arc::new(tokio::sync::Notify::new());
     tokio::spawn(gsettings::run(Hyprland::from_env(), input.clone()));
     let overlays = Arc::new(tokio::sync::Notify::new());
     tokio::spawn(overlays::run(
         Hyprland::from_env(),
-        global_config,
+        global_config.clone(),
         overlays.clone(),
     ));
-    [input, overlays]
+    let desktop = Arc::new(tokio::sync::Notify::new());
+    tokio::spawn(desktop::run(
+        Hyprland::from_env(),
+        global_config,
+        desktop.clone(),
+    ));
+    [input, overlays, desktop]
 }
 
 #[tokio::main(flavor = "current_thread")]

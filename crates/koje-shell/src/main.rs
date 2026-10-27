@@ -31,6 +31,7 @@ mod radios;
 mod search;
 mod settings;
 mod settings_backend;
+mod settings_desktop;
 mod settings_form;
 mod settings_icons;
 mod settings_ui;

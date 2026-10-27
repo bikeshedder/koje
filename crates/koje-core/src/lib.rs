@@ -16,6 +16,7 @@ pub mod color;
 pub mod config;
 pub mod container;
 pub mod context;
+pub mod desktop;
 pub mod dotfiles;
 pub mod edid;
 pub mod error;

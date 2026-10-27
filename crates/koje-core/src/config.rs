@@ -183,6 +183,9 @@ pub struct GlobalConfig {
     /// koje's bar (ADR 0047).
     #[serde(default)]
     pub bar: BarConfig,
+    /// The windows' look, overlays and the overview's animation (ADR 0056).
+    #[serde(default)]
+    pub desktop: crate::desktop::DesktopConfig,
 }
 
 /// `[bar]` in `config.toml` (ADR 0047).
@@ -234,6 +237,7 @@ impl GlobalConfig {
         cfg.default_limits.validate()?;
         crate::overlay::overlays(&cfg)?;
         crate::look::host_workspaces(&cfg)?;
+        cfg.desktop.check()?;
         Ok(cfg)
     }
 
