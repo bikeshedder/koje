@@ -97,6 +97,7 @@ impl Clock {
         content.append(&header);
         content.append(&calendar);
         let popover = gtk::Popover::builder().child(&content).build();
+        crate::popup::keep_inside(&popover);
         // Always open on today.
         popover.connect_show(move |_| {
             if let Ok(now) = glib::DateTime::now_local() {

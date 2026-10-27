@@ -235,6 +235,7 @@ impl QuickWidget {
             content.append(w);
         }
         let popover = gtk::Popover::builder().child(&content).build();
+        crate::popup::keep_inside(&popover);
 
         let indicators = gtk::Box::builder().spacing(8).build();
         let layout = gtk::Label::builder()

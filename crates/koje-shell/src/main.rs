@@ -19,6 +19,7 @@ mod model;
 mod osd_ui;
 mod overview;
 mod overview_ui;
+mod popup;
 mod quick;
 mod quick_ui;
 mod search;

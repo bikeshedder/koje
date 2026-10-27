@@ -259,6 +259,7 @@ impl MenuWidget {
             .margin_end(6)
             .build();
         let popover = gtk::Popover::builder().child(&stack).build();
+        crate::popup::keep_inside(&popover);
         let contexts = ContextListPage::new(&popover, actions);
         stack.add_named(&context.root, Some("context"));
         stack.add_named(&contexts.root, Some("contexts"));
