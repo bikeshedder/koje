@@ -69,11 +69,196 @@ pub struct System {
     pub microphone: Option<Level>,
     /// Outputs and inputs to choose from (M8.84).
     pub devices: Option<crate::sound::Devices>,
+    /// Wi-Fi networks in range (M8.85).
+    pub wifi_networks: Vec<WifiNetwork>,
+    pub bluetooth: Option<Bluetooth>,
+    pub power: Option<PowerProfiles>,
     pub brightness: Option<Brightness>,
     pub network: Option<Network>,
     pub battery: Option<Battery>,
     pub keyboard: Option<Keyboard>,
     pub load: Option<Load>,
+}
+
+/// A Wi-Fi network in range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WifiNetwork {
+    pub ssid: String,
+    /// 0–100.
+    pub strength: u8,
+    pub secured: bool,
+    /// Saved: it can be joined without a password.
+    pub known: bool,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bluetooth {
+    pub powered: bool,
+    /// Paired devices.
+    pub devices: Vec<BtDevice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BtDevice {
+    /// `BlueZ`'s object path.
+    pub path: String,
+    pub name: String,
+    /// `BlueZ`'s icon name (`audio-headset`, …).
+    pub icon: String,
+    pub connected: bool,
+}
+
+/// power-profiles-daemon's state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PowerProfiles {
+    pub active: String,
+    pub available: Vec<String>,
+}
+
+/// A row of a tile's menu: what a click picks, its label and icon, checked,
+/// and an icon after the label (a lock for secured networks).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuRow {
+    pub key: String,
+    pub label: String,
+    pub icon: String,
+    pub checked: bool,
+    pub suffix: Option<&'static str>,
+    /// Picking it needs a password koje cannot ask for: GNOME Settings does.
+    pub ask: bool,
+}
+
+/// GNOME's Wi-Fi signal icons.
+pub fn signal_icon(strength: u8) -> &'static str {
+    match strength {
+        0..=19 => "network-wireless-signal-none-symbolic",
+        20..=39 => "network-wireless-signal-weak-symbolic",
+        40..=59 => "network-wireless-signal-ok-symbolic",
+        60..=79 => "network-wireless-signal-good-symbolic",
+        _ => "network-wireless-signal-excellent-symbolic",
+    }
+}
+
+/// The Wi-Fi menu as GNOME orders it: the active network, then saved ones,
+/// then the rest by signal; one row per name (its strongest).
+pub fn wifi_rows(networks: &[WifiNetwork]) -> Vec<MenuRow> {
+    let mut best: Vec<&WifiNetwork> = Vec::new();
+    for n in networks {
+        match best.iter_mut().find(|b| b.ssid == n.ssid) {
+            Some(b) if n.active || (!b.active && n.strength > b.strength) => *b = n,
+            Some(_) => {}
+            None => best.push(n),
+        }
+    }
+    best.sort_by_key(|n| (!n.active, !n.known, std::cmp::Reverse(n.strength)));
+    best.into_iter()
+        .map(|n| MenuRow {
+            key: n.ssid.clone(),
+            label: n.ssid.clone(),
+            icon: signal_icon(n.strength).to_owned(),
+            checked: n.active,
+            suffix: n.secured.then_some("network-wireless-encrypted-symbolic"),
+            ask: n.secured && !n.known && !n.active,
+        })
+        .collect()
+}
+
+/// GNOME's power modes, in its order.
+const MODES: [(&str, &str, &str); 3] = [
+    (
+        "performance",
+        "Performance",
+        "power-profile-performance-symbolic",
+    ),
+    ("balanced", "Balanced", "power-profile-balanced-symbolic"),
+    (
+        "power-saver",
+        "Power Saver",
+        "power-profile-power-saver-symbolic",
+    ),
+];
+
+fn mode(profile: &str) -> (&'static str, &'static str) {
+    MODES.iter().find(|(p, ..)| *p == profile).map_or(
+        ("Balanced", "power-profile-balanced-symbolic"),
+        |(_, l, i)| (*l, *i),
+    )
+}
+
+pub fn power_rows(p: &PowerProfiles) -> Vec<MenuRow> {
+    MODES
+        .iter()
+        .filter(|(m, ..)| p.available.is_empty() || p.available.iter().any(|a| a == m))
+        .map(|(m, label, icon)| MenuRow {
+            key: (*m).to_owned(),
+            label: (*label).to_owned(),
+            icon: (*icon).to_owned(),
+            checked: p.active == *m,
+            suffix: None,
+            ask: false,
+        })
+        .collect()
+}
+
+pub fn bluetooth_rows(b: &Bluetooth) -> Vec<MenuRow> {
+    b.devices
+        .iter()
+        .map(|d| MenuRow {
+            key: d.path.clone(),
+            label: d.name.clone(),
+            icon: if d.icon.is_empty() {
+                "bluetooth-active-symbolic".to_owned()
+            } else {
+                format!("{}-symbolic", d.icon)
+            },
+            checked: d.connected,
+            suffix: None,
+            ask: false,
+        })
+        .collect()
+}
+
+/// A tile: icon, title, subtitle, on, and its menu.
+pub type Tile = (String, String, String, bool, Vec<MenuRow>);
+
+/// GNOME's Power Mode tile: on unless balanced.
+pub fn power_tile(p: &PowerProfiles) -> Tile {
+    let (label, icon) = mode(&p.active);
+    (
+        icon.to_owned(),
+        "Power Mode".to_owned(),
+        label.to_owned(),
+        p.active != "balanced",
+        power_rows(p),
+    )
+}
+
+/// GNOME's Bluetooth tile: the connected device (or how many) as subtitle.
+pub fn bluetooth_tile(b: &Bluetooth) -> Tile {
+    let connected: Vec<&BtDevice> = b.devices.iter().filter(|d| d.connected).collect();
+    let subtitle = match connected.as_slice() {
+        _ if !b.powered => String::new(),
+        [] => String::new(),
+        [one] => one.name.clone(),
+        many => format!("{} Connected", many.len()),
+    };
+    (
+        if b.powered {
+            "bluetooth-active-symbolic"
+        } else {
+            "bluetooth-disabled-symbolic"
+        }
+        .to_owned(),
+        "Bluetooth".to_owned(),
+        subtitle,
+        b.powered,
+        if b.powered {
+            bluetooth_rows(b)
+        } else {
+            Vec::new()
+        },
+    )
 }
 
 /// GNOME's volume icon.
@@ -218,6 +403,12 @@ pub struct QuickView {
     pub network: Option<(String, String, String, Option<bool>)>,
     /// `(icon, 87 %, charging)`.
     pub battery: Option<(String, String)>,
+    /// For GNOME's "Show Battery Percentage" beside the icon.
+    pub battery_percent: Option<u32>,
+    /// The Wi-Fi tile's menu (M8.85).
+    pub wifi: Vec<MenuRow>,
+    pub bluetooth: Option<Tile>,
+    pub power: Option<Tile>,
     /// `(short, long, several layouts)`.
     pub keyboard: Option<(String, String, bool)>,
     /// `CPU 12 % · Memory 6.1 GiB of 31.2 GiB`.
@@ -313,6 +504,14 @@ pub fn quick(s: &System, dnd: bool) -> QuickView {
             .map(|b| brightness_percent(b.raw, b.max)),
         network,
         battery,
+        battery_percent: s.battery.as_ref().map(|b| b.percent),
+        wifi: if s.network.as_ref().and_then(|n| n.wifi_enabled) == Some(true) {
+            wifi_rows(&s.wifi_networks)
+        } else {
+            Vec::new()
+        },
+        bluetooth: s.bluetooth.as_ref().map(bluetooth_tile),
+        power: s.power.as_ref().map(power_tile),
         keyboard,
         load: s.load.map(|l| {
             format!(
@@ -394,11 +593,80 @@ mod tests {
     }
 
     #[test]
+    fn wifi_menu_as_gnome_orders_it() {
+        let net = |ssid: &str, strength, known, active| WifiNetwork {
+            ssid: ssid.into(),
+            strength,
+            secured: ssid != "cafe",
+            known,
+            active,
+        };
+        let rows = wifi_rows(&[
+            net("cafe", 90, false, false),
+            net("home", 40, true, false),
+            net("office", 30, false, true),
+            net("cafe", 50, false, false),
+        ]);
+        let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(labels, ["office", "home", "cafe"]);
+        assert!(rows[0].checked);
+        assert_eq!(rows[2].icon, "network-wireless-signal-excellent-symbolic");
+        assert_eq!(rows[2].suffix, None);
+        assert_eq!(rows[1].suffix, Some("network-wireless-encrypted-symbolic"));
+    }
+
+    #[test]
+    fn power_and_bluetooth_tiles() {
+        let p = PowerProfiles {
+            active: "power-saver".into(),
+            available: vec!["power-saver".into(), "balanced".into()],
+        };
+        let (icon, title, subtitle, on, rows) = power_tile(&p);
+        assert_eq!(
+            (title.as_str(), subtitle.as_str(), on),
+            ("Power Mode", "Power Saver", true)
+        );
+        assert_eq!(icon, "power-profile-power-saver-symbolic");
+        assert_eq!(rows.len(), 2, "only what the machine offers");
+        let b = Bluetooth {
+            powered: true,
+            devices: vec![
+                BtDevice {
+                    path: "/a".into(),
+                    name: "Headphones".into(),
+                    icon: "audio-headphones".into(),
+                    connected: true,
+                },
+                BtDevice {
+                    path: "/b".into(),
+                    name: "Mouse".into(),
+                    icon: String::new(),
+                    connected: false,
+                },
+            ],
+        };
+        let (_, _, subtitle, on, rows) = bluetooth_tile(&b);
+        assert_eq!((subtitle.as_str(), on), ("Headphones", true));
+        assert_eq!(rows[0].icon, "audio-headphones-symbolic");
+        let off = bluetooth_tile(&Bluetooth {
+            powered: false,
+            ..b
+        });
+        assert_eq!(
+            (off.0.as_str(), off.4.len()),
+            ("bluetooth-disabled-symbolic", 0)
+        );
+    }
+
+    #[test]
     fn the_view() {
         let view = quick(
             &System {
                 microphone: None,
                 devices: None,
+                wifi_networks: Vec::new(),
+                bluetooth: None,
+                power: None,
                 audio: Some(Level {
                     percent: 45,
                     muted: false,

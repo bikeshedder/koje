@@ -5,6 +5,9 @@
 #
 #   scripts/smoke/run.sh [--dark] <out dir> '<steps>'
 #
+# SYSTEM=1 adds a fake system bus (fake_system.py: Wi-Fi, Bluetooth, power
+# mode, battery) for Quick Settings; its changes are logged to system.log.
+#
 # Steps are bash with these helpers:
 #   shot NAME         screenshot to <out dir>/NAME.png
 #   overview          koje-shell overview (show or hide)
@@ -74,6 +77,12 @@ done
 export PATH=$here/bin:$PATH KOJE_LOG=$out/koje.log
 export SHELL_BIN=$root/target/debug/koje-shell OUT=$out LOG=$out/kojed.log INPUT=$run/input
 
+if [[ ${SYSTEM:-} == 1 ]]; then
+  export DBUS_SYSTEM_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address=1 --print-pid=3 3>"$run/system-bus.pid")
+  LOG=$out/system.log python3 -I "$here/fake_system.py" 2>"$out/fake_system.err" &
+  sleep 0.5
+fi
+
 dbus-run-session -- bash -c '
   python3 -I "'"$here"'/fake_kojed.py" &
   sleep 0.5
@@ -95,4 +104,6 @@ dbus-run-session -- bash -c '
   kill $shell; wait $shell 2>/dev/null || true
 '
 kill "$hypr" "$input" "$sway" 2>/dev/null || true
+[[ -f $run/system-bus.pid ]] && kill "$(cat "$run/system-bus.pid")" 2>/dev/null || true
+jobs -p | xargs -r kill 2>/dev/null || true
 wait "$sway" 2>/dev/null || true

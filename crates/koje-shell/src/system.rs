@@ -40,6 +40,12 @@ pub enum Change {
     /// Perceived percent.
     Brightness(u32),
     Wifi(bool),
+    /// Join this network (M8.85).
+    WifiConnect(String),
+    Bluetooth(bool),
+    /// Connect (`true`) or disconnect a paired device by its path.
+    BluetoothDevice(String, bool),
+    PowerProfile(String),
     NextLayout,
 }
 
@@ -78,6 +84,20 @@ pub async fn watch(
             },
             battery: match &conn {
                 Some(c) => within(battery(c)).await,
+                None => None,
+            },
+            wifi_networks: match &conn {
+                Some(c) => within(crate::radios::wifi_networks(c))
+                    .await
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            },
+            bluetooth: match &conn {
+                Some(c) => within(crate::radios::bluetooth(c)).await,
+                None => None,
+            },
+            power: match &conn {
+                Some(c) => within(crate::radios::power(c)).await,
                 None => None,
             },
             keyboard: within(keyboard(hypr)).await,
@@ -129,6 +149,31 @@ pub async fn change(
         },
         Change::Wifi(on) => match conn {
             Some(conn) => set_wifi(conn, on).await,
+            None => Err(anyhow::anyhow!("no system bus")),
+        },
+        Change::WifiConnect(ref ssid) => match conn {
+            Some(conn) => crate::radios::wifi_connect(conn, ssid).await,
+            None => Err(anyhow::anyhow!("no system bus")),
+        },
+        Change::Bluetooth(on) => match conn {
+            Some(conn) => crate::radios::set_bluetooth(conn, on).await,
+            None => Err(anyhow::anyhow!("no system bus")),
+        },
+        // Connecting takes seconds: on its own, other clicks go on.
+        Change::BluetoothDevice(ref path, connect) => match conn {
+            Some(conn) => {
+                let (conn, path) = (conn.clone(), path.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = crate::radios::bluetooth_device(&conn, &path, connect).await {
+                        tracing::warn!("Bluetooth {path}: {e:#}");
+                    }
+                });
+                Ok(())
+            }
+            None => Err(anyhow::anyhow!("no system bus")),
+        },
+        Change::PowerProfile(ref profile) => match conn {
+            Some(conn) => crate::radios::set_power(conn, profile).await,
             None => Err(anyhow::anyhow!("no system bus")),
         },
         Change::NextLayout => hypr

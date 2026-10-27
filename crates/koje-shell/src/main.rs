@@ -27,6 +27,7 @@ mod overview_ui;
 mod popup;
 mod quick;
 mod quick_ui;
+mod radios;
 mod search;
 mod settings;
 mod settings_backend;
