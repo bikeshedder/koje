@@ -76,6 +76,8 @@ static void renderWindows(CFunctionHook* hook, void* thisptr, PHLMONITOR monitor
     ((origRenderWindows)hook->m_original)(thisptr, monitor, workspace, now);
     if (zoomed)
         unzoomOverlay();
+    if (workspace && workspace->m_isSpecialWorkspace && monitor->m_specialFade->value() > 0.F)
+        g_pHyprRenderer->m_renderPass.add(makeUnique<CKojeNoCullPassElement>());
 }
 
 static void hkRenderWindows(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
@@ -285,5 +287,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
 APICALL EXPORT void PLUGIN_EXIT() {
     g_pHyprRenderer->m_renderPass.removeAllOfType("CKojeOverviewPassElement");
+    g_pHyprRenderer->m_renderPass.removeAllOfType("CKojeNoCullPassElement");
     g_overviews.clear();
 }
