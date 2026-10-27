@@ -4,6 +4,8 @@
 
 mod app_info;
 mod backend;
+mod background;
+mod background_ui;
 mod bar;
 mod bar_layout;
 mod capture;
@@ -243,6 +245,16 @@ fn start(app: &adw::Application) {
     });
 
     follow_config(&shell, &bars);
+    // GNOME's background settings (M8.82).
+    background_ui::follow({
+        let bars = bars.clone();
+        move || {
+            let spec = background_ui::current();
+            for bar in bars.borrow().iter() {
+                bar.background().show(spec.clone());
+            }
+        }
+    });
     follow_favorites(&shell, &bars);
     overview_actions(app, &bars, &shell, &actions_for_confirm);
     follow_host_apps(&shell, &bars);

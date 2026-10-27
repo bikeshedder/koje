@@ -502,14 +502,7 @@ fn top_row(actions: &UnboundedSender<Action>) -> (gtk::Box, gtk::Box, gtk::Image
             .css_classes(["circular"])
             .build();
         b.connect_clicked(move |b| {
-            // GNOME Settings exits at once unless `XDG_CURRENT_DESKTOP`
-            // names GNOME; for this process only.
-            let context = b.display().app_launch_context();
-            let current = std::env::var("XDG_CURRENT_DESKTOP").ok();
-            context.setenv("XDG_CURRENT_DESKTOP", gnome_desktop(current.as_deref()));
-            if let Err(e) = app.launch(&[], Some(&context)) {
-                tracing::warn!("starting GNOME Settings: {e}");
-            }
+            launch_gnome_settings(&app, &b.display());
             close_popover(b);
         });
         top.append(&b);
@@ -531,6 +524,17 @@ fn top_row(actions: &UnboundedSender<Action>) -> (gtk::Box, gtk::Box, gtk::Image
     top.append(&power_menu(actions));
 
     (top, battery, battery_icon, battery_label)
+}
+
+/// Start GNOME Settings, or one of its panels' desktop files. It exits at
+/// once unless `XDG_CURRENT_DESKTOP` names GNOME; set for this process only.
+pub fn launch_gnome_settings(app: &gio_unix::DesktopAppInfo, display: &gtk4::gdk::Display) {
+    let context = display.app_launch_context();
+    let current = std::env::var("XDG_CURRENT_DESKTOP").ok();
+    context.setenv("XDG_CURRENT_DESKTOP", gnome_desktop(current.as_deref()));
+    if let Err(e) = app.launch(&[], Some(&context)) {
+        tracing::warn!("starting GNOME Settings: {e}");
+    }
 }
 
 /// `XDG_CURRENT_DESKTOP` for GNOME Settings: the session's desktops with

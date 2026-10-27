@@ -41,16 +41,34 @@ hypr=$!
 python3 -I "$here/input.py" "$run/input" 1920 1080 2>"$out/input.log" &
 input=$!
 ((dark)) && export ADW_DEBUG_COLOR_SCHEME=prefer-dark
-# GNOME Shell's favorites for the dash: its schema with just that key, in a
-# keyfile backend below the temporary config.
+# GNOME Shell's favorites for the dash and GNOME's background: their schemas
+# with just the keys the shell reads (enums as strings), in a keyfile backend
+# below the temporary config. Not `org.gnome.desktop.interface`: GTK reads
+# more of it and aborts on a missing key.
 mkdir -p "$run/schemas"
 cat >"$run/schemas/org.gnome.shell.gschema.xml" <<'XML'
 <schemalist><schema id="org.gnome.shell" path="/org/gnome/shell/">
 <key name="favorite-apps" type="as"><default>['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Calculator.desktop']</default></key>
+</schema>
+<schema id="org.gnome.desktop.background" path="/org/gnome/desktop/background/">
+<key name="picture-uri" type="s"><default>''</default></key>
+<key name="picture-uri-dark" type="s"><default>''</default></key>
+<key name="picture-options" type="s"><default>'zoom'</default></key>
+<key name="picture-opacity" type="i"><default>100</default></key>
+<key name="primary-color" type="s"><default>'#023c88'</default></key>
+<key name="secondary-color" type="s"><default>'#5789ca'</default></key>
+<key name="color-shading-type" type="s"><default>'solid'</default></key>
 </schema></schemalist>
 XML
 glib-compile-schemas "$run/schemas"
 export GSETTINGS_SCHEMA_DIR=$run/schemas GSETTINGS_BACKEND=keyfile
+# GNOME Settings and its panels as the desktop menu and Quick Settings open
+# them, with a fake `gnome-control-center` (bin/).
+mkdir -p "$run/data/applications"
+for entry in "org.gnome.Settings:" "gnome-background-panel:background" "gnome-display-panel:display"; do
+  printf '[Desktop Entry]\nType=Application\nName=Settings\nExec=gnome-control-center %s\n' \
+    "${entry#*:}" >"$run/data/applications/${entry%%:*}.desktop"
+done
 # A fake `koje` (bin/koje): the shell runs it for `apps`, `up`, …
 export PATH=$here/bin:$PATH KOJE_LOG=$out/koje.log
 export SHELL_BIN=$root/target/debug/koje-shell OUT=$out LOG=$out/kojed.log INPUT=$run/input

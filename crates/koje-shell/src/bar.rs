@@ -15,6 +15,7 @@ use koje_core::config::WorkspaceStyle;
 use libadwaita as adw;
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::background_ui::Background;
 use crate::bar_layout::bar_box;
 use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
@@ -39,6 +40,8 @@ pub struct Bar {
     buttons: RefCell<Vec<(String, gtk::Button)>>,
     /// The monitor's overview (ADR 0049), hidden until asked for.
     overview: Rc<OverviewSurface>,
+    /// The monitor's background (M8.82).
+    background: Rc<Background>,
 }
 
 impl Bar {
@@ -88,6 +91,7 @@ impl Bar {
         window.set_child(Some(&layout));
         window.present();
         let overview = OverviewSurface::new(app, monitor, actions.clone(), shell);
+        let background = Background::new(app, monitor);
 
         Self {
             monitor: monitor.clone(),
@@ -101,11 +105,16 @@ impl Bar {
             shown: RefCell::new(None),
             buttons: RefCell::default(),
             overview,
+            background,
         }
     }
 
     pub fn overview(&self) -> &Rc<OverviewSurface> {
         &self.overview
+    }
+
+    pub fn background(&self) -> &Rc<Background> {
+        &self.background
     }
 
     pub fn monitor(&self) -> &gdk::Monitor {
@@ -266,6 +275,7 @@ impl Bar {
 
     pub fn close(&self) {
         self.overview.close();
+        self.background.close();
         self.window.destroy();
     }
 }
