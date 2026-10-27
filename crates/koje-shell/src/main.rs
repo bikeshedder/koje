@@ -81,16 +81,22 @@ button.panel-button:active, .panel-button > button:checked, .panel-button > butt
   background: alpha(#ffffff, 0.25);
 }
 .workspace-indicator { padding: 0 10px; }
+window.koje-bar .workspace-indicator > * { margin: 0; }
 window.koje-bar button.workspace-dot {
-  min-width: 7px; min-height: 7px; padding: 0; margin: 0;
-  transition: min-width 250ms cubic-bezier(0.33, 1, 0.68, 1), opacity 250ms cubic-bezier(0.33, 1, 0.68, 1);
+  min-width: 6px; min-height: 6px; padding: 0; margin: 0;
+  transition: min-width 250ms cubic-bezier(0.33, 1, 0.68, 1), min-height 250ms cubic-bezier(0.33, 1, 0.68, 1),
+    opacity 250ms cubic-bezier(0.33, 1, 0.68, 1);
   border-radius: 9999px; background: #ffffff; background-image: none;
   box-shadow: none; opacity: 0.5;
 }
 window.koje-bar button.workspace-dot:hover { opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored { background: var(--accent-bg-color); opacity: 0.8; }
 window.koje-bar button.workspace-dot.colored.koje-host { background: #ffffff; opacity: 0.5; }
-window.koje-bar button.workspace-dot.active { min-width: 32px; opacity: 1; }
+window.koje-bar button.workspace-dot.active, window.koje-bar button.workspace-dot.colored.koje-host.active {
+  min-width: 26px; min-height: 8px; opacity: 1;
+}
+window.koje-bar .workspace-indicator.few button.workspace-dot.active { min-width: 29px; }
+window.koje-bar .workspace-indicator.many button.workspace-dot.active { min-width: 22px; }
 window.koje-bar button.workspace-dot.overlay { opacity: 0.35; }
 window.koje-bar button.workspace-dot.overlay.active { opacity: 1; }
 window.koje-bar .overlay-gap { min-width: 6px; }

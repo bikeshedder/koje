@@ -19,25 +19,33 @@ use libadwaita::prelude::AnimationExt as _;
 /// GNOME's `HIDE_TIMEOUT` and `FADE_TIME` (osdWindow.js).
 const SHOWN: Duration = Duration::from_millis(1500);
 const FADE_MS: u32 = 100;
-/// GNOME's level bar: 6 px high; the part beyond 100 % in the destructive color.
+/// GNOME's level bar: 6 px high; the part beyond 100 % in the destructive
+/// color (dark: `$red_4`, `#c01c28`), a 3 px gap at 100 %; the track the
+/// text color at 10 %.
 const BAR_HEIGHT: i32 = 6;
-/// `#e01b24`.
-const OVERDRIVE: (f64, f64, f64) = (0.878, 0.106, 0.141);
+const OVERDRIVE: (f64, f64, f64) = (0.753, 0.110, 0.157);
+const GAP: f64 = 3.0;
+const TRACK_ALPHA: f64 = 0.1;
 
-/// GNOME's `.osd-window`: dark in both styles like its bar (ADR 0047), a
-/// pill 4em above the bottom edge.
+/// GNOME Shell 50's `.osd-window` (`_osd.scss`, `%osd_panel`): `$osd_bg_color`
+/// (`#222226` lightened 5 %), a hairline border, the heading font in bold,
+/// 32 px icon, 12 px between icon and text, 8 px between label and bar, 4em
+/// above the bottom edge. Dark in both styles like its bar (ADR 0047).
 pub const CSS: &str = "
 window.koje-osd { background: transparent; }
 .osd {
-  background: alpha(#2e2e32, 0.96);
+  background: #2e2e33;
   color: #ffffff;
-  border-radius: 9999px;
+  border: 1px solid alpha(#ffffff, 0.02);
+  border-radius: 999px;
   padding: 12px 18px;
-  margin: 12px 12px 4em 12px;
-  box-shadow: 0 2px 6px alpha(black, 0.3), 0 0 0 1px alpha(#ffffff, 0.06);
+  margin: 0 0 4em 0;
+  font-size: 11pt;
+  font-weight: bold;
 }
-.osd image { -gtk-icon-size: 24px; }
-.osd-label { margin-bottom: 4px; }
+.osd image { -gtk-icon-size: 32px; }
+.osd-label { margin-right: 6px; }
+.osd-level { margin-right: 6px; }
 ";
 
 /// One monitor's OSD.
@@ -90,9 +98,11 @@ impl Card {
                 }
             });
         }
+        level.add_css_class("osd-level");
         let text = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .valign(gtk::Align::Center)
+            .spacing(8)
             .hexpand(true)
             .build();
         text.append(&label);
@@ -154,7 +164,7 @@ fn draw_bar(cr: &cairo::Context, fg: &gdk::RGBA, bar: Bar, width: f64, height: f
         f64::from(fg.green()),
         f64::from(fg.blue()),
     );
-    cr.set_source_rgba(red, green, blue, 0.2);
+    cr.set_source_rgba(red, green, blue, TRACK_ALPHA);
     pill(0.0, width);
     let _ = cr.fill();
     // The filled part as one pill, painted in two colors.
@@ -179,7 +189,7 @@ fn draw_bar(cr: &cairo::Context, fg: &gdk::RGBA, bar: Bar, width: f64, height: f
         // A see-through gap at 100 %.
         let _ = cr.save();
         cr.set_operator(cairo::Operator::Clear);
-        cr.rectangle(mark * width - 0.5, 0.0, 1.0, height);
+        cr.rectangle(mark * width - GAP / 2.0, 0.0, GAP, height);
         let _ = cr.fill();
         let _ = cr.restore();
     }

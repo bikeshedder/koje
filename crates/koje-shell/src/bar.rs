@@ -187,8 +187,10 @@ impl Bar {
                 // GNOME's workspace indicator: one pill holding the dots.
                 let indicator = gtk::Box::builder()
                     .css_classes(["panel-button", "workspace-indicator"])
-                    .spacing(6)
+                    .spacing(5)
                     .build();
+                // GNOME's pill is wider with fewer workspaces (panel.js).
+                indicator.add_css_class(dot_width_class(view.workspaces.len()));
                 for w in &view.workspaces {
                     let b = self.dot(w, colored);
                     indicator.append(&b);
@@ -277,6 +279,17 @@ impl Bar {
         self.overview.close();
         self.background.close();
         self.window.destroy();
+    }
+}
+
+/// GNOME's active dot is 8 px × 3.625 with up to two workspaces, × 3.25 up
+/// to five, × 2.75 above (`panel.js`, `WorkspaceIndicators`); inactive dots
+/// are 75 % of 8 px at half opacity.
+fn dot_width_class(workspaces: usize) -> &'static str {
+    match workspaces {
+        0..=2 => "few",
+        3..=5 => "some",
+        _ => "many",
     }
 }
 
