@@ -241,6 +241,14 @@ pub enum Command {
         #[arg(long)]
         stdin: bool,
     },
+    /// Open koje's `config.toml` in $EDITOR (settings for all contexts, the
+    /// bar, host workspaces and overlays).
+    Config {
+        /// Take the whole new `config.toml` from stdin instead (the settings
+        /// app): checked the same way, nothing changes when it is invalid.
+        #[arg(long)]
+        stdin: bool,
+    },
     /// Make a new container from the current config (saves and restores the
     /// windows of a running context). Everything installed in the old one
     /// outside the home is lost.

@@ -110,6 +110,23 @@ window.koje-bar button.workspace-dot.overlay { opacity: 0.35; }
 window.koje-bar button.workspace-dot.overlay.active { opacity: 1; }
 window.koje-bar .overlay-gap { min-width: 6px; }
 button.workspace-name { transition: background 250ms cubic-bezier(0.33, 1, 0.68, 1); }
+window.koje-bar .workspace-labels { margin: 0 4px; }
+window.koje-bar button.workspace-label {
+  padding: 0 10px; margin: 3px 0;
+  transition: background 250ms cubic-bezier(0.33, 1, 0.68, 1), color 250ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+window.koje-bar button.workspace-label label { font-weight: normal; }
+window.koje-bar button.workspace-label:not(.active) { color: alpha(#ffffff, 0.75); }
+window.koje-bar button.workspace-label:not(.koje-host):not(.overlay):not(.active) image { color: var(--accent-color); }
+window.koje-bar button.workspace-label.active label { font-weight: bold; }
+window.koje-bar button.workspace-label.active.koje-host,
+window.koje-bar button.workspace-label.active.overlay { background: alpha(#ffffff, 0.25); }
+window.koje-bar button.workspace-label.active:not(.koje-host):not(.overlay) {
+  background: var(--accent-bg-color); color: var(--accent-fg-color);
+}
+window.koje-bar button.workspace-label.empty:not(.active) { color: alpha(#ffffff, 0.45); }
+window.koje-bar button.workspace-label.overlay { padding: 0 8px; }
+window.koje-bar .workspace-labels .overlay-gap { min-width: 10px; }
 button.workspace-name.active { background: alpha(#ffffff, 0.25); }
 .capsule {
   background: var(--accent-bg-color);
@@ -369,7 +386,8 @@ fn swatch_css() -> String {
     css
 }
 
-/// `[bar]` of `config.toml` now and whenever the file changes (ADR 0047);
+/// `config.toml` – the bar, host workspaces, overlays – now and whenever
+/// the file changes (ADR 0047, 0055);
 /// an invalid file keeps the last good settings.
 fn follow_config(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
     let Ok(paths) = koje_core::paths::Paths::from_env() else {
@@ -380,13 +398,7 @@ fn follow_config(shell: &Rc<RefCell<Shell>>, bars: &Bars) {
         let (shell, bars, path) = (shell.clone(), bars.clone(), path.clone());
         move || match koje_core::config::GlobalConfig::load(&path) {
             Ok(cfg) => {
-                let overlays = koje_core::overlay::overlays(&cfg)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|o| (o.name, o.label))
-                    .collect();
-                shell.borrow_mut().apply(Update::Overlays(overlays));
-                shell.borrow_mut().apply(Update::Bar(cfg.bar));
+                shell.borrow_mut().apply(Update::Config(cfg));
                 render(&bars, &shell);
             }
             Err(e) => tracing::warn!("{e}"),

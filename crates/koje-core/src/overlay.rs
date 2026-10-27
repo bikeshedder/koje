@@ -23,6 +23,8 @@ pub struct OverlayEntry {
     pub key: KeyCombo,
     /// For the bar.
     pub label: String,
+    /// An icon name; the bar shows the overlay by it (ADR 0055).
+    pub icon: String,
 }
 
 /// A key combination as Hyprland binds it: modifiers and a key.
@@ -85,18 +87,18 @@ pub fn overlays(cfg: &GlobalConfig) -> Result<Vec<OverlayEntry>> {
         name: name.to_owned(),
         reason,
     };
-    let entries: Vec<(String, String, Option<String>)> = match &cfg.overlay {
+    let entries: Vec<(String, String, Option<String>, Option<String>)> = match &cfg.overlay {
         None => DEFAULTS
             .iter()
-            .map(|(n, k)| ((*n).to_owned(), (*k).to_owned(), None))
+            .map(|(n, k)| ((*n).to_owned(), (*k).to_owned(), None, None))
             .collect(),
         Some(map) => map
             .iter()
-            .map(|(n, o)| (n.clone(), o.key.clone(), o.label.clone()))
+            .map(|(n, o)| (n.clone(), o.key.clone(), o.label.clone(), o.icon.clone()))
             .collect(),
     };
     let mut out: Vec<OverlayEntry> = Vec::new();
-    for (name, key, label) in entries {
+    for (name, key, label, icon) in entries {
         if name.is_empty()
             || !name
                 .chars()
@@ -132,7 +134,14 @@ pub fn overlays(cfg: &GlobalConfig) -> Result<Vec<OverlayEntry>> {
                 format!("its key is already the key of overlay {:?}", other.name),
             ));
         }
-        out.push(OverlayEntry { name, key, label });
+        crate::look::check(&format!("overlay {name:?}"), None, icon.as_deref())?;
+        let icon = icon.unwrap_or_else(|| crate::look::overlay_icon(&name).to_owned());
+        out.push(OverlayEntry {
+            name,
+            key,
+            label,
+            icon,
+        });
     }
     Ok(out)
 }

@@ -93,6 +93,7 @@ pub fn spawn(tx: Sender<Update>, actions: UnboundedReceiver<Action>) -> Result<(
                     () = desktop(&hypr, tx.clone()) => {}
                     () = act(&hypr, system_bus.as_ref(), &wake, notify.as_ref(), actions, tx.clone()) => {}
                     () = system::watch(&hypr, system_bus.clone(), tx.clone(), wake.clone()) => {}
+                    () = context_looks(tx.clone()) => {}
                     () = kojed_forever(tx) => {}
                 }
             });
@@ -136,6 +137,39 @@ async fn desktop(hypr: &Hyprland, tx: Sender<Update>) {
             Ok(Err(e)) => tracing::warn!("reading the desktop from Hyprland: {e:#}"),
             Err(_) => tracing::warn!("Hyprland did not answer within {TIMEOUT:?}"),
         }
+    }
+}
+
+/// How often the contexts' labels and icons are read again.
+const LOOKS: Duration = Duration::from_secs(2);
+
+/// The contexts' labels and icons from their `context.toml` (ADR 0055),
+/// sent when they change. A file that cannot be read is left out: its
+/// workspace shows the context's name.
+async fn context_looks(tx: Sender<Update>) {
+    let Ok(paths) = koje_core::paths::Paths::from_env() else {
+        return std::future::pending().await;
+    };
+    let mut sent = None;
+    loop {
+        let paths = paths.clone();
+        let looks = tokio::task::spawn_blocking(move || {
+            koje_core::context::names(&paths)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|n| koje_core::context::load(&paths, &n).ok())
+                .map(|c| (c.name.to_string(), koje_core::look::context(&c)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .await
+        .unwrap_or_default();
+        if sent.as_ref() != Some(&looks) {
+            if tx.send(Update::ContextLooks(looks.clone())).await.is_err() {
+                return;
+            }
+            sent = Some(looks);
+        }
+        tokio::time::sleep(LOOKS).await;
     }
 }
 

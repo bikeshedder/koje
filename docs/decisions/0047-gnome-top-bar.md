@@ -33,6 +33,8 @@ has no tray (most users add the AppIndicator extension).
   - `names`: GNOME-styled panel buttons with the workspace names.
   Each dot is a button (click switches, the name on hover). Running contexts
   without a workspace (ADR 0028) show as dots too.
+  Update (ADR 0055): the default is now `labels` – each workspace's icon and
+  label; the dot styles stay selectable.
 - **Right side, as GNOME's**: tray icons as panel buttons (as the
   AppIndicator extension, M8.31), the koje menu (M8.55), and one Quick
   Settings pill with the system icons (M8.30).

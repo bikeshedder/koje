@@ -173,6 +173,28 @@ impl Bar {
         }
         let mut buttons = Vec::new();
         match view.style {
+            WorkspaceStyle::Labels => {
+                // Icon and label per workspace, the overlays by their icon
+                // after a gap (ADR 0055).
+                let group = gtk::Box::builder()
+                    .css_classes(["workspace-labels"])
+                    .spacing(2)
+                    .build();
+                for w in &view.workspaces {
+                    let b = self.label_button(w);
+                    group.append(&b);
+                    buttons.push((w.name.clone(), b));
+                }
+                if !view.overlays.is_empty() {
+                    group.append(&gtk::Box::builder().css_classes(["overlay-gap"]).build());
+                }
+                for o in &view.overlays {
+                    let b = self.overlay_button(o, Shape::Icon);
+                    group.append(&b);
+                    buttons.push((o.name.clone(), b));
+                }
+                self.workspaces.append(&group);
+            }
             WorkspaceStyle::Names => {
                 for w in &view.workspaces {
                     let b = self.name_button(w);
@@ -180,7 +202,7 @@ impl Bar {
                     buttons.push((w.name.clone(), b));
                 }
                 for o in &view.overlays {
-                    let b = self.overlay_button(o, false);
+                    let b = self.overlay_button(o, Shape::Name);
                     self.workspaces.append(&b);
                     buttons.push((o.name.clone(), b));
                 }
@@ -204,7 +226,7 @@ impl Bar {
                     indicator.append(&gtk::Box::builder().css_classes(["overlay-gap"]).build());
                 }
                 for o in &view.overlays {
-                    let b = self.overlay_button(o, true);
+                    let b = self.overlay_button(o, Shape::Dot);
                     indicator.append(&b);
                     buttons.push((o.name.clone(), b));
                 }
@@ -238,11 +260,33 @@ impl Bar {
         button
     }
 
+    /// The workspace's icon and label; a context's icon in its color, and
+    /// its color while it is active.
+    fn label_button(&self, w: &WorkspaceButton) -> gtk::Button {
+        let content = gtk::Box::builder().spacing(6).build();
+        content.append(&gtk::Image::from_icon_name(&w.icon));
+        content.append(
+            &gtk::Label::builder()
+                .label(&w.label)
+                .max_width_chars(16)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .build(),
+        );
+        let button = gtk::Button::builder()
+            .child(&content)
+            .css_classes(["panel-button", "workspace-label", &w.accent.css_class()])
+            .tooltip_text(&w.label)
+            .build();
+        mark(&button, w);
+        self.on_click(&button, w);
+        button
+    }
+
     fn dot(&self, w: &WorkspaceButton, colored: bool) -> gtk::Button {
         let button = gtk::Button::builder()
             .css_classes(["workspace-dot"])
             .valign(gtk::Align::Center)
-            .tooltip_text(&w.name)
+            .tooltip_text(&w.label)
             .build();
         if colored {
             button.add_css_class("colored");
@@ -253,20 +297,24 @@ impl Bar {
         button
     }
 
-    /// An overlay: a dot (or its name) that is active while it is open; a
+    /// An overlay: a dot, its name or its icon, active while it is open; a
     /// click shows or hides it.
-    fn overlay_button(&self, o: &OverlayButton, dot: bool) -> gtk::Button {
-        let button = if dot {
-            gtk::Button::builder()
+    fn overlay_button(&self, o: &OverlayButton, shape: Shape) -> gtk::Button {
+        let button = match shape {
+            Shape::Dot => gtk::Button::builder()
                 .css_classes(["workspace-dot", "overlay"])
                 .valign(gtk::Align::Center)
                 .tooltip_text(&o.label)
-                .build()
-        } else {
-            gtk::Button::builder()
+                .build(),
+            Shape::Name => gtk::Button::builder()
                 .label(&o.label)
                 .css_classes(["panel-button", "workspace-name", "overlay"])
-                .build()
+                .build(),
+            Shape::Icon => gtk::Button::builder()
+                .icon_name(&o.icon)
+                .css_classes(["panel-button", "workspace-label", "overlay"])
+                .tooltip_text(&o.label)
+                .build(),
         };
         if o.open {
             button.add_css_class("active");
@@ -285,6 +333,14 @@ impl Bar {
     }
 }
 
+/// How an overlay is drawn in the bar.
+#[derive(Clone, Copy)]
+enum Shape {
+    Dot,
+    Name,
+    Icon,
+}
+
 /// GNOME's active dot is 8 px × 3.625 with up to two workspaces, × 3.25 up
 /// to five, × 2.75 above (`panel.js`, `WorkspaceIndicators`); inactive dots
 /// are 75 % of 8 px at half opacity.
@@ -298,8 +354,16 @@ fn dot_width_class(workspaces: usize) -> &'static str {
 
 /// The same workspace buttons but for which one is active: they are kept.
 fn same_buttons(old: &BarView, new: &BarView) -> bool {
-    let key = |w: &WorkspaceButton| (w.name.clone(), w.accent.clone(), w.empty);
-    let overlay = |o: &OverlayButton| (o.name.clone(), o.label.clone());
+    let key = |w: &WorkspaceButton| {
+        (
+            w.name.clone(),
+            w.label.clone(),
+            w.icon.clone(),
+            w.accent.clone(),
+            w.empty,
+        )
+    };
+    let overlay = |o: &OverlayButton| (o.name.clone(), o.label.clone(), o.icon.clone());
     old.style == new.style
         && old
             .workspaces
@@ -320,6 +384,6 @@ fn mark(button: &gtk::Button, w: &WorkspaceButton) {
     }
     if w.empty {
         button.add_css_class("empty");
-        button.set_tooltip_text(Some(&format!("{} – no windows", w.name)));
+        button.set_tooltip_text(Some(&format!("{} – no windows", w.label)));
     }
 }

@@ -245,6 +245,20 @@ fn edit_from_stdin_checks_like_the_editor() {
 }
 
 #[test]
+fn config_from_stdin_is_checked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config/koje/config.toml");
+    let good = "[workspace.1]\nlabel = \"Web\"\nicon = \"web-browser-symbolic\"\n";
+    let out = koje_with(tmp.path(), &["config", "--stdin"], &[], good);
+    assert!(stdout(&out).contains("saved"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), good);
+    // Invalid: refused, the file stays.
+    let bad = koje_with(tmp.path(), &["config", "--stdin"], &[], "[workspace.web]\n");
+    assert!(!bad.status.success());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), good);
+}
+
+#[test]
 fn edit_saves_valid_changes() {
     let tmp = tempfile::tempdir().unwrap();
     stdout(&koje(tmp.path(), &["new", "kp"]));

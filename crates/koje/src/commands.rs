@@ -43,6 +43,7 @@ pub fn run(command: &Command) -> Result<()> {
                 edit(&paths, ctx)
             }
         }
+        Command::Config { stdin } => config(&paths, *stdin),
         Command::Recreate { ctx, yes } => crate::runtime::recreate(&paths, &ctx.context, *yes),
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
@@ -165,7 +166,9 @@ fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
         .context_dir(&name)
         .join(format!(".context.edit-{}.toml", std::process::id()));
     std::fs::write(&draft, &original).with_context(|| format!("writing {}", draft.display()))?;
-    let result = edit_loop(paths, &name, &draft, &original);
+    let result = edit_loop(&draft, &original, &paths.context_config(&name), |text| {
+        context::replace_config(paths, &name, text).map(|_| ())
+    });
     let _ = std::fs::remove_file(&draft);
     result?;
     apply_edit(paths, &name, &before);
@@ -244,7 +247,14 @@ fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::Con
     }
 }
 
-fn edit_loop(paths: &Paths, name: &ContextName, draft: &Path, original: &str) -> Result<()> {
+/// Edit `draft` until `save` takes it (or the user gives up); `target` is
+/// the file `save` writes.
+fn edit_loop(
+    draft: &Path,
+    original: &str,
+    target: &Path,
+    save: impl Fn(&str) -> koje_core::error::Result<()>,
+) -> Result<()> {
     loop {
         run_editor(draft)?;
         let text = std::fs::read_to_string(draft)
@@ -253,23 +263,51 @@ fn edit_loop(paths: &Paths, name: &ContextName, draft: &Path, original: &str) ->
             println!("no changes");
             return Ok(());
         }
-        match context::replace_config(paths, name, &text) {
-            Ok(_) => {
-                println!("saved {}", paths.context_config(name).display());
+        match save(&text) {
+            Ok(()) => {
+                println!("saved {}", target.display());
                 crate::kojed::reload();
                 return Ok(());
             }
             Err(err) => {
                 eprintln!("koje: {err}");
                 if !confirm("Reopen the editor?", true)? {
-                    bail!(
-                        "changes discarded; {} is unchanged",
-                        paths.context_config(name).display()
-                    );
+                    bail!("changes discarded; {} is unchanged", target.display());
                 }
             }
         }
     }
+}
+
+/// `koje config [--stdin]`: edit `config.toml` like `edit` edits a
+/// context's file. kojed and the shell follow the file themselves.
+fn config(paths: &Paths, stdin: bool) -> Result<()> {
+    use koje_core::config::GlobalConfig;
+    let path = paths.global_config();
+    let save = |text: &str| GlobalConfig::replace(&path, text).map(|_| ());
+    if stdin {
+        use std::io::Read as _;
+        let mut text = String::new();
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .context("reading the new config.toml from stdin")?;
+        save(&text)?;
+        println!("saved {}", path.display());
+        crate::kojed::reload();
+        return Ok(());
+    }
+    let original = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let dir = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    let draft = dir.join(format!(".config.edit-{}.toml", std::process::id()));
+    std::fs::write(&draft, &original).with_context(|| format!("writing {}", draft.display()))?;
+    let result = edit_loop(&draft, &original, &path, save);
+    let _ = std::fs::remove_file(&draft);
+    result
 }
 
 /// Run `$VISUAL`, `$EDITOR` or `vi` on `file`. The variable may contain

@@ -81,14 +81,17 @@ browser profile per project. Put common programs into the base image.
 - **Border color** per context: kojed sees each new window on the event socket,
   maps PID → context, sets active/inactive border colors. A window that gets
   focus flashes its border white for a moment (focus feedback). The bar
-  (a clone of GNOME's top bar, ADR 0047) shows a context's workspace dot in
-  its color.
+  (a clone of GNOME's top bar, ADR 0047) shows each workspace's icon and
+  label, a context's in its color (ADR 0055).
+- **Icons and labels** (ADR 0055): host workspaces (`[workspace.<n>]` in
+  `config.toml`), contexts (`context.toml`) and overlays each have an icon and
+  a label for the bar and the settings app.
 - **Workspaces:** one per context per monitor. Several work areas inside a context
   are **layouts**, not workspaces.
 - **Snapping:** Hyprland edge snapping (built in); zones per monitor via
   `koje snap <zone>`; drag-into-zone preview would need a plugin (later).
 - **Overlays:** special workspaces toggled by a key, configured as
-  `[overlay.<name>]` in `config.toml` (`key`, `label`, `apps`; without any, `mail`
+  `[overlay.<name>]` in `config.toml` (`key`, `label`, `icon`, `apps`; without any, `mail`
   on Super+M and `chat` on Super+C); kojed binds the keys, the bar shows them
   after the workspaces. Apps run in the non-isolated context `global`. `koje pin` puts an overlay window onto the
   current workspace and keeps it visible; `koje unpin` sends it back.
@@ -166,6 +169,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
 | `koje settings [<context>]` | open the settings app (`koje-shell settings`), on a context if given |
+| `koje config [--stdin]` | edit `config.toml` in $EDITOR; `--stdin` takes the new file from stdin (the settings app) |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |

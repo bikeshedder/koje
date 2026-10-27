@@ -237,6 +237,10 @@ pub fn with_favorites(text: &str, favorites: Option<&[String]>) -> Result<String
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextSettings {
     pub prefix: String,
+    /// For the bar (ADR 0055); `None`: the name.
+    pub label: Option<String>,
+    /// `None`: koje's default icon.
+    pub icon: Option<String>,
     pub color: Color,
     pub profile: Option<crate::access::Profile>,
     pub switches: Vec<(&'static str, Option<bool>)>,
@@ -251,6 +255,17 @@ pub fn with_settings(text: &str, s: &ContextSettings) -> Result<String> {
     let mut doc: toml_edit::DocumentMut =
         text.parse().map_err(|e: toml_edit::TomlError| bad(&e))?;
     doc["prefix"] = toml_edit::value(s.prefix.clone());
+    for (key, value) in [("label", &s.label), ("icon", &s.icon)] {
+        match value {
+            // Next to the prefix, before the tables.
+            Some(v) => {
+                doc.insert(key, toml_edit::value(v.as_str()));
+            }
+            None => {
+                doc.remove(key);
+            }
+        }
+    }
     doc["color"] = toml_edit::value(s.color.to_string());
 
     // Mounts: an `unsafe` table entry stays a table while its path stays.
@@ -507,6 +522,8 @@ mod tests {
         );
         let settings = ContextSettings {
             prefix: "Kunde".into(),
+            label: Some("Kundenportal".into()),
+            icon: Some("briefcase-symbolic".into()),
             color: "#e01b24".parse().unwrap(),
             profile: Some(crate::access::Profile::Desktop),
             switches: vec![("gpu", Some(true)), ("sound", None)],
@@ -517,6 +534,8 @@ mod tests {
         let out = with_settings(&text, &settings).unwrap();
         let cfg = ContextConfig::from_toml(&out, std::path::Path::new("context.toml")).unwrap();
         assert_eq!(cfg.prefix, "Kunde");
+        assert_eq!(cfg.label.as_deref(), Some("Kundenportal"));
+        assert_eq!(cfg.icon.as_deref(), Some("briefcase-symbolic"));
         assert_eq!(cfg.color.to_string(), "#E01B24");
         assert_eq!(cfg.access.profile, Some(crate::access::Profile::Desktop));
         assert_eq!((cfg.access.gpu, cfg.access.sound), (Some(true), None));
@@ -534,6 +553,8 @@ mod tests {
         );
         // Nothing set: no empty tables.
         let plain = ContextSettings {
+            label: None,
+            icon: None,
             profile: None,
             switches: vec![("gpu", None)],
             memory_soft: None,
@@ -544,6 +565,7 @@ mod tests {
             !out.lines().any(|l| l == "[access]" || l == "[limits]"),
             "{out}"
         );
+        assert!(!out.contains("label") && !out.contains("icon ="), "{out}");
     }
 
     #[test]

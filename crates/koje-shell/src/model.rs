@@ -4,7 +4,9 @@
 //! and [`Action`]s say what clicks do.
 
 use koje_core::color::Color;
-use koje_core::config::{BarConfig, WorkspaceStyle};
+use koje_core::config::{GlobalConfig, WorkspaceStyle};
+use koje_core::look::{self, Look};
+use koje_core::overlay::OverlayEntry;
 use koje_core::ports::CompositorCommand;
 
 use std::collections::BTreeMap;
@@ -41,10 +43,11 @@ pub enum Update {
     KojedGone,
     /// Sound, network, battery, … for Quick Settings.
     System(System),
-    /// `config.toml` changed.
-    Bar(BarConfig),
-    /// The overlays configured in `config.toml` (M7.1): name and label.
-    Overlays(Vec<(String, String)>),
+    /// `config.toml` changed: the bar's style, the host workspaces' looks,
+    /// the overlays (M7.1).
+    Config(GlobalConfig),
+    /// The contexts' labels and icons (`context.toml`, ADR 0055).
+    ContextLooks(BTreeMap<String, Look>),
     /// GNOME's favorite apps (`org.gnome.shell favorite-apps`).
     Favorites(Vec<String>),
     /// A running context's programs (`koje apps --json`).
@@ -256,10 +259,12 @@ pub struct Shell {
     /// The last failed command per context.
     errors: BTreeMap<String, String>,
     system: System,
-    /// `[bar]` of `config.toml`.
-    bar: BarConfig,
-    /// The configured overlays: name and label.
-    overlays: Vec<(String, String)>,
+    /// `config.toml`.
+    config: GlobalConfig,
+    /// The configured overlays.
+    overlays: Vec<OverlayEntry>,
+    /// Each context's label and icon.
+    looks: BTreeMap<String, Look>,
     notifications: Vec<crate::notifications::Notification>,
     unseen: bool,
     /// GNOME's Do Not Disturb.
@@ -304,6 +309,7 @@ pub struct DateView {
 pub struct OverlayButton {
     pub name: String,
     pub label: String,
+    pub icon: String,
     /// Open on this monitor.
     pub open: bool,
 }
@@ -311,6 +317,9 @@ pub struct OverlayButton {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceButton {
     pub name: String,
+    /// What the bar shows (ADR 0055).
+    pub label: String,
+    pub icon: String,
     pub active: bool,
     pub accent: Accent,
     /// A running context whose workspace Hyprland dropped: it has no
@@ -521,8 +530,12 @@ impl Shell {
     pub fn apply(&mut self, update: Update) {
         match update {
             Update::Desktop(desktop) => self.desktop = desktop,
-            Update::Bar(bar) => self.bar = bar,
-            Update::Overlays(overlays) => self.overlays = overlays,
+            Update::Config(config) => {
+                // An invalid file never gets here (`GlobalConfig::load` checks).
+                self.overlays = koje_core::overlay::overlays(&config).unwrap_or_default();
+                self.config = config;
+            }
+            Update::ContextLooks(looks) => self.looks = looks,
             Update::Notifications { list, unseen, dnd } => {
                 self.notifications = list;
                 self.unseen = unseen;
@@ -582,6 +595,19 @@ impl Shell {
         }
     }
 
+    /// What the bar shows for a workspace: its context's look, else the
+    /// host workspace's.
+    fn look(&self, id: i64, name: &str) -> Look {
+        match self.looks.get(name) {
+            Some(l) => l.clone(),
+            None if id <= 0 && self.contexts().iter().any(|c| c.name == name) => Look {
+                label: name.to_owned(),
+                icon: look::CONTEXT_ICON.to_owned(),
+            },
+            None => look::host(&self.config, id, name),
+        }
+    }
+
     /// The monitor with connector `monitor`; the first one when GDK does
     /// not know the connector.
     fn monitor(&self, monitor: Option<&str>) -> Option<&MonitorState> {
@@ -604,10 +630,13 @@ impl Shell {
             .filter(|w| !w.name.starts_with("special:"))
             .filter(|w| mon.is_none_or(|m| w.monitor == m.name))
             .map(|w| {
+                let Look { label, icon } = self.look(w.id, &w.name);
                 (
                     key(w.id, &w.name),
                     WorkspaceButton {
                         name: w.name.clone(),
+                        label,
+                        icon,
                         active: Some(w.name.as_str()) == active,
                         accent: self.accent(&w.name),
                         empty: false,
@@ -620,10 +649,13 @@ impl Shell {
         if mon.is_none_or(|m| m.focused) {
             for c in self.contexts() {
                 if !d.workspaces.iter().any(|w| w.name == c.name) {
+                    let Look { label, icon } = self.look(0, &c.name);
                     workspaces.push((
                         key(0, &c.name),
                         WorkspaceButton {
                             name: c.name.clone(),
+                            label,
+                            icon,
                             active: false,
                             accent: Accent::Context(c.name.clone()),
                             empty: true,
@@ -645,10 +677,11 @@ impl Shell {
             overlays: self
                 .overlays
                 .iter()
-                .map(|(name, label)| OverlayButton {
-                    name: name.clone(),
-                    label: label.clone(),
-                    open: mon.and_then(|m| m.special.as_deref()) == Some(name.as_str()),
+                .map(|o| OverlayButton {
+                    name: o.name.clone(),
+                    label: o.label.clone(),
+                    icon: o.icon.clone(),
+                    open: mon.and_then(|m| m.special.as_deref()) == Some(o.name.as_str()),
                 })
                 .collect(),
             date: DateView {
@@ -665,7 +698,7 @@ impl Shell {
                     .collect(),
                 unseen: self.unseen,
             },
-            style: self.bar.workspaces,
+            style: self.config.bar.workspaces,
             menu: matches!(self.kojed, Kojed::Running(_)).then(|| {
                 menu(&MenuInput {
                     running: self.contexts(),
@@ -1043,7 +1076,7 @@ mod tests {
         let bar = Shell::default().bar(None);
         assert_eq!(bar.workspaces.len(), 0);
         assert_eq!(bar.warning, None);
-        assert_eq!(bar.style, WorkspaceStyle::ColoredDots);
+        assert_eq!(bar.style, WorkspaceStyle::Labels);
     }
 
     #[test]
@@ -1198,10 +1231,14 @@ mod tests {
     fn overlays_in_the_bar_open_per_monitor() {
         let mut s = Shell::default();
         s.apply(Update::Desktop(desktop()));
-        s.apply(Update::Overlays(vec![
-            ("chat".into(), "chat".into()),
-            ("mail".into(), "Mail".into()),
-        ]));
+        s.apply(Update::Config(
+            GlobalConfig::from_toml(
+                "[overlay.chat]\nkey = \"SUPER+C\"\n[overlay.mail]\nkey = \"SUPER+M\"\nlabel = \"Mail\"\n",
+                std::path::Path::new("config.toml"),
+            )
+            .unwrap(),
+        ));
+        assert_eq!(s.bar(None).overlays[1].icon, "mail-unread-symbolic");
         let open = |m| {
             s.bar(Some(m))
                 .overlays
@@ -1355,10 +1392,49 @@ mod tests {
     #[test]
     fn the_workspace_style_follows_config_toml() {
         let mut s = shell();
-        s.apply(Update::Bar(BarConfig {
-            workspaces: WorkspaceStyle::Names,
-        }));
+        assert_eq!(s.bar(None).style, WorkspaceStyle::Labels);
+        let mut config = GlobalConfig::default();
+        config.bar.workspaces = WorkspaceStyle::Names;
+        s.apply(Update::Config(config));
         assert_eq!(s.bar(None).style, WorkspaceStyle::Names);
+    }
+
+    #[test]
+    fn workspaces_show_their_icon_and_label() {
+        let mut s = shell();
+        s.apply(Update::Config(
+            GlobalConfig::from_toml(
+                "[workspace.1]\nlabel = \"Web\"\nicon = \"web-browser-symbolic\"\n",
+                std::path::Path::new("config.toml"),
+            )
+            .unwrap(),
+        ));
+        let mut looks = BTreeMap::new();
+        looks.insert(
+            "kp".to_owned(),
+            Look {
+                label: "Kundenportal".into(),
+                icon: "briefcase-symbolic".into(),
+            },
+        );
+        s.apply(Update::ContextLooks(looks));
+        let shown: Vec<(String, String, String)> = s
+            .bar(None)
+            .workspaces
+            .into_iter()
+            .map(|w| (w.name, w.label, w.icon))
+            .collect();
+        for want in [
+            ("1", "Web", "web-browser-symbolic"),
+            ("kp", "Kundenportal", "briefcase-symbolic"),
+        ] {
+            assert!(
+                shown
+                    .iter()
+                    .any(|(n, l, i)| (n.as_str(), l.as_str(), i.as_str()) == want),
+                "{want:?} in {shown:?}"
+            );
+        }
     }
 
     #[test]

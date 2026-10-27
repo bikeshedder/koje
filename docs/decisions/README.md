@@ -59,3 +59,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0052 | [New windows open as in GNOME](0052-new-windows-as-in-gnome.md) | Accepted |
 | 0053 | [The dash and the workspace shortcuts follow the context](0053-dash-per-context.md) | Accepted |
 | 0054 | [The shell draws the background from GNOME's settings](0054-background-from-the-shell.md) | Accepted |
+| 0055 | [Workspaces, contexts and overlays have an icon and a label](0055-icons-and-labels.md) | Accepted |

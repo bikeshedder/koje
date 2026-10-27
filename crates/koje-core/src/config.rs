@@ -23,6 +23,13 @@ pub struct ContextConfig {
     pub name: ContextName,
     /// Short label for bars and menus, e.g. `KP`.
     pub prefix: String,
+    /// The name in the bar and the settings app (ADR 0055); the context's
+    /// name when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// An icon name from the icon theme for the bar (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// Border and accent color.
     pub color: Color,
     /// Container image the context is created from. Defaults to the shared base image.
@@ -114,6 +121,7 @@ impl ContextConfig {
             source: Box::new(e),
         })?;
         cfg.limits.validate()?;
+        crate::look::check("the context", cfg.label.as_deref(), cfg.icon.as_deref())?;
         if cfg.states.default.is_empty_state() || cfg.states.fresh.is_empty_state() {
             return Err(Error::ReservedState(StateName::EMPTY.to_owned()));
         }
@@ -169,6 +177,9 @@ pub struct GlobalConfig {
     /// koje's `mail` and `chat` ([`crate::overlay::overlays`]).
     #[serde(default)]
     pub overlay: Option<BTreeMap<String, Overlay>>,
+    /// Host workspaces' labels and icons by number (`[workspace.1]`, ADR 0055).
+    #[serde(default)]
+    pub workspace: BTreeMap<String, crate::look::HostWorkspace>,
     /// koje's bar (ADR 0047).
     #[serde(default)]
     pub bar: BarConfig,
@@ -186,8 +197,11 @@ pub struct BarConfig {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkspaceStyle {
-    /// GNOME's workspace indicator, a context's dot in its color.
+    /// Each workspace's icon and label, a context's in its color; overlays
+    /// by their icon (ADR 0055).
     #[default]
+    Labels,
+    /// GNOME's workspace indicator, a context's dot in its color.
     ColoredDots,
     /// GNOME's workspace indicator unchanged.
     Dots,
@@ -203,6 +217,9 @@ pub struct Overlay {
     /// The name shown in the bar; the overlay's own name when unset.
     #[serde(default)]
     pub label: Option<String>,
+    /// An icon name from the icon theme; the bar shows overlays by it.
+    #[serde(default)]
+    pub icon: Option<String>,
     /// Integrations or launch commands started in the `global` context.
     #[serde(default)]
     pub apps: Vec<String>,
@@ -216,6 +233,15 @@ impl GlobalConfig {
         })?;
         cfg.default_limits.validate()?;
         crate::overlay::overlays(&cfg)?;
+        crate::look::host_workspaces(&cfg)?;
+        Ok(cfg)
+    }
+
+    /// Replace `config.toml` with `text` after checking it; nothing changes
+    /// when it is invalid.
+    pub fn replace(path: &Path, text: &str) -> Result<Self> {
+        let cfg = Self::from_toml(text, path)?;
+        crate::fsutil::write_atomic(path, text.as_bytes())?;
         Ok(cfg)
     }
 
@@ -266,7 +292,7 @@ fresh   = "fresh"
         let p = Path::new("config.toml");
         assert_eq!(
             GlobalConfig::from_toml("", p).unwrap().bar.workspaces,
-            WorkspaceStyle::ColoredDots
+            WorkspaceStyle::Labels
         );
         let names = GlobalConfig::from_toml("[bar]\nworkspaces = \"names\"\n", p).unwrap();
         assert_eq!(names.bar.workspaces, WorkspaceStyle::Names);

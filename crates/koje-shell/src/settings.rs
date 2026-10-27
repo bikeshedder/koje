@@ -72,6 +72,10 @@ pub struct Snapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Form {
     pub prefix: String,
+    /// Empty: the context's name.
+    pub label: String,
+    /// Empty: koje's default icon.
+    pub icon: String,
     pub color: String,
     /// `None`: the profile from `config.toml`.
     pub profile: Option<Profile>,
@@ -87,6 +91,8 @@ pub fn form(cfg: &ContextConfig) -> Form {
     let overrides = overrides(&cfg.access);
     Form {
         prefix: cfg.prefix.clone(),
+        label: cfg.label.clone().unwrap_or_default(),
+        icon: cfg.icon.clone().unwrap_or_default(),
         color: cfg.color.to_string(),
         profile: cfg.access.profile,
         switches: overrides,
@@ -158,6 +164,14 @@ pub fn settings(form: &Form) -> Result<ContextSettings, Vec<FieldError>> {
     if prefix.is_empty() {
         err("prefix", "A short label is needed".to_owned());
     }
+    let optional = |text: &str| Some(text.trim().to_owned()).filter(|t| !t.is_empty());
+    let (label, icon) = (optional(&form.label), optional(&form.icon));
+    if icon
+        .as_deref()
+        .is_some_and(|i| !koje_core::look::valid_icon(i))
+    {
+        err("icon", "An icon name like folder-symbolic".to_owned());
+    }
     let color = form.color.trim().parse::<Color>().map_err(|_| ()).ok();
     if color.is_none() {
         err("color", "A color as #RRGGBB".to_owned());
@@ -197,6 +211,8 @@ pub fn settings(form: &Form) -> Result<ContextSettings, Vec<FieldError>> {
     }
     Ok(ContextSettings {
         prefix,
+        label,
+        icon,
         color: color.unwrap_or(Color { r: 0, g: 0, b: 0 }),
         profile: form.profile,
         switches: form.switches.clone(),
