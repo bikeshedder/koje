@@ -19,6 +19,9 @@ pub enum Error {
     #[error("cannot change the favorites: {0}")]
     InvalidFavorites(String),
 
+    #[error("cannot change the context: {0}")]
+    InvalidEdit(String),
+
     #[error("overlay {name:?}: {reason}")]
     InvalidOverlay { name: String, reason: String },
 

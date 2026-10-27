@@ -91,6 +91,18 @@ pub enum Profile {
 }
 
 impl Profile {
+    pub const ALL: [Self; 4] = [Self::Full, Self::Desktop, Self::Headless, Self::Isolated];
+
+    /// As written in the files.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Desktop => "desktop",
+            Self::Headless => "headless",
+            Self::Isolated => "isolated",
+        }
+    }
+
     /// The profile table of ADR 0017 / ADR 0019.
     pub const fn access(self) -> Access {
         match self {

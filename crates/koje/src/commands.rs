@@ -35,7 +35,13 @@ pub fn run(command: &Command) -> Result<()> {
         } => crate::bar::names(&paths, *memory),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
-        Command::Edit(ctx) => edit(&paths, ctx),
+        Command::Edit { ctx, stdin } => {
+            if *stdin {
+                edit_from_stdin(&paths, ctx)
+            } else {
+                edit(&paths, ctx)
+            }
+        }
         Command::Recreate { ctx, yes } => crate::runtime::recreate(&paths, &ctx.context, *yes),
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
@@ -161,6 +167,23 @@ fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
     let result = edit_loop(paths, &name, &draft, &original);
     let _ = std::fs::remove_file(&draft);
     result?;
+    apply_edit(paths, &name, &before);
+    Ok(())
+}
+
+/// `koje edit --stdin`: replace `context.toml` with what comes on stdin,
+/// checked as `edit` checks the editor's result, then follow it as `edit`.
+fn edit_from_stdin(paths: &Paths, ctx: &Ctx) -> Result<()> {
+    use std::io::Read as _;
+    let name = context_name(ctx)?;
+    let before = context::load(paths, &name)?;
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .context("reading the new context.toml from stdin")?;
+    context::replace_config(paths, &name, &text)?;
+    println!("saved {}", paths.context_config(&name).display());
+    crate::kojed::reload();
     apply_edit(paths, &name, &before);
     Ok(())
 }

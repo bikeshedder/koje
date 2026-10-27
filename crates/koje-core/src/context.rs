@@ -231,6 +231,100 @@ pub fn with_favorites(text: &str, favorites: Option<&[String]>) -> Result<String
     Ok(doc.to_string())
 }
 
+/// What the settings app's context page edits (M8.10). Switches are
+/// overrides of the profile: `None` takes the profile's value. Mounts are
+/// paths as written; one marked `unsafe` keeps its mark while it stays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextSettings {
+    pub prefix: String,
+    pub color: Color,
+    pub profile: Option<crate::access::Profile>,
+    pub switches: Vec<(&'static str, Option<bool>)>,
+    pub mounts: Vec<String>,
+    pub memory_soft: Option<ByteSize>,
+    pub memory_hard: Option<ByteSize>,
+}
+
+/// `text` with the settings applied, comments and layout kept.
+pub fn with_settings(text: &str, s: &ContextSettings) -> Result<String> {
+    let bad = |e: &dyn std::fmt::Display| Error::InvalidEdit(e.to_string());
+    let mut doc: toml_edit::DocumentMut =
+        text.parse().map_err(|e: toml_edit::TomlError| bad(&e))?;
+    doc["prefix"] = toml_edit::value(s.prefix.clone());
+    doc["color"] = toml_edit::value(s.color.to_string());
+
+    // Mounts: an `unsafe` table entry stays a table while its path stays.
+    let old: Vec<toml_edit::Value> = doc
+        .get("mounts")
+        .and_then(toml_edit::Item::as_array)
+        .map(|a| a.iter().cloned().collect())
+        .unwrap_or_default();
+    let mut mounts = toml_edit::Array::new();
+    for path in &s.mounts {
+        let kept = old.iter().find(|v| {
+            v.as_inline_table()
+                .and_then(|t| t.get("path"))
+                .and_then(toml_edit::Value::as_str)
+                == Some(path.as_str())
+        });
+        match kept {
+            Some(table) => mounts.push_formatted(table.clone().decorated(" ", "")),
+            None => mounts.push(path.as_str()),
+        }
+    }
+    doc["mounts"] = toml_edit::value(mounts);
+
+    let table = |doc: &mut toml_edit::DocumentMut, key: &str| -> Result<()> {
+        if !doc.contains_key(key) {
+            doc[key] = toml_edit::table();
+        }
+        doc[key]
+            .as_table_mut()
+            .map(|_| ())
+            .ok_or_else(|| Error::InvalidEdit(format!("`{key}` is not a table")))
+    };
+    table(&mut doc, "limits")?;
+    for (key, size) in [
+        ("memory_soft", s.memory_soft),
+        ("memory_hard", s.memory_hard),
+    ] {
+        match size {
+            Some(size) => doc["limits"][key] = toml_edit::value(size.to_string()),
+            None => {
+                if let Some(t) = doc["limits"].as_table_mut() {
+                    t.remove(key);
+                }
+            }
+        }
+    }
+    table(&mut doc, "access")?;
+    match s.profile {
+        Some(p) => doc["access"]["profile"] = toml_edit::value(p.as_str()),
+        None => {
+            if let Some(t) = doc["access"].as_table_mut() {
+                t.remove("profile");
+            }
+        }
+    }
+    for (name, on) in &s.switches {
+        match on {
+            Some(on) => doc["access"][name] = toml_edit::value(*on),
+            None => {
+                if let Some(t) = doc["access"].as_table_mut() {
+                    t.remove(name);
+                }
+            }
+        }
+    }
+    // An empty table is left out, as in a new context.toml.
+    for key in ["limits", "access"] {
+        if doc[key].as_table().is_some_and(toml_edit::Table::is_empty) {
+            doc.remove(key);
+        }
+    }
+    Ok(doc.to_string())
+}
+
 /// `koje favorites`: change the dash's favorites in `context.toml`.
 pub fn set_favorites(
     paths: &Paths,
@@ -402,6 +496,54 @@ mod tests {
             load(&paths, &n("kp")),
             Err(Error::ContextNameMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn settings_edit_the_file_keeping_comments() {
+        let name = ContextName::new("kp").unwrap();
+        let text = new_config_toml(&name, "KP", "#3584e4".parse().unwrap()).replace(
+            "mounts = []",
+            "mounts = [\"~/src\", { path = \"/tmp\", unsafe = true }, \"~/old\"]",
+        );
+        let settings = ContextSettings {
+            prefix: "Kunde".into(),
+            color: "#e01b24".parse().unwrap(),
+            profile: Some(crate::access::Profile::Desktop),
+            switches: vec![("gpu", Some(true)), ("sound", None)],
+            mounts: vec!["~/src".into(), "/tmp".into(), "~/docs".into()],
+            memory_soft: Some("4G".parse().unwrap()),
+            memory_hard: None,
+        };
+        let out = with_settings(&text, &settings).unwrap();
+        let cfg = ContextConfig::from_toml(&out, std::path::Path::new("context.toml")).unwrap();
+        assert_eq!(cfg.prefix, "Kunde");
+        assert_eq!(cfg.color.to_string(), "#E01B24");
+        assert_eq!(cfg.access.profile, Some(crate::access::Profile::Desktop));
+        assert_eq!((cfg.access.gpu, cfg.access.sound), (Some(true), None));
+        assert_eq!(cfg.mounts.len(), 3);
+        assert!(cfg.mounts[1].allow_unsafe, "the unsafe mark stays");
+        assert!(!cfg.mounts[2].allow_unsafe);
+        assert_eq!(
+            cfg.limits.memory_soft.map(|s| s.to_string()).as_deref(),
+            Some("4G")
+        );
+        assert_eq!(cfg.limits.memory_hard, None);
+        assert!(
+            out.contains("# Host folders bound into the context"),
+            "comments kept"
+        );
+        // Nothing set: no empty tables.
+        let plain = ContextSettings {
+            profile: None,
+            switches: vec![("gpu", None)],
+            memory_soft: None,
+            ..settings
+        };
+        let out = with_settings(&out, &plain).unwrap();
+        assert!(
+            !out.lines().any(|l| l == "[access]" || l == "[limits]"),
+            "{out}"
+        );
     }
 
     #[test]

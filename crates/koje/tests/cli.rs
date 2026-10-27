@@ -216,6 +216,35 @@ fn new_refuses_existing_and_invalid_input() {
 }
 
 #[test]
+fn edit_from_stdin_checks_like_the_editor() {
+    let tmp = tempfile::tempdir().unwrap();
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let path = config_of(tmp.path(), "kp");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let changed = text.replace("prefix = \"KP\"", "prefix = \"XY\"");
+    let out = koje_with(tmp.path(), &["edit", "kp", "--stdin"], &[], &changed);
+    assert!(stdout(&out).contains("saved"));
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("prefix = \"XY\"")
+    );
+    // Invalid: refused, the file stays.
+    let bad = koje_with(
+        tmp.path(),
+        &["edit", "kp", "--stdin"],
+        &[],
+        "name = \"other\"\n",
+    );
+    assert!(!bad.status.success());
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("prefix = \"XY\"")
+    );
+}
+
+#[test]
 fn edit_saves_valid_changes() {
     let tmp = tempfile::tempdir().unwrap();
     stdout(&koje(tmp.path(), &["new", "kp"]));

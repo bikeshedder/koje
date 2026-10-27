@@ -165,7 +165,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje dotfiles [-c <context>]` | link the dotfiles presets again now in every running context (or one) and list the presets (ADR 0038) |
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
-| `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts |
+| `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
 | `koje setup [--dry-run] [--yes]` | install koje's per-user files after the package (ADR 0045), remove the old `install.sh` layout: plan, warnings, one question (ADR 0021) |

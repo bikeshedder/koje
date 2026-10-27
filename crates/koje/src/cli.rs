@@ -227,7 +227,15 @@ pub enum Command {
         prefix: Option<String>,
     },
     /// Open a context's configuration in $EDITOR.
-    Edit(Ctx),
+    Edit {
+        #[command(flatten)]
+        ctx: Ctx,
+        /// Take the whole new `context.toml` from stdin instead (the
+        /// settings app): checked the same way, nothing changes when it is
+        /// invalid.
+        #[arg(long)]
+        stdin: bool,
+    },
     /// Make a new container from the current config (saves and restores the
     /// windows of a running context). Everything installed in the old one
     /// outside the home is lost.
