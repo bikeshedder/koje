@@ -10,6 +10,7 @@
 // pixels relative to koje-shell's overview surface on that monitor.
 #define WLR_USE_UNSTABLE
 
+#include "overlays.hpp"
 #include "overview.hpp"
 #include "pass.hpp"
 #include "windows.hpp"
@@ -175,6 +176,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         fail("could not hook Hyprland's rendering");
     if (!g_updateStateHook->hook())
         fail("could not hook Hyprland's window states");
+    // Without it overlays open as Hyprland animates them: no reason to fail.
+    if (!hookOverlayZoom())
+        HyprlandAPI::addNotification(PHANDLE, "[koje] overlays cannot zoom: Hyprland's workspace animation was not found", CHyprColor{1.0, 0.6, 0.2, 1.0}, 5000);
 
     static auto openWindow = HyprlandAPI::registerCallbackDynamic(PHANDLE, "openWindow", [](void*, SCallbackInfo&, std::any data) {
         try {
@@ -200,9 +204,11 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // New windows larger than 80 % of the screen open maximized, as GNOME's
     // auto-maximize (ADR 0052); 0: off.
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:auto_maximize", Hyprlang::INT{1});
+    // Overlays zoom in when they open (M8.86); off until checked on the host.
+    HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overlay_zoom", Hyprlang::INT{0});
     HyprlandAPI::reloadConfig();
 
-    return {"koje", "koje's overview (the real windows, scaled) and new windows as in GNOME", "koje", "1"};
+    return {"koje", "koje's overview (the real windows, scaled), new windows as in GNOME, overlays zooming in", "koje", "1"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
