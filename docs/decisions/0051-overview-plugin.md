@@ -41,6 +41,10 @@ way for that is a plugin – which must match the running Hyprland exactly
   `plugin:koje:overview_duration` (ms, 0: at once) in the user's Hyprland
   config changes it. The plugin posts `kojeoverview>>landed,<monitor>` when
   they arrived; the shell shows the cards' rings, icons and titles then.
+  When the windows change while it is open (one closes), the cards glide
+  into their new places as long, eased alike: the shell's cards and the
+  plugin's windows each by themselves, the shell reading the duration from
+  Hyprland (M8.98).
 - **Without the plugin** (not loaded, a Hyprland version it was not built
   for) the overview shows icons on its cards. The overview no longer captures
   windows; the capture code of M8.67 stays for the screen sharing picker

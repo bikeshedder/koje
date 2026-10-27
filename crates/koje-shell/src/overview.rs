@@ -26,6 +26,9 @@ pub struct OverviewView {
     /// koje's plugin draws the windows into the cards (ADR 0051); else the
     /// cards show the app's icon.
     pub live: bool,
+    /// How long the cards glide into new places (a window closed), in ms;
+    /// the plugin's windows glide as long.
+    pub duration: u32,
 }
 
 /// A window in the overview.
@@ -175,6 +178,21 @@ pub struct Rect {
 /// Windows are shown at most at their real size.
 const MAX_SCALE: f64 = 1.0;
 
+/// A card gliding from `from` to `to`, `t` (0–1) of its time along: eased
+/// out as GNOME's overview and koje's plugin (`CProgress`), so the cards and
+/// the windows drawn into them move together.
+pub fn glide(from: Rect, to: Rect, t: f64) -> Rect {
+    let t = t.clamp(0.0, 1.0);
+    let e = 1.0 - (1.0 - t) * (1.0 - t);
+    let at = |a: f64, b: f64| a + (b - a) * e;
+    Rect {
+        x: at(from.x, to.x),
+        y: at(from.y, to.y),
+        w: at(from.w, to.w),
+        h: at(from.h, to.h),
+    }
+}
+
 /// Place windows of the given sizes in an area of `width` × `height` as
 /// GNOME does: in rows, in their order, all at one scale – the number of
 /// rows that allows the largest – centred, `gap` apart.
@@ -276,6 +294,35 @@ fn fit(rows: &[Vec<usize>], sizes: &[(f64, f64)], width: f64, height: f64, gap: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cards_glide_eased_out_and_stop_where_they_go() {
+        let from = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 100.0,
+            h: 50.0,
+        };
+        let to = Rect {
+            x: 200.0,
+            y: 100.0,
+            w: 300.0,
+            h: 150.0,
+        };
+        assert_eq!(glide(from, to, 0.0), from);
+        assert_eq!(glide(from, to, 1.0), to);
+        assert_eq!(glide(from, to, 7.0), to);
+        // Half the time, three quarters of the way.
+        assert_eq!(
+            glide(from, to, 0.5),
+            Rect {
+                x: 150.0,
+                y: 75.0,
+                w: 250.0,
+                h: 125.0
+            }
+        );
+    }
 
     fn inside(r: &Rect, width: f64, height: f64) -> bool {
         r.x >= -1e-6 && r.y >= -1e-6 && r.x + r.w <= width + 1e-6 && r.y + r.h <= height + 1e-6

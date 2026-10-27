@@ -7,7 +7,8 @@
 //   hyprctl dispatch koje:overview close [<monitor>]
 //
 // `open` flies the windows from their places into the given ones, `update`
-// moves them there at once, `close` flies them back. Places are logical
+// lets those shown glide there (new ones appear there), `close` flies them
+// back. Places are logical
 // pixels relative to koje-shell's overview surface on that monitor.
 #define WLR_USE_UNSTABLE
 

@@ -86,6 +86,15 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
     let workspaces: Vec<Workspace> = json(hypr, "j/workspaces").await?;
     let clients: Vec<Client> = json(hypr, "j/clients").await?;
     let plugins: Vec<Plugin> = json(hypr, "j/plugin list").await.unwrap_or_default();
+    let plugin = plugins.iter().any(|p| p.name == PLUGIN);
+    let duration = if plugin {
+        json::<IntOption>(hypr, "j/getoption plugin:koje:overview_duration")
+            .await
+            .ok()
+            .and_then(|o| u32::try_from(o.int).ok())
+    } else {
+        None
+    };
     Ok(Desktop {
         monitors: monitors
             .into_iter()
@@ -121,12 +130,19 @@ pub async fn desktop(hypr: &Hyprland) -> Result<Desktop> {
                 pinnable: c.floating && c.fullscreen == 0,
             })
             .collect(),
-        plugin: plugins.iter().any(|p| p.name == PLUGIN),
+        plugin,
+        overview_duration: duration.unwrap_or(koje_core::desktop::DEFAULT.overview_duration),
     })
 }
 
 /// koje's Hyprland plugin as `hyprctl plugin list` names it (ADR 0051).
 const PLUGIN: &str = "koje";
+
+/// `hyprctl getoption` of a number.
+#[derive(Debug, Deserialize)]
+struct IntOption {
+    int: i64,
+}
 
 #[derive(Debug, Deserialize)]
 struct Plugin {

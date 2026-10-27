@@ -27,6 +27,9 @@ struct SOverviewWindow {
     // card, relative to the shell's overview surface.
     CBox from;
     CBox target;
+    // Its card moved (a window closed, another opened): it glides from
+    // where it was shown to `target`, relative to the shell's surface too.
+    CBox shiftFrom;
     // The window at full size, then halved until near its card's size:
     // scaled down in steps it stays sharp (Hyprland samples linearly).
     std::vector<UP<CFramebuffer>> chain;
@@ -58,7 +61,8 @@ class COverview {
     explicit COverview(PHLMONITOR monitor);
     ~COverview();
 
-    // `animate`: fly in from where the windows are.
+    // `animate`: fly in from where the windows are; else those already
+    // shown glide into their new cards.
     void setWindows(const std::vector<std::pair<PHLWINDOW, CBox>>& targets, bool animate);
     void close();
 
@@ -78,9 +82,13 @@ class COverview {
     void                         redraw(SOverviewWindow& w);
 
     void                         fly();
+    // Where its card is shown now, relative to the shell's surface.
+    CBox                         card(const SOverviewWindow& w) const;
 
     std::vector<SOverviewWindow> m_windows;
     CProgress                    m_progress;
+    // The cards' glide after `update`.
+    CProgress                    m_shift;
     bool                         m_dirty = true;
     // The shell's overview surface, relative to the monitor: where the
     // cards are. Read every frame – it is mapped only after `open`.

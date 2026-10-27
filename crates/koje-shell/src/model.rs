@@ -195,6 +195,9 @@ pub struct Desktop {
     /// koje's Hyprland plugin is loaded: it draws the overview's windows
     /// (ADR 0051).
     pub plugin: bool,
+    /// How long the plugin's windows fly and glide, in ms
+    /// (`plugin:koje:overview_duration`): the cards glide as long.
+    pub overview_duration: u32,
 }
 
 /// A mapped window.
@@ -944,6 +947,7 @@ impl Shell {
         };
         OverviewView {
             live: self.desktop.plugin,
+            duration: self.desktop.overview_duration,
             dash,
             workspaces: self.workspace_buttons(mon),
             stash: stash.filter(|_| overlay.is_none()),
@@ -1080,6 +1084,7 @@ mod tests {
                 win("0xe", "1", (0, 40), 4),
             ],
             plugin: false,
+            overview_duration: 0,
         }
     }
 

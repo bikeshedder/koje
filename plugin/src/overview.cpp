@@ -106,10 +106,14 @@ void COverview::setWindows(const std::vector<std::pair<PHLWINDOW, CBox>>& target
         return;
     g_pHyprRenderer->makeEGLCurrent();
     std::vector<SOverviewWindow> next;
+    bool                         shifts = false;
+    // Still flying in (or out), they head for the new cards directly.
+    const bool landed = !animate && !m_waiting && !closing && m_progress.value() >= 1.F;
     for (const auto& [window, target] : targets) {
         SOverviewWindow w;
-        w.window = window;
-        w.target = target;
+        w.window    = window;
+        w.target    = target;
+        w.shiftFrom = target;
         // Only windows in view fly in; others (another workspace, the
         // stash) appear in their card.
         const bool inView = window->m_workspace && window->m_workspace == M->m_activeWorkspace;
@@ -120,11 +124,21 @@ void COverview::setWindows(const std::vector<std::pair<PHLWINDOW, CBox>>& target
                 w.chain = std::move(old.chain);
                 if (!animate)
                     w.from = old.from;
+                if (landed) {
+                    w.shiftFrom = card(old);
+                    shifts      = shifts || w.shiftFrom != target;
+                }
             }
         }
         next.push_back(std::move(w));
     }
     m_windows = std::move(next);
+    // As the shell's cards glide (overview_ui.rs): from where they are shown.
+    m_shift.warp(0.F);
+    if (shifts)
+        m_shift.animateTo(1.F);
+    else
+        m_shift.warp(1.F);
     if (animate) {
         m_progress.warp(0.F);
         m_waiting  = true;
@@ -173,6 +187,10 @@ void COverview::close() {
     damage();
 }
 
+CBox COverview::card(const SOverviewWindow& w) const {
+    return lerp(w.shiftFrom, w.target, m_shift.value());
+}
+
 void COverview::render() {
     g_pHyprRenderer->m_renderPass.add(makeUnique<CKojeOverviewPassElement>(this));
 }
@@ -195,7 +213,9 @@ void COverview::onDamage() {
 }
 
 void COverview::onPreRender() {
-    if (m_progress.tick())
+    const bool flying  = m_progress.tick();
+    const bool gliding = m_shift.tick();
+    if (flying || gliding)
         damage();
     if (const auto M = monitor.lock()) {
         const auto origin = shellOrigin(M);
@@ -285,7 +305,7 @@ void COverview::draw() {
         const auto W = w.window.lock();
         if (w.chain.empty() || !W)
             continue;
-        CBox box = lerp(w.from, w.target.copy().translate(m_origin), t);
+        CBox box = lerp(w.from, card(w).translate(m_origin), t);
         box.scale(M->m_scale).round();
         // As Hyprland draws the window: its rounding, then its border (the
         // context's color) – fading out on the way into the overview, where

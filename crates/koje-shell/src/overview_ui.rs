@@ -95,25 +95,45 @@ button.window-hit:hover { background: alpha(#ffffff, 0.15); }
 ";
 
 mod imp {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
 
     use super::{GAP, TITLE_HEIGHT, glib, gtk};
+    use crate::overview::{Rect, glide};
     use gtk4::prelude::*;
     use gtk4::subclass::prelude::*;
+
+    /// The cards on their way into new places (M8.98).
+    #[derive(Debug)]
+    pub struct Glide {
+        /// Where each card was shown, by window.
+        pub from: HashMap<String, Rect>,
+        /// `glib::monotonic_time` (µs) when it started, and how long it takes.
+        pub start: i64,
+        pub duration: i64,
+    }
 
     /// Places the cards with [`crate::overview::arrange`].
     #[derive(Default)]
     pub struct CardsLayout {
-        /// Each card's window size, in child order.
-        pub sizes: RefCell<Vec<(f64, f64)>>,
+        /// Each card's window and its size, in child order.
+        pub sizes: RefCell<Vec<(String, (f64, f64))>>,
         /// Called after the cards got their places (the plugin follows them).
         pub allocated: RefCell<Option<Box<dyn Fn()>>>,
+        /// Where each card goes, in child order – while it glides there.
+        pub placed: RefCell<Vec<Rect>>,
+        /// Where each card is shown, by window.
+        pub shown: RefCell<HashMap<String, Rect>>,
+        pub glide: RefCell<Option<Glide>>,
+        /// A tick callback lays them out each frame of a glide.
+        pub ticking: Cell<bool>,
     }
 
     impl std::fmt::Debug for CardsLayout {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("CardsLayout")
                 .field("sizes", &self.sizes)
+                .field("glide", &self.glide)
                 .finish_non_exhaustive()
         }
     }
@@ -140,17 +160,24 @@ mod imp {
 
         fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, _baseline: i32) {
             let sizes = self.sizes.borrow();
+            let window_sizes: Vec<(f64, f64)> = sizes.iter().map(|(_, s)| *s).collect();
             let rects = crate::overview::arrange(
-                &sizes,
+                &window_sizes,
                 f64::from(width),
                 f64::from((height - TITLE_HEIGHT).max(0)),
                 GAP,
             );
+            #[allow(clippy::cast_precision_loss)] // µs of a glide
+            let t = self.glide.borrow().as_ref().map_or(1.0, |g| {
+                (glib::monotonic_time() - g.start) as f64 / g.duration.max(1) as f64
+            });
+            let mut placed = Vec::new();
+            let mut shown = HashMap::new();
             let mut child = widget.first_child();
-            let mut rects = rects.iter();
+            let mut rects = rects.iter().zip(sizes.iter());
             while let Some(c) = child {
                 child = c.next_sibling();
-                let Some(r) = rects.next() else {
+                let Some((r, (address, _))) = rects.next() else {
                     c.set_child_visible(false);
                     continue;
                 };
@@ -159,11 +186,39 @@ mod imp {
                 let w = (super::px(r.w)).max(min_w);
                 let (min_h, _, _, _) = c.measure(gtk::Orientation::Vertical, w);
                 let h = (super::px(r.h) + TITLE_HEIGHT).max(min_h);
+                let to = Rect {
+                    x: r.x.round(),
+                    y: r.y.round(),
+                    w: f64::from(w),
+                    h: f64::from(h),
+                };
+                let at = match self
+                    .glide
+                    .borrow()
+                    .as_ref()
+                    .and_then(|g| g.from.get(address))
+                {
+                    Some(&from) => glide(from, to, t),
+                    None => to,
+                };
                 c.size_allocate(
-                    &gtk::Allocation::new(super::px(r.x), super::px(r.y), w, h),
+                    &gtk::Allocation::new(
+                        super::px(at.x),
+                        super::px(at.y),
+                        super::px(at.w).max(min_w),
+                        super::px(at.h).max(min_h),
+                    ),
                     -1,
                 );
+                placed.push(to);
+                shown.insert(address.clone(), at);
             }
+            drop(sizes);
+            if t >= 1.0 {
+                self.glide.replace(None);
+            }
+            self.placed.replace(placed);
+            self.shown.replace(shown);
             if let Some(f) = self.allocated.borrow().as_ref() {
                 f();
             }
@@ -466,6 +521,7 @@ impl OverviewSurface {
     /// Hidden, it starts over next time: no search, the windows.
     pub fn hide(&self) {
         self.window.set_visible(false);
+        self.layout.forget();
         self.entry.set_text("");
         self.set_mode(Mode::Windows);
         // The plugin flies the windows back.
@@ -488,18 +544,29 @@ impl OverviewSurface {
         if !live || !self.window.is_visible() {
             return;
         }
+        // Where the previews go – while their cards may still glide there:
+        // the plugin's windows glide by themselves.
+        let Some(origin) = self.cards.compute_bounds(&self.window) else {
+            return;
+        };
         let places: Vec<Place> = self
             .previews
             .borrow()
             .iter()
-            .filter_map(|(address, preview)| {
-                let b = preview.compute_bounds(&self.window)?;
-                (b.width() >= 1.0 && b.height() >= 1.0).then(|| Place {
+            .enumerate()
+            .filter_map(|(i, (address, preview))| {
+                let card = preview.parent()?.parent()?;
+                let shown = card.compute_bounds(&self.cards)?;
+                let inside = preview.compute_bounds(&card)?;
+                let to = self.layout.placed(i)?;
+                let w = f64::from(inside.width()) + to.w - f64::from(shown.width());
+                let h = f64::from(inside.height()) + to.h - f64::from(shown.height());
+                (w >= 1.0 && h >= 1.0).then(|| Place {
                     address: address.clone(),
-                    x: px(f64::from(b.x())),
-                    y: px(f64::from(b.y())),
-                    w: px(f64::from(b.width())),
-                    h: px(f64::from(b.height())),
+                    x: px(f64::from(origin.x()) + to.x + f64::from(inside.x())),
+                    y: px(f64::from(origin.y()) + to.y + f64::from(inside.y())),
+                    w: px(w),
+                    h: px(h),
                 })
             })
             .collect();
@@ -543,11 +610,19 @@ impl OverviewSurface {
         } else {
             self.window.remove_css_class("live");
         }
+        // Shown already, the cards glide into their new places – as the
+        // plugin's windows do (M8.98).
         self.layout.replace_sizes(
             view.windows
                 .iter()
-                .map(|c| (f64::from(c.size.0), f64::from(c.size.1)))
+                .map(|c| {
+                    (
+                        c.address.clone(),
+                        (f64::from(c.size.0), f64::from(c.size.1)),
+                    )
+                })
                 .collect(),
+            self.window.is_visible().then_some(view.duration),
         );
         for card in &view.windows {
             self.cards.append(&self.card(card, view.live));
@@ -1261,10 +1336,51 @@ impl CardsLayout {
         self.imp().allocated.replace(Some(Box::new(f)));
     }
 
-    fn replace_sizes(&self, sizes: Vec<(f64, f64)>) {
+    /// The cards' windows and their sizes; with a duration (ms) the cards
+    /// shown already glide from where they are into their new places.
+    fn replace_sizes(&self, sizes: Vec<(String, (f64, f64))>, glide_ms: Option<u32>) {
         use gtk4::subclass::prelude::ObjectSubclassIsExt as _;
-        self.imp().sizes.replace(sizes);
+        let imp = self.imp();
+        imp.sizes.replace(sizes);
+        let glide = glide_ms.filter(|&ms| ms > 0).map(|ms| imp::Glide {
+            from: imp.shown.borrow().clone(),
+            start: glib::monotonic_time(),
+            duration: i64::from(ms) * 1000,
+        });
+        let gliding = glide.is_some();
+        imp.glide.replace(glide);
         self.layout_changed();
+        if gliding
+            && !imp.ticking.replace(true)
+            && let Some(widget) = self.widget()
+        {
+            let layout = self.downgrade();
+            widget.add_tick_callback(move |widget, _| {
+                widget.queue_allocate();
+                match layout.upgrade() {
+                    Some(l) if l.imp().glide.borrow().is_some() => glib::ControlFlow::Continue,
+                    other => {
+                        if let Some(l) = other {
+                            l.imp().ticking.set(false);
+                        }
+                        glib::ControlFlow::Break
+                    }
+                }
+            });
+        }
+    }
+
+    /// Hidden, the overview starts over: nothing glides from where it was.
+    fn forget(&self) {
+        use gtk4::subclass::prelude::ObjectSubclassIsExt as _;
+        self.imp().shown.borrow_mut().clear();
+        self.imp().glide.replace(None);
+    }
+
+    /// Where the `i`-th card goes, while it may still glide there.
+    fn placed(&self, i: usize) -> Option<crate::overview::Rect> {
+        use gtk4::subclass::prelude::ObjectSubclassIsExt as _;
+        self.imp().placed.borrow().get(i).copied()
     }
 }
 
