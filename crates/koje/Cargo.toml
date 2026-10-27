@@ -75,8 +75,9 @@ assets = [
     # package depends on (scripts/build-deb.sh).
     ["../../target/plugin/koje-hyprland.so", "usr/lib/koje/", "644"],
     ["../../assets/hyprland/hyprbars.conf", "usr/share/koje/hyprland/", "644"],
-    ["../../assets/lock/hypridle.conf", "usr/share/koje/lock/", "644"],
-    ["../../assets/lock/hyprlock.conf", "usr/share/koje/lock/", "644"],
+    # In a hypr/ folder: koje-idle.service puts usr/share/koje on XDG_CONFIG_DIRS.
+    ["../../assets/lock/hypridle.conf", "usr/share/koje/hypr/", "644"],
+    ["../../assets/lock/hyprlock.conf", "usr/share/koje/hypr/", "644"],
     ["../../assets/fonts/lucide/lucide.ttf", "usr/share/fonts/truetype/koje/", "644"],
     ["../../assets/icons/io.koje.Koje-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../../assets/applications/io.koje.Settings.desktop", "usr/share/applications/", "644"],
