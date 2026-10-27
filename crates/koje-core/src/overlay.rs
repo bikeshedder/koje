@@ -206,19 +206,22 @@ pub fn binds(overlays: &[OverlayEntry]) -> Vec<Bind> {
 }
 
 /// What to send Hyprland to get from the bindings `applied` to `wanted`:
-/// unbind what goes or changes, bind what is new or changed.
+/// unbind what goes or changes, bind what is new or changed. A key is
+/// unbound before it is bound: a restarted kojed does not know what the one
+/// before bound, and Hyprland would hold the binding twice.
 pub fn changes(applied: &[Bind], wanted: &[Bind]) -> Vec<String> {
     let mut out: Vec<String> = applied
         .iter()
         .filter(|b| !wanted.contains(b))
         .map(Bind::unbind)
         .collect();
-    out.extend(
-        wanted
-            .iter()
-            .filter(|b| !applied.contains(b))
-            .map(Bind::keyword),
-    );
+    for b in wanted.iter().filter(|b| !applied.contains(b)) {
+        let unbind = b.unbind();
+        if !out.contains(&unbind) {
+            out.push(unbind);
+        }
+        out.push(b.keyword());
+    }
     out
 }
 
@@ -300,7 +303,24 @@ mod tests {
             changes(&old, &new),
             ["keyword unbind SUPER, C", "keyword unbind SUPER SHIFT, C"]
         );
-        // After Hyprland reloaded its config nothing is bound: all again.
-        assert_eq!(changes(&[], &new).len(), 2);
+        // After Hyprland reloaded its config, or kojed restarted: all again,
+        // each key unbound first so it is never bound twice.
+        let again = changes(&[], &new);
+        assert_eq!(again.len(), 4);
+        assert_eq!(again[0], "keyword unbind SUPER, M");
+        assert!(again[1].starts_with("keyword bindd SUPER, M,"), "{again:?}");
+        // A changed binding on the same key is unbound once.
+        let renamed = binds(
+            &overlays(&cfg("[overlay.mail]\nkey = \"SUPER+M\"\nlabel = \"Post\"\n").unwrap())
+                .unwrap(),
+        );
+        let sent = changes(&new, &renamed);
+        assert_eq!(
+            sent.iter()
+                .filter(|l| *l == "keyword unbind SUPER, M")
+                .count(),
+            1,
+            "{sent:?}"
+        );
     }
 }

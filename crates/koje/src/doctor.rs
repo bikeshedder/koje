@@ -277,12 +277,22 @@ fn bindings() -> Option<Check> {
     Some(if dups.is_empty() {
         Check::ok("key bindings: none bound twice")
     } else {
-        Check::warn(
-            duplicates_line(&dups),
-            "your hyprland.conf binds keys koje's snippet binds too – remove yours, or move \
-             the file away and run koje setup for a fresh one (hyprctl binds shows all)",
-        )
+        Check::warn(duplicates_line(&dups), duplicates_hint(&dups))
     })
+}
+
+/// What to do: the same binding twice comes from a kojed that restarted
+/// while Hyprland ran (before kojed unbound a key before binding it, M7.1);
+/// different ones from `hyprland.conf`.
+fn duplicates_hint(dups: &[Duplicate]) -> &'static str {
+    let same = dups.iter().all(|d| d.what.windows(2).all(|w| w[0] == w[1]));
+    if same {
+        "the same binding twice – an older kojed bound the overlays' keys again after it \
+         restarted; hyprctl reload clears it"
+    } else {
+        "your hyprland.conf binds keys koje's snippet binds too – remove yours, or move \
+         the file away and run koje setup for a fresh one (hyprctl binds shows all)"
+    }
 }
 
 /// The connected screens as GNOME knows them, and whether monitors.xml has
@@ -584,6 +594,21 @@ mod tests {
         ));
         assert!(!plugin_listed(r#"[{"name": "hyprbars"}]"#));
         assert!(!plugin_listed("no plugins loaded"));
+    }
+
+    #[test]
+    fn the_hint_tells_kojeds_repeats_from_the_users_bindings() {
+        let dup = |what: &[&str]| Duplicate {
+            combo: "Super+M".into(),
+            what: what.iter().map(|w| (*w).to_owned()).collect(),
+        };
+        let same = [dup(&["Show or hide the Mail overlay"; 2])];
+        assert!(duplicates_hint(&same).contains("hyprctl reload"));
+        let mixed = [
+            dup(&["Show or hide the Mail overlay"; 2]),
+            dup(&["Show or hide the Mail overlay", "exec thunderbird"]),
+        ];
+        assert!(duplicates_hint(&mixed).contains("your hyprland.conf"));
     }
 
     #[test]
