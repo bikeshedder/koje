@@ -3,7 +3,7 @@
 // transparent and shrink into place while they fade in, instead of
 // Hyprland's slide. Only what is drawn moves: the windows' goals (and so
 // the sizes the apps are told) stay as they are. Closing is Hyprland's own
-// special workspace animation. `plugin:koje:overlay_zoom` turns it on.
+// special workspace animation. `plugin:koje:overlay_zoom = 0` turns it off.
 #include "overlays.hpp"
 #include "overview.hpp"
 

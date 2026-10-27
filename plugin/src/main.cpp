@@ -204,8 +204,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // New windows larger than 80 % of the screen open maximized, as GNOME's
     // auto-maximize (ADR 0052); 0: off.
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:auto_maximize", Hyprlang::INT{1});
-    // Overlays zoom in when they open (M8.86); off until checked on the host.
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overlay_zoom", Hyprlang::INT{0});
+    // Overlays zoom in when they open (M8.86); 0: Hyprland's slide.
+    HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overlay_zoom", Hyprlang::INT{1});
     HyprlandAPI::reloadConfig();
 
     return {"koje", "koje's overview (the real windows, scaled), new windows as in GNOME, overlays zooming in", "koje", "1"};
