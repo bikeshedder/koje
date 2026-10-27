@@ -1,4 +1,4 @@
-//! The settings app's Context page (M8.10): label and color, the access
+//! The settings app's Context page (M8.10): labels, icon and color, the access
 //! profile and its switches, folders, memory limits; Save writes
 //! `context.toml` through `koje edit --stdin` (checked as the CLI checks
 //! it), Recreate and Remove ask first. The form and its checks are
@@ -95,6 +95,35 @@ fn appearance(
             changed();
         });
     }
+    let label = adw::EntryRow::builder()
+        .title("Name in the bar (empty: the context's name)")
+        .text(&form.borrow().label)
+        .build();
+    {
+        let (form, changed) = (form.clone(), changed.clone());
+        label.connect_changed(move |e| {
+            form.borrow_mut().label = e.text().to_string();
+            changed();
+        });
+    }
+    look.add(&label);
+    let icon = adw::ActionRow::builder()
+        .title("Icon")
+        .subtitle("In the bar beside the name")
+        .build();
+    {
+        let current = form.borrow().icon.clone();
+        let (form, changed) = (form.clone(), changed.clone());
+        icon.add_suffix(&crate::settings_icons::icon_button(
+            &current,
+            koje_core::look::CONTEXT_ICON,
+            move |name| {
+                form.borrow_mut().icon = name;
+                changed();
+            },
+        ));
+    }
+    look.add(&icon);
     look.add(&prefix);
     let color = adw::EntryRow::builder()
         .title("Color")

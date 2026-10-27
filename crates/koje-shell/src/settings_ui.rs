@@ -25,6 +25,8 @@ use crate::settings_backend::{self, Command, Event};
 const APP_ID: &str = "io.koje.Settings";
 /// The sidebar's first row.
 const MEMORY: &str = "";
+/// The sidebar's second row; context names start with a letter.
+const WORKSPACES: &str = "@workspaces";
 
 const CSS: &str = "
 .context-dot { min-width: 12px; min-height: 12px; border-radius: 999px; }
@@ -94,6 +96,7 @@ pub(crate) struct Ui {
     states_page: adw::PreferencesPage,
     layouts_page: adw::PreferencesPage,
     windows_page: adw::PreferencesPage,
+    workspaces: crate::settings_workspaces::WorkspacesPage,
     actions_box: gtk::Box,
     dots: gtk::CssProvider,
     snapshot: RefCell<Snapshot>,
@@ -134,6 +137,8 @@ impl Ui {
         let pages = gtk::Stack::new();
         pages.add_named(&memory_page, Some("memory"));
         pages.add_named(&stack, Some("context"));
+        let workspaces = crate::settings_workspaces::WorkspacesPage::new();
+        pages.add_named(&workspaces.page, Some("workspaces"));
         let actions_box = gtk::Box::builder().spacing(6).build();
         let header = adw::HeaderBar::new();
         header.pack_end(&actions_box);
@@ -179,6 +184,7 @@ impl Ui {
             states_page,
             layouts_page,
             windows_page,
+            workspaces,
             actions_box,
             dots,
             snapshot: RefCell::default(),
@@ -316,6 +322,11 @@ impl Ui {
                 self.render_windows(&item);
                 self.shown_item.replace(Some(key));
             }
+        } else if *self.selected.borrow() == WORKSPACES {
+            self.pages.set_visible_child_name("workspaces");
+            self.main_page.set_title("Workspaces");
+            let global = self.global();
+            self.workspaces.render(self, &global);
         } else {
             self.pages.set_visible_child_name("memory");
             self.main_page.set_title("Memory");
@@ -328,22 +339,20 @@ impl Ui {
         while let Some(child) = self.sidebar.first_child() {
             self.sidebar.remove(&child);
         }
-        let row = |name: &str, title: &str, subtitle: &str, dot: Option<&str>| {
+        let row = |name: &str, title: &str, subtitle: &str, dot: Result<&str, &str>| {
             let b = gtk::Box::builder()
                 .spacing(12)
                 .margin_top(6)
                 .margin_bottom(6)
                 .build();
             match dot {
-                Some(class) => b.append(
+                Ok(class) => b.append(
                     &gtk::Box::builder()
                         .css_classes(["context-dot", class])
                         .valign(gtk::Align::Center)
                         .build(),
                 ),
-                None => b.append(&gtk::Image::from_icon_name(
-                    "power-profile-performance-symbolic",
-                )),
+                Err(icon) => b.append(&gtk::Image::from_icon_name(icon)),
             }
             let texts = gtk::Box::new(gtk::Orientation::Vertical, 0);
             texts.append(&gtk::Label::builder().label(title).xalign(0.0).build());
@@ -361,16 +370,27 @@ impl Ui {
             r.set_widget_name(name);
             r
         };
-        let memory = row(MEMORY, "Memory", "", None);
+        let memory = row(
+            MEMORY,
+            "Memory",
+            "",
+            Err("power-profile-performance-symbolic"),
+        );
         self.sidebar.append(&memory);
+        let workspaces = row(WORKSPACES, "Workspaces", "", Err("view-grid-symbolic"));
+        self.sidebar.append(&workspaces);
         let selected = self.selected.borrow().clone();
-        let mut select = (selected == MEMORY).then(|| memory.clone());
+        let mut select = match selected.as_str() {
+            MEMORY => Some(memory.clone()),
+            WORKSPACES => Some(workspaces.clone()),
+            _ => None,
+        };
         for c in &self.snapshot.borrow().contexts {
             let r = row(
                 &c.name,
                 &c.name,
                 c.status.label(),
-                Some(&format!("dot-{}", c.name)),
+                Ok(&format!("dot-{}", c.name)),
             );
             if c.name == selected {
                 select = Some(r.clone());

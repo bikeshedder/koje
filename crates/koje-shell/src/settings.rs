@@ -5,8 +5,9 @@
 
 use koje_core::access::{AccessConfig, Profile};
 use koje_core::color::Color;
-use koje_core::config::{ContextConfig, GlobalConfig};
+use koje_core::config::{ContextConfig, GlobalConfig, WorkspaceStyle};
 use koje_core::context::ContextSettings;
+use koje_core::look::{BarSettings, HostWorkspace, OverlaySettings};
 use koje_core::size::ByteSize;
 use koje_core::state::State;
 use koje_core::states::{StateInfo, Summary};
@@ -222,6 +223,137 @@ pub fn settings(form: &Form) -> Result<ContextSettings, Vec<FieldError>> {
     })
 }
 
+/// The bar styles as the Workspaces page offers them.
+pub const STYLES: [(WorkspaceStyle, &str); 4] = [
+    (WorkspaceStyle::Labels, "Icons and labels"),
+    (WorkspaceStyle::ColoredDots, "Dots in the context colors"),
+    (WorkspaceStyle::Dots, "Dots"),
+    (WorkspaceStyle::Names, "Names"),
+];
+
+/// A host workspace on the Workspaces page; empty texts are unset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceRow {
+    pub number: u32,
+    pub label: String,
+    pub icon: String,
+}
+
+/// An overlay on the Workspaces page; empty texts are unset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverlayRow {
+    pub name: String,
+    pub key: String,
+    pub label: String,
+    pub icon: String,
+}
+
+/// The Workspaces page's fields (ADR 0055).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BarForm {
+    pub style: WorkspaceStyle,
+    pub workspaces: Vec<WorkspaceRow>,
+    pub overlays: Vec<OverlayRow>,
+    /// An overlay was changed: `[overlay]` is written (with koje's own
+    /// overlays spelled out when the file had none).
+    pub overlays_changed: bool,
+}
+
+/// The Workspaces page of `config.toml`.
+pub fn bar_form(cfg: &GlobalConfig) -> BarForm {
+    let own = |name: &str| cfg.overlay.as_ref().and_then(|m| m.get(name));
+    BarForm {
+        style: cfg.bar.workspaces,
+        workspaces: koje_core::look::host_workspaces(cfg)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(number, w)| WorkspaceRow {
+                number,
+                label: w.label.unwrap_or_default(),
+                icon: w.icon.unwrap_or_default(),
+            })
+            .collect(),
+        overlays: koje_core::overlay::overlays(cfg)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|o| OverlayRow {
+                key: own(&o.name).map_or_else(|| o.key.to_string(), |c| c.key.clone()),
+                label: own(&o.name)
+                    .and_then(|c| c.label.clone())
+                    .unwrap_or_default(),
+                icon: own(&o.name)
+                    .and_then(|c| c.icon.clone())
+                    .unwrap_or_default(),
+                name: o.name,
+            })
+            .collect(),
+        overlays_changed: false,
+    }
+}
+
+/// The smallest workspace number not on the page yet.
+pub fn next_workspace(form: &BarForm) -> u32 {
+    (1..=u32::MAX)
+        .find(|n| !form.workspaces.iter().any(|w| w.number == *n))
+        .unwrap_or(1)
+}
+
+/// The page as `config.toml` edits; every bad field reported.
+pub fn bar_settings(form: &BarForm) -> Result<BarSettings, Vec<FieldError>> {
+    let optional = |text: &str| Some(text.trim().to_owned()).filter(|t| !t.is_empty());
+    let mut errors = Vec::new();
+    let mut icon = |text: &str, what: &str| {
+        let icon = optional(text);
+        if icon
+            .as_deref()
+            .is_some_and(|i| !koje_core::look::valid_icon(i))
+        {
+            errors.push(FieldError {
+                field: "icon",
+                message: format!("{what}: an icon name like folder-symbolic"),
+            });
+        }
+        icon
+    };
+    let workspaces = form
+        .workspaces
+        .iter()
+        .map(|w| {
+            let look = HostWorkspace {
+                label: optional(&w.label),
+                icon: icon(&w.icon, &format!("Workspace {}", w.number)),
+            };
+            (w.number, look)
+        })
+        .collect();
+    let overlays: Vec<OverlaySettings> = form
+        .overlays
+        .iter()
+        .map(|o| OverlaySettings {
+            name: o.name.clone(),
+            key: o.key.trim().to_owned(),
+            label: optional(&o.label),
+            icon: icon(&o.icon, &o.name),
+        })
+        .collect();
+    for o in &overlays {
+        if koje_core::overlay::KeyCombo::parse(&o.key).is_none() {
+            errors.push(FieldError {
+                field: "key",
+                message: format!("{}: a key like SUPER+M", o.name),
+            });
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(BarSettings {
+        style: form.style,
+        workspaces,
+        overlays: form.overlays_changed.then_some(overlays),
+    })
+}
+
 /// A state's row: name, its role, what it holds.
 pub fn state_row(s: &StateInfo) -> (String, String) {
     let role = s.role.map(|r| match r.as_str() {
@@ -395,6 +527,47 @@ mod tests {
         f = form(&cfg(""));
         f.memory_hard = "lots".into();
         assert_eq!(settings(&f).unwrap_err()[0].field, "memory_hard");
+    }
+
+    #[test]
+    fn the_workspaces_page_round_trips() {
+        let global = GlobalConfig::from_toml(
+            "[bar]\nworkspaces = \"dots\"\n[workspace.2]\nlabel = \"Web\"\n",
+            Path::new("c"),
+        )
+        .unwrap();
+        let mut f = bar_form(&global);
+        assert_eq!(f.style, WorkspaceStyle::Dots);
+        assert_eq!(f.workspaces[0].label, "Web");
+        // koje's own overlays, nothing of them in the file.
+        assert_eq!(
+            f.overlays
+                .iter()
+                .map(|o| (o.name.as_str(), o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            [("chat", "SUPER+C", ""), ("mail", "SUPER+M", "")]
+        );
+        assert_eq!(next_workspace(&f), 1);
+        let s = bar_settings(&f).unwrap();
+        assert_eq!(s.overlays, None, "unchanged overlays stay as they are");
+        assert_eq!(s.workspaces[&2].icon, None);
+
+        f.overlays[1].icon = "mail-read-symbolic".into();
+        f.overlays_changed = true;
+        let s = bar_settings(&f).unwrap();
+        assert_eq!(
+            s.overlays.unwrap()[1].icon.as_deref(),
+            Some("mail-read-symbolic")
+        );
+
+        f.overlays[0].key = "SUPER+".into();
+        f.workspaces[0].icon = "../x".into();
+        let fields: Vec<&str> = bar_settings(&f)
+            .unwrap_err()
+            .iter()
+            .map(|e| e.field)
+            .collect();
+        assert_eq!(fields, ["icon", "key"]);
     }
 
     #[test]

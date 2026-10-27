@@ -35,6 +35,16 @@ pub struct KeyCombo {
     pub key: String,
 }
 
+/// `SUPER SHIFT+M` as `SUPER+SHIFT+M`, as `config.toml` takes it.
+impl std::fmt::Display for KeyCombo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for m in &self.mods {
+            write!(f, "{m}+")?;
+        }
+        f.write_str(&self.key)
+    }
+}
+
 impl KeyCombo {
     /// `SUPER+M`, `SUPER SHIFT+M`, `CTRL+ALT+F1`.
     pub fn parse(text: &str) -> Option<Self> {
