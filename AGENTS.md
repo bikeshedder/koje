@@ -7,9 +7,10 @@ Instructions for coding agents (and humans) working in this repository.
 koje isolates projects into **contexts** on Linux with Hyprland. Each context is a
 rootless Podman container that runs all programs for that work (editor, browser,
 terminal, …) plus its own nested Podman for dev containers. Hyprland shows the
-windows of all contexts on one desktop; koje colors each window border in its
-context's color, switches named **layouts**, stashes unused windows, saves and
-restores **states**, pauses contexts and enforces memory limits.
+windows of all contexts on one desktop; windows look as GNOME's, and one outside
+its context glows in the context's color with a badge naming it (ADR 0057).
+koje switches named **layouts**, stashes unused windows, saves and restores
+**states**, pauses contexts and enforces memory limits.
 
 The full concept (German) is `docs/concept/koje-konzept.pdf` (source: `.typ`).
 An English summary is `docs/architecture.md`. Settled decisions are in

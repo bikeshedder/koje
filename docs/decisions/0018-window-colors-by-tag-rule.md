@@ -41,3 +41,6 @@ kojed colors windows with **one window rule per context**, matching the tag
   context color to a lighter shade (`rgb(a) rgb(b) 45deg`, in rules and with
   `setprop`); in a rule the angle ends the active gradient, the inactive color
   follows. To check on the host: Hyprland 0.53 accepts both forms.
+- Update (2026-10-27, ADR 0057): borders are off by default – windows look
+  as GNOME's. Tags and rules stay: koje's plugin reads them to make a window
+  outside its context glow in the color and carry a badge.

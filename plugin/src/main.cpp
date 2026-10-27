@@ -10,6 +10,7 @@
 // pixels relative to koje-shell's overview surface on that monitor.
 #define WLR_USE_UNSTABLE
 
+#include "foreign.hpp"
 #include "overlays.hpp"
 #include "overview.hpp"
 #include "pass.hpp"
@@ -179,10 +180,17 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // Without it overlays open as Hyprland animates them: no reason to fail.
     if (!hookOverlayZoom())
         HyprlandAPI::addNotification(PHANDLE, "[koje] overlays cannot zoom: Hyprland's workspace animation was not found", CHyprColor{1.0, 0.6, 0.2, 1.0}, 5000);
+    // Without it foreign windows only lack the glow: no reason to fail.
+    if (!hookForeign())
+        HyprlandAPI::addNotification(PHANDLE, "[koje] windows outside their context cannot glow: Hyprland's functions were not found", CHyprColor{1.0, 0.6, 0.2, 1.0}, 5000);
+    for (const auto& w : g_pCompositor->m_windows)
+        addBadge(w);
 
     static auto openWindow = HyprlandAPI::registerCallbackDynamic(PHANDLE, "openWindow", [](void*, SCallbackInfo&, std::any data) {
         try {
-            onWindowOpen(std::any_cast<PHLWINDOW>(data));
+            const auto w = std::any_cast<PHLWINDOW>(data);
+            onWindowOpen(w);
+            addBadge(w);
         } catch (const std::bad_any_cast&) {}
     });
 
@@ -206,9 +214,13 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:auto_maximize", Hyprlang::INT{1});
     // Overlays zoom in when they open (M8.86); 0: Hyprland's slide.
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:overlay_zoom", Hyprlang::INT{1});
+    // Windows outside their context glow in its color and carry a badge with
+    // its name (ADR 0057); 0: off.
+    HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:foreign_glow", Hyprlang::INT{1});
+    HyprlandAPI::addConfigValue(PHANDLE, "plugin:koje:foreign_badge", Hyprlang::INT{1});
     HyprlandAPI::reloadConfig();
 
-    return {"koje", "koje's overview (the real windows, scaled), new windows as in GNOME, overlays zooming in", "koje", "1"};
+    return {"koje", "koje's overview (the real windows, scaled), new windows as in GNOME, overlays zooming in, windows outside their context marked", "koje", "1"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {

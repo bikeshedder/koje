@@ -1,6 +1,6 @@
 //! `[desktop]` in `config.toml` (ADR 0056): the look and animations koje's
 //! Hyprland snippet sets – the windows' borders, gaps, corners, shadows and
-//! snapping, how an open overlay darkens and blurs what is behind it and
+//! snapping, how windows outside their context are marked (ADR 0057), how an open overlay darkens and blurs what is behind it and
 //! zooms in, and the overview's animation. kojed applies the keys that are
 //! set with `keyword`; unset ones are left to `koje.conf` and the user's
 //! `hyprland.conf`. Keyboard shortcuts, input and focus are GNOME Settings'
@@ -28,6 +28,12 @@ pub struct DesktopConfig {
     pub shadows: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snap: Option<bool>,
+    /// A window outside its context glows in the context's color (ADR 0057).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreign_glow: Option<bool>,
+    /// A window outside its context carries a badge with the context's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreign_badge: Option<bool>,
     /// How much an open overlay darkens what is behind it, in percent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overlay_dim: Option<u32>,
@@ -45,6 +51,7 @@ pub struct DesktopConfig {
 
 /// `[desktop]` with every value filled in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // independent switches, one per setting
 pub struct Desktop {
     pub border_width: u32,
     pub gaps_inside: u32,
@@ -52,6 +59,8 @@ pub struct Desktop {
     pub corner_radius: u32,
     pub shadows: bool,
     pub snap: bool,
+    pub foreign_glow: bool,
+    pub foreign_badge: bool,
     pub overlay_dim: u32,
     pub overlay_blur: u32,
     pub overlay_zoom: bool,
@@ -60,12 +69,14 @@ pub struct Desktop {
 
 /// What `koje.conf` and koje's plugin set: the values of unset keys.
 pub const DEFAULT: Desktop = Desktop {
-    border_width: 3,
-    gaps_inside: 4,
-    gaps_outside: 8,
-    corner_radius: 6,
+    border_width: 0,
+    gaps_inside: 0,
+    gaps_outside: 0,
+    corner_radius: 15,
     shadows: true,
     snap: true,
+    foreign_glow: true,
+    foreign_badge: true,
     overlay_dim: 50,
     overlay_blur: 10,
     overlay_zoom: true,
@@ -100,6 +111,8 @@ impl DesktopConfig {
             corner_radius: self.corner_radius.unwrap_or(d.corner_radius),
             shadows: self.shadows.unwrap_or(d.shadows),
             snap: self.snap.unwrap_or(d.snap),
+            foreign_glow: self.foreign_glow.unwrap_or(d.foreign_glow),
+            foreign_badge: self.foreign_badge.unwrap_or(d.foreign_badge),
             overlay_dim: self.overlay_dim.unwrap_or(d.overlay_dim),
             overlay_blur: self.overlay_blur.unwrap_or(d.overlay_blur),
             overlay_zoom: self.overlay_zoom.unwrap_or(d.overlay_zoom),
@@ -121,6 +134,8 @@ impl DesktopConfig {
             corner_radius: own(values.corner_radius, d.corner_radius),
             shadows: own(values.shadows, d.shadows),
             snap: own(values.snap, d.snap),
+            foreign_glow: own(values.foreign_glow, d.foreign_glow),
+            foreign_badge: own(values.foreign_badge, d.foreign_badge),
             overlay_dim: own(values.overlay_dim, d.overlay_dim),
             overlay_blur: own(values.overlay_blur, d.overlay_blur),
             overlay_zoom: own(values.overlay_zoom, d.overlay_zoom),
@@ -167,6 +182,8 @@ pub fn keywords(d: &Desktop) -> BTreeMap<&'static str, String> {
     out.insert("decoration:rounding", d.corner_radius.to_string());
     out.insert("decoration:shadow:enabled", flag(d.shadows));
     out.insert("general:snap:enabled", flag(d.snap));
+    out.insert("plugin:koje:foreign_glow", flag(d.foreign_glow));
+    out.insert("plugin:koje:foreign_badge", flag(d.foreign_badge));
     out.insert(
         "decoration:dim_special",
         format!("{:.2}", f64::from(d.overlay_dim) / 100.0),
@@ -193,6 +210,8 @@ pub fn wanted(cfg: &DesktopConfig) -> BTreeMap<&'static str, String> {
         (cfg.corner_radius.is_some(), &["decoration:rounding"]),
         (cfg.shadows.is_some(), &["decoration:shadow:enabled"]),
         (cfg.snap.is_some(), &["general:snap:enabled"]),
+        (cfg.foreign_glow.is_some(), &["plugin:koje:foreign_glow"]),
+        (cfg.foreign_badge.is_some(), &["plugin:koje:foreign_badge"]),
         (cfg.overlay_dim.is_some(), &["decoration:dim_special"]),
         (
             cfg.overlay_blur.is_some(),

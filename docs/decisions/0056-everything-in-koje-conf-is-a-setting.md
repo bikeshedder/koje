@@ -34,6 +34,7 @@ The snippet holds four kinds of lines:
 - **Look and animations are `[desktop]` in `config.toml`**, edited on koje
   Settings' **Desktop** page (`koje-shell settings`): `border_width`,
   `gaps_inside`, `gaps_outside`, `corner_radius`, `shadows`, `snap`,
+  `foreign_glow`, `foreign_badge` (ADR 0057),
   `overlay_dim` (percent), `overlay_blur` (0: none), `overlay_zoom`,
   `overview_duration` (ms). Ranges are checked as for the rest of the file.
   **kojed applies them with `keyword`** at start, when the file changes and

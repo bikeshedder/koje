@@ -78,9 +78,11 @@ browser profile per project. Put common programs into the base image.
 - **System settings are GNOME's** (ADR 0044): GNOME Settings edits them,
   kojed applies GNOME's gsettings to Hyprland (input, keyboard layouts, idle and
   power, night light, background); koje's settings app is only about koje.
-- **Border color** per context: kojed sees each new window on the event socket,
-  maps PID → context, sets active/inactive border colors. A window that gets
-  focus flashes its border white for a moment (focus feedback). The bar
+- **Context color** per window: kojed sees each new window on the event socket,
+  maps PID → context, tags it and sets the context's border colors. Borders are
+  off by default – windows look as GNOME's; koje's plugin makes a window on
+  another context's or a host workspace glow in its context's color and gives
+  it a badge with the context's name (ADR 0057). The bar
   (a clone of GNOME's top bar, ADR 0047) shows each workspace's icon and
   label, a context's in its color (ADR 0055).
 - **Icons and labels** (ADR 0055): host workspaces (`[workspace.<n>]` in

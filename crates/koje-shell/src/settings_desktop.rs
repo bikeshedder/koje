@@ -57,11 +57,14 @@ impl DesktopPage {
 
         let windows = adw::PreferencesGroup::builder()
             .title("Windows")
-            .description("Borders carry the context's color.")
+            .description("As in GNOME by default: no frame, no gaps, rounded corners.")
             .build();
-        windows.add(&spin("Border Width", "Pixels", "border_width", |d| {
-            &mut d.border_width
-        }));
+        windows.add(&spin(
+            "Border Width",
+            "In the context's color, on every context window; 0: none, as in GNOME",
+            "border_width",
+            |d| &mut d.border_width,
+        ));
         windows.add(&spin(
             "Gaps Between Windows",
             "Pixels",
@@ -87,6 +90,20 @@ impl DesktopPage {
             |d| &mut d.snap,
         ));
         self.page.add(&windows);
+
+        let foreign = adw::PreferencesGroup::builder()
+            .title("Windows Outside Their Context")
+            .description("A context's window on another context's workspace or a host workspace.")
+            .build();
+        foreign.add(&switch("Glow", "Its shadow in the context's color", |d| {
+            &mut d.foreign_glow
+        }));
+        foreign.add(&switch(
+            "Badge",
+            "The context's name on its top edge",
+            |d| &mut d.foreign_badge,
+        ));
+        self.page.add(&foreign);
 
         let overlays = adw::PreferencesGroup::builder()
             .title("Overlays")

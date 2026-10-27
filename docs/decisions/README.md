@@ -61,3 +61,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0054 | [The shell draws the background from GNOME's settings](0054-background-from-the-shell.md) | Accepted |
 | 0055 | [Workspaces, contexts and overlays have an icon and a label](0055-icons-and-labels.md) | Accepted |
 | 0056 | [Everything in koje.conf is a setting: the look in koje Settings, shortcuts in GNOME Settings](0056-everything-in-koje-conf-is-a-setting.md) | Accepted |
+| 0057 | [Windows look as in GNOME; windows outside their context glow and carry a badge](0057-windows-as-in-gnome-foreign-windows-marked.md) | Accepted |
