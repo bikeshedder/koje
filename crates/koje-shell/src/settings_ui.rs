@@ -639,6 +639,7 @@ impl Ui {
                     });
                     row.add_suffix(&switch);
                 }
+                row.add_suffix(&self.layout_menu(&item.name, name, *active));
             } else if *autosave {
                 row.set_subtitle(&format!(
                     "{} · saved automatically",
@@ -665,6 +666,73 @@ impl Ui {
         }
         self.layouts_page.add(&group);
         self.layouts_page.add(&matrix_group(&m));
+    }
+
+    /// Rename and delete a layout (not the active one), each asking first.
+    fn layout_menu(self: &Rc<Self>, ctx: &str, layout: &str, active: bool) -> gtk::MenuButton {
+        let items = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .build();
+        let popover = gtk::Popover::builder().child(&items).build();
+        let rename = gtk::Button::builder()
+            .label("Rename…")
+            .css_classes(["flat"])
+            .build();
+        {
+            let me = Rc::downgrade(self);
+            let (ctx, layout, popover) = (ctx.to_owned(), layout.to_owned(), popover.clone());
+            rename.connect_clicked(move |_| {
+                popover.popdown();
+                if let Some(me) = me.upgrade() {
+                    me.ask_name(
+                        &format!("Rename {layout}"),
+                        "Rename",
+                        vec![
+                            "layout".into(),
+                            "mv".into(),
+                            layout.clone(),
+                            "-c".into(),
+                            ctx.clone(),
+                        ],
+                        &ctx,
+                    );
+                }
+            });
+        }
+        items.append(&rename);
+        if !active {
+            let delete = gtk::Button::builder()
+                .label("Delete…")
+                .css_classes(["flat"])
+                .build();
+            let me = Rc::downgrade(self);
+            let (ctx, layout, popover) = (ctx.to_owned(), layout.to_owned(), popover.clone());
+            delete.connect_clicked(move |_| {
+                popover.popdown();
+                if let Some(me) = me.upgrade() {
+                    me.confirm(
+                        &format!("Delete the layout {layout}?"),
+                        "Its windows stay open; they are not arranged by it any more.",
+                        "Delete",
+                        vec![
+                            "layout".into(),
+                            "rm".into(),
+                            layout.clone(),
+                            "-c".into(),
+                            ctx.clone(),
+                        ],
+                        &ctx,
+                    );
+                }
+            });
+            items.append(&delete);
+        }
+        gtk::MenuButton::builder()
+            .icon_name("view-more-symbolic")
+            .css_classes(["flat"])
+            .valign(gtk::Align::Center)
+            .popover(&popover)
+            .build()
     }
 
     fn render_windows(&self, item: &ContextItem) {

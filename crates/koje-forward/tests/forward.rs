@@ -283,9 +283,15 @@ async fn screencast_round_trip(
 
 /// A call and the broadcast `NotificationClosed`.
 async fn notifications(client: &Connection) {
+    // Only the signal this waits for: other services the fake bus runs may
+    // share its connection, and a portal's `Response` came first once (M3.25).
     let rule = MatchRule::builder()
         .msg_type(Type::Signal)
         .sender(NOTIFY)
+        .unwrap()
+        .interface(NOTIFY)
+        .unwrap()
+        .member("NotificationClosed")
         .unwrap()
         .build();
     let mut closed = MessageStream::for_match_rule(rule, client, None)
