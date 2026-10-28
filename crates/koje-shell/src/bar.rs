@@ -1,7 +1,7 @@
 //! One bar, a clone of GNOME's top bar (ADR 0047): a layer-shell surface
 //! along the top of a monitor that reserves its height (exclusive zone),
-//! workspaces on the left, the clock in the middle, tray, koje menu and Quick
-//! Settings on the right. It renders a [`BarView`] and turns clicks into
+//! workspaces and the current context's stash on the left, the clock in the
+//! middle, tray, koje menu and Quick Settings on the right. It renders a [`BarView`] and turns clicks into
 //! [`Action`]s.
 
 use std::cell::RefCell;
@@ -19,7 +19,8 @@ use crate::background_ui::Background;
 use crate::bar_layout::bar_box;
 use crate::clock::Clock;
 use crate::menu_ui::MenuWidget;
-use crate::model::{Action, BarView, OverlayButton, Shell, WorkspaceButton};
+use crate::model::{Accent, Action, BarView, OverlayButton, Shell, WorkspaceButton};
+use crate::overview::Stash;
 use crate::overview_ui::OverviewSurface;
 use crate::quick_ui::QuickWidget;
 
@@ -29,6 +30,7 @@ pub struct Bar {
     window: gtk::Window,
     actions: UnboundedSender<Action>,
     workspaces: gtk::Box,
+    stash: StashButton,
     menu: MenuWidget,
     quick: QuickWidget,
     warning: gtk::Box,
@@ -72,6 +74,14 @@ impl Bar {
             .halign(gtk::Align::Start)
             .build();
 
+        let stash = StashButton::new(&actions);
+        let start = gtk::Box::builder()
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Start)
+            .build();
+        start.append(&workspaces);
+        start.append(stash.widget());
+
         let menu = MenuWidget::new(&actions);
         let warning_text = gtk::Label::new(None);
         let warning = gtk::Box::builder()
@@ -88,7 +98,7 @@ impl Bar {
         end.append(quick.widget());
 
         let clock = Clock::new(&actions);
-        let layout = bar_box(&workspaces, clock.widget(), &end);
+        let layout = bar_box(&start, clock.widget(), &end);
         window.set_child(Some(&layout));
         window.present();
         let overview = OverviewSurface::new(app, monitor, actions.clone(), shell);
@@ -99,6 +109,7 @@ impl Bar {
             window,
             actions,
             workspaces,
+            stash,
             menu,
             quick,
             warning,
@@ -154,6 +165,7 @@ impl Bar {
         } else {
             self.render_workspaces(view);
         }
+        self.stash.render(view.stash.as_ref());
         self.menu.render(view.menu.as_ref());
         self.clock.render(&view.date);
         self.quick.render(&view.quick);
@@ -317,6 +329,111 @@ impl Bar {
         self.overview.close();
         self.background.close();
         self.window.destroy();
+    }
+}
+
+/// The current context's stash (M8.101): how many windows it holds; a click
+/// lists them, a click on one brings it back. Hidden while it is empty.
+#[derive(Debug)]
+struct StashButton {
+    button: gtk::MenuButton,
+    count: gtk::Label,
+    list: gtk::Box,
+    actions: UnboundedSender<Action>,
+    shown: RefCell<Option<Stash>>,
+}
+
+impl StashButton {
+    fn new(actions: &UnboundedSender<Action>) -> Self {
+        let count = gtk::Label::new(None);
+        let face = gtk::Box::builder().spacing(6).build();
+        face.append(&gtk::Image::from_icon_name("view-conceal-symbolic"));
+        face.append(&count);
+        let list = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .css_classes(["stash-list"])
+            .build();
+        let popover = gtk::Popover::builder().child(&list).build();
+        crate::popup::keep_inside(&popover);
+        let button = gtk::MenuButton::builder()
+            .child(&face)
+            .popover(&popover)
+            .css_classes(["panel-button", "stash-button"])
+            .visible(false)
+            .build();
+        Self {
+            button,
+            count,
+            list,
+            actions: actions.clone(),
+            shown: RefCell::new(None),
+        }
+    }
+
+    fn widget(&self) -> &gtk::MenuButton {
+        &self.button
+    }
+
+    fn render(&self, stash: Option<&Stash>) {
+        if self.shown.borrow().as_ref() == stash {
+            return;
+        }
+        // The context's color on its icon.
+        if let Some(old) = self.shown.replace(stash.cloned()) {
+            self.button
+                .remove_css_class(&Accent::Context(old.context).css_class());
+        }
+        while let Some(child) = self.list.first_child() {
+            self.list.remove(&child);
+        }
+        let Some(stash) = stash else {
+            if let Some(p) = self.button.popover() {
+                p.popdown();
+            }
+            self.button.set_visible(false);
+            return;
+        };
+        self.button
+            .add_css_class(&Accent::Context(stash.context.clone()).css_class());
+        let n = stash.windows.len();
+        self.count.set_label(&n.to_string());
+        self.button.set_tooltip_text(Some(&format!(
+            "Stash of {}: {n} hidden window{}",
+            stash.context,
+            if n == 1 { "" } else { "s" }
+        )));
+        for w in &stash.windows {
+            let row = gtk::Box::builder().spacing(8).build();
+            let icon = gtk::Image::from_gicon(&crate::app_info::icon(&w.app));
+            icon.set_pixel_size(16);
+            row.append(&icon);
+            row.append(
+                &gtk::Label::builder()
+                    .label(&w.title)
+                    .xalign(0.0)
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
+                    .max_width_chars(40)
+                    .build(),
+            );
+            let item = gtk::Button::builder()
+                .child(&row)
+                .css_classes(["flat", "stash-item"])
+                .tooltip_text(format!("Bring back: {}", w.title))
+                .build();
+            let (actions, button) = (self.actions.clone(), self.button.clone());
+            let unstash = Action::Unstash {
+                context: stash.context.clone(),
+                address: w.address.clone(),
+            };
+            let focus = Action::FocusWindow(w.address.clone());
+            item.connect_clicked(move |_| {
+                let _ = actions.send(unstash.clone());
+                let _ = actions.send(focus.clone());
+                button.popdown();
+            });
+            self.list.append(&item);
+        }
+        self.button.set_visible(true);
     }
 }
 

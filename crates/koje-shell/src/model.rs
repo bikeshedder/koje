@@ -381,6 +381,8 @@ pub struct BarView {
     pub workspaces: Vec<WorkspaceButton>,
     /// The overlays after them (M8.34), in `config.toml`'s order.
     pub overlays: Vec<OverlayButton>,
+    /// The current context's stash while it holds windows (M8.101).
+    pub stash: Option<Stash>,
     /// The date menu (M8.81).
     pub date: DateView,
     /// How to show them (ADR 0047).
@@ -743,6 +745,7 @@ impl Shell {
         BarView {
             workspaces: self.workspace_buttons(mon),
             overlays: self.overlay_buttons(mon),
+            stash: self.stash(mon).filter(|s| !s.windows.is_empty()),
             date: DateView {
                 notifications: self
                     .notifications
@@ -888,6 +891,32 @@ impl Shell {
             .map(|m| m.name.as_str())
     }
 
+    /// The stash of the context whose workspace `mon` shows, most recent
+    /// first; `None` on a host workspace.
+    fn stash(&self, mon: Option<&MonitorState>) -> Option<Stash> {
+        let current = mon.map_or("", |m| m.active_workspace.as_str());
+        let accent = self.accent(current);
+        let Accent::Context(name) = &accent else {
+            return None;
+        };
+        let ctx = name.parse::<koje_core::name::ContextName>().ok()?;
+        let stash = koje_core::live_layouts::stash_workspace(&ctx);
+        let mut stashed: Vec<&WindowState> = self
+            .desktop
+            .windows
+            .iter()
+            .filter(|w| w.workspace == stash)
+            .collect();
+        stashed.sort_by_key(|w| w.focus_history);
+        Some(Stash {
+            context: name.clone(),
+            windows: stashed
+                .into_iter()
+                .map(|w| WindowCard::new(w, accent.clone()))
+                .collect(),
+        })
+    }
+
     /// The overview of the monitor with connector `monitor` (ADR 0049);
     /// the dash only on the focused one. `host` finds the host's desktop
     /// files.
@@ -896,25 +925,7 @@ impl Shell {
         let windows = &self.desktop.windows;
         let current = mon.map_or("", |m| m.active_workspace.as_str());
         let accent = self.accent(current);
-        let stash = match &accent {
-            Accent::Context(name) => name
-                .parse::<koje_core::name::ContextName>()
-                .ok()
-                .map(|ctx| {
-                    let stash = koje_core::live_layouts::stash_workspace(&ctx);
-                    let mut stashed: Vec<&WindowState> =
-                        windows.iter().filter(|w| w.workspace == stash).collect();
-                    stashed.sort_by_key(|w| w.focus_history);
-                    Stash {
-                        context: name.clone(),
-                        windows: stashed
-                            .into_iter()
-                            .map(|w| WindowCard::new(w, accent.clone()))
-                            .collect(),
-                    }
-                }),
-            Accent::Host => None,
-        };
+        let stash = self.stash(mon);
         let focused = mon.is_none_or(|m| m.focused);
         let contexts: Vec<String> = self.contexts().iter().map(|c| c.name.clone()).collect();
         let active = match &accent {
@@ -1158,6 +1169,21 @@ mod tests {
         d.monitors[0].special = Some("mail".into());
         s.apply(Update::Desktop(d));
         assert_eq!(s.current_workspace().as_deref(), Some("special:mail"));
+    }
+
+    #[test]
+    fn the_bar_shows_the_current_contexts_stash_while_it_holds_windows() {
+        let stash = shell().bar(Some("eDP-1")).stash.expect("kp's stash");
+        assert_eq!(stash.context, "kp");
+        let addresses: Vec<&str> = stash.windows.iter().map(|w| w.address.as_str()).collect();
+        assert_eq!(addresses, ["0xd", "0xc"]);
+        assert_eq!(shell().bar(Some("DP-1")).stash, None, "a host workspace");
+        let mut s = shell();
+        let mut d = desktop();
+        d.windows
+            .retain(|w| !w.workspace.starts_with("special:stash-"));
+        s.apply(Update::Desktop(d));
+        assert_eq!(s.bar(Some("eDP-1")).stash, None, "an empty stash");
     }
 
     #[test]
