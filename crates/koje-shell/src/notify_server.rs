@@ -28,6 +28,8 @@ pub enum Request {
     Activate { id: u32, action: Option<String> },
     /// Its close button.
     Dismiss(u32),
+    /// A group's close button: all of the app's notifications.
+    DismissGroup(Vec<u32>),
     /// The banner went away by itself.
     BannerDone(u32),
     /// The date menu's "Clear".
@@ -308,6 +310,14 @@ impl Server {
                     closed(id, Closed::Dismissed).await;
                 }
                 self.banner_gone(id).await;
+            }
+            Request::DismissGroup(ids) => {
+                for id in ids {
+                    if self.state.lock().await.tray.remove(id) {
+                        closed(id, Closed::Dismissed).await;
+                    }
+                    self.banner_gone(id).await;
+                }
             }
             Request::BannerDone(id) => {
                 let gone = self.state.lock().await.tray.banner_done(id);

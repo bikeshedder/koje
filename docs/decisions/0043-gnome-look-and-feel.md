@@ -1,6 +1,6 @@
 # 0043. GNOME's look and feel, with libadwaita
 
-- Status: Accepted (the bar's design: ADR 0047 – a clone of GNOME's top bar; Super alone: ADR 0049 – the overview)
+- Status: Accepted (notifications: ADR 0058; the bar's design: ADR 0047 – a clone of GNOME's top bar; Super alone: ADR 0049 – the overview)
 - Date: 2026-10-25
 - Source: discussion (the look of koje's GTK4 UI, ADR 0042); answers the open
   question "Look of koje's GTK4 UI"
@@ -37,7 +37,8 @@ ADR 0042 left open whether koje's GTK4 UI uses libadwaita or its own CSS.
   brightness, keyboard layout and the dark style. koje's own parts (task list,
   active context, memory, overlays, layouts) fit into this layout; their places
   are settled in the bar tasks.
-- **OSD and notifications** look and sit like GNOME's.
+- **OSD and notifications** look and sit like GNOME's (notifications: amended
+  by ADR 0058 – grouped by app and compact, as in Android).
 - **Session look:** the Adwaita icon and cursor themes and GNOME's fonts; light
   and dark through `org.gnome.desktop.interface color-scheme`, which GTK apps
   and the settings portal read – so apps in contexts follow it too (ADR 0019).

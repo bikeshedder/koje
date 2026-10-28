@@ -2,10 +2,13 @@
 //! `org.gnome.desktop.interface`'s `clock-format`, `clock-show-date`,
 //! `clock-show-weekday` and `clock-show-seconds`. A click opens GNOME
 //! Shell 50's date menu (M8.81, `dateMenu.js`, `calendar.js`): the
-//! notifications on the left, today and the calendar on the right; a dot
-//! beside the clock while there are unseen notifications.
+//! notifications on the left – a card per app, as Android groups them
+//! (M8.99, ADR 0058) – today and the calendar on the right; a dot beside the
+//! clock while there are unseen notifications.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use gtk4 as gtk;
 use gtk4::prelude::*;
@@ -14,17 +17,16 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::model::{Action, DateView};
 use crate::notifications::groups;
-use crate::notifications_ui::{Place, follow_style, message};
+use crate::notifications_ui::{Place, follow_style, group_card};
 use crate::notify_server::Request;
 
 /// GNOME's date menu (`_calendar.scss`, `_message-list.scss`): the list
-/// 29em wide with a hairline on its right, cards 12 px apart; the
+/// 29em wide with a hairline on its right; koje's cards 6 px apart; the
 /// placeholder's 96 px icon; today's date as a heading.
 pub const CSS: &str = "
 .date-menu .message-list { min-width: 29em; border-right: 1px solid alpha(currentColor, 0.1); margin-right: 4px; padding-right: 6px; }
-.date-menu .message-view .message { margin-bottom: 12px; border-radius: 18px; }
+.date-menu .message-view .message { margin-bottom: 6px; }
 .date-menu .message-view { margin-right: 12px; }
-.date-menu .message-group-title { font-size: 15pt; font-weight: 800; margin: 0 4px; padding: 6px; }
 .date-menu .message-list-placeholder { color: alpha(currentColor, 0.45); font-size: 15pt; font-weight: 700; }
 .date-menu .message-list-placeholder image { -gtk-icon-size: 96px; margin-bottom: 12px; }
 .date-menu .message-list-controls { padding: 12px 12px 9px 12px; font-weight: bold; }
@@ -115,6 +117,8 @@ pub struct Clock {
     indicator: gtk::Box,
     pad: gtk::Box,
     shown: RefCell<Option<DateView>>,
+    /// The groups the user expanded or collapsed, by key.
+    expanded: Rc<RefCell<BTreeMap<String, bool>>>,
 }
 
 impl Clock {
@@ -164,6 +168,7 @@ impl Clock {
             indicator,
             pad,
             shown: RefCell::new(None),
+            expanded: Rc::default(),
         });
         // Always open on today, with fresh times; what is in it is seen.
         {
@@ -214,32 +219,44 @@ impl Clock {
         self.shown.replace(Some(view.clone()));
     }
 
-    /// The list, grouped by app as GNOME groups it, newest first.
+    /// The list: a card per app and context, newest first.
     fn fill(&self, view: &DateView) {
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
         let now = glib::DateTime::now_local().map_or(0, |d| d.to_unix());
         let plain: Vec<_> = view.notifications.iter().map(|(n, _)| n.clone()).collect();
-        for (app, items) in groups(&plain) {
-            if items.len() > 1 {
-                self.list.append(
-                    &gtk::Label::builder()
-                        .label(&app)
-                        .xalign(0.0)
-                        .css_classes(["message-group-title"])
-                        .build(),
-                );
-            }
-            for n in items {
-                let accent = view
-                    .notifications
-                    .iter()
-                    .find(|(x, _)| x.id == n.id)
-                    .and_then(|(_, a)| a.clone());
-                self.list
-                    .append(&message(n, now, Place::List, &self.actions, accent));
-            }
+        let all = groups(&plain);
+        self.expanded
+            .borrow_mut()
+            .retain(|key, _| all.iter().any(|g| g.key == *key));
+        for group in all {
+            let accent = view
+                .notifications
+                .iter()
+                .find(|(x, _)| x.id == group.items[0].id)
+                .and_then(|(_, a)| a.clone());
+            let expanded = self
+                .expanded
+                .borrow()
+                .get(&group.key)
+                .copied()
+                .unwrap_or_else(|| group.expanded_by_default());
+            let on_toggle = {
+                let (memory, key) = (self.expanded.clone(), group.key.clone());
+                move |on| {
+                    memory.borrow_mut().insert(key.clone(), on);
+                }
+            };
+            self.list.append(&group_card(
+                &group,
+                now,
+                Place::List,
+                &self.actions,
+                accent,
+                expanded,
+                on_toggle,
+            ));
         }
         let empty = view.notifications.is_empty();
         self.placeholder.set_visible(empty);

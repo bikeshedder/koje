@@ -1,8 +1,8 @@
 //! Notifications (M8.36) as GNOME Shell 50 handles them
 //! (`notificationDaemon.js`, `messageTray.js`, `messageList.js`), without
 //! GTK: what a `Notify` call becomes, the list the date menu shows, the
-//! banners waiting their turn, and the texts – markup as GNOME allows it,
-//! times as GNOME words them.
+//! banners waiting their turn, and the texts – markup as GNOME allows it.
+//! The list groups them by app as Android does (M8.99, ADR 0058).
 
 use std::collections::VecDeque;
 
@@ -304,49 +304,84 @@ pub fn escape(text: &str) -> String {
     out
 }
 
-/// GNOME's `formatTimeSpan`: how long ago, in words.
-pub fn time_span(now: i64, then: i64) -> String {
+/// How long ago, as short as Android words it: `now`, `5m`, `3h`, `2d`,
+/// `3w`, `4mo`, `2y`.
+pub fn short_span(now: i64, then: i64) -> String {
     let seconds = (now - then).max(0);
-    let minutes = seconds / 60;
-    let hours = seconds / 3600;
     let days = seconds / 86_400;
-    let weeks = days / 7;
-    let months = days / 30;
-    let years = weeks / 52;
-    let n = |count: i64, unit: &str| {
-        if count == 1 {
-            format!("1 {unit} ago")
-        } else {
-            format!("{count} {unit}s ago")
-        }
-    };
-    if minutes < 5 {
-        "Just now".to_owned()
-    } else if hours < 1 {
-        n(minutes, "minute")
+    if seconds < 60 {
+        "now".to_owned()
+    } else if seconds < 3600 {
+        format!("{}m", seconds / 60)
     } else if days < 1 {
-        n(hours, "hour")
-    } else if days < 2 {
-        "Yesterday".to_owned()
-    } else if days < 15 {
-        n(days, "day")
-    } else if weeks < 8 {
-        n(weeks, "week")
-    } else if years < 1 {
-        n(months, "month")
+        format!("{}h", seconds / 3600)
+    } else if days < 14 {
+        format!("{days}d")
+    } else if days < 60 {
+        format!("{}w", days / 7)
+    } else if days < 365 {
+        format!("{}mo", days / 30)
     } else {
-        n(years, "year")
+        format!("{}y", days / 365)
     }
 }
 
-/// Notifications grouped by app for the date menu, as GNOME groups them:
-/// the app whose newest notification is newest first.
-pub fn groups(list: &[Notification]) -> Vec<(String, Vec<&Notification>)> {
-    let mut out: Vec<(String, Vec<&Notification>)> = Vec::new();
+/// One app's notifications in one context, as Android groups them: one
+/// card in the list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Group<'a> {
+    /// Stable while the group is there: what its expanded state is kept by.
+    pub key: String,
+    pub app_name: String,
+    /// The newest one's app icon.
+    pub app_icon: Option<String>,
+    pub context: Option<String>,
+    /// Newest first.
+    pub items: Vec<&'a Notification>,
+}
+
+impl Group<'_> {
+    /// Shown expanded unless the user says otherwise: when one of them is
+    /// critical (GNOME expands those by themselves).
+    pub fn expanded_by_default(&self) -> bool {
+        self.items.iter().any(|n| n.urgency == Urgency::Critical)
+    }
+
+    /// Collapsed, the card shows the newest in full, the next ones as a
+    /// line each, then how many more there are: `(lines, more)`.
+    pub fn collapsed(&self) -> (usize, usize) {
+        let rest = self.items.len().saturating_sub(1);
+        let lines = rest.min(COLLAPSED_LINES);
+        (lines, rest - lines)
+    }
+
+    pub fn ids(&self) -> Vec<u32> {
+        self.items.iter().map(|n| n.id).collect()
+    }
+}
+
+/// Older notifications a collapsed group shows as a line each.
+const COLLAPSED_LINES: usize = 2;
+
+/// Notifications grouped by app and context, the group whose newest
+/// notification is newest first.
+pub fn groups(list: &[Notification]) -> Vec<Group<'_>> {
+    let mut out: Vec<Group<'_>> = Vec::new();
     for n in list {
-        match out.iter_mut().find(|(app, _)| *app == n.app_name) {
-            Some((_, items)) => items.push(n),
-            None => out.push((n.app_name.clone(), vec![n])),
+        let key = format!(
+            "{}\u{1f}{}",
+            n.app_name,
+            n.context.as_deref().unwrap_or_default()
+        );
+        match out.iter_mut().find(|g| g.key == key) {
+            Some(g) => g.items.push(n),
+            None => out.push(Group {
+                key,
+                app_name: n.app_name.clone(),
+                app_icon: n.app_icon.clone(),
+                context: n.context.clone(),
+                items: vec![n],
+            }),
         }
     }
     out
@@ -497,22 +532,22 @@ mod tests {
     }
 
     #[test]
-    fn times_as_gnome_words_them() {
+    fn times_as_short_as_android_words_them() {
         let m = 60;
         let h = 3600;
         let d = 86_400;
-        assert_eq!(time_span(4 * m, 0), "Just now");
-        assert_eq!(time_span(5 * m, 0), "5 minutes ago");
-        assert_eq!(time_span(h, 0), "1 hour ago");
-        assert_eq!(time_span(d + h, 0), "Yesterday");
-        assert_eq!(time_span(3 * d, 0), "3 days ago");
-        assert_eq!(time_span(20 * d, 0), "2 weeks ago");
-        assert_eq!(time_span(100 * d, 0), "3 months ago");
-        assert_eq!(time_span(800 * d, 0), "2 years ago");
+        assert_eq!(short_span(59, 0), "now");
+        assert_eq!(short_span(5 * m, 0), "5m");
+        assert_eq!(short_span(h, 0), "1h");
+        assert_eq!(short_span(d + h, 0), "1d");
+        assert_eq!(short_span(20 * d, 0), "2w");
+        assert_eq!(short_span(100 * d, 0), "3mo");
+        assert_eq!(short_span(800 * d, 0), "2y");
+        assert_eq!(short_span(0, 10), "now", "a clock gone back");
     }
 
     #[test]
-    fn groups_by_app_newest_first() {
+    fn groups_by_app_and_context_newest_first() {
         let mut t = Tray::default();
         t.notify(incoming("1"), None, 0);
         t.notify(
@@ -524,10 +559,59 @@ mod tests {
             0,
         );
         t.notify(incoming("3"), None, 0);
+        t.notify(
+            Incoming {
+                context: Some("work".into()),
+                ..incoming("4")
+            },
+            None,
+            0,
+        );
         let g = groups(&t.list);
-        assert_eq!(g[0].0, "Firefox");
-        assert_eq!(g[0].1.len(), 2);
-        assert_eq!(g[1].0, "Mail");
+        let shape: Vec<_> = g
+            .iter()
+            .map(|g| (g.app_name.as_str(), g.context.as_deref(), g.items.len()))
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                ("Firefox", Some("work"), 1),
+                ("Firefox", None, 2),
+                ("Mail", None, 1)
+            ]
+        );
+        assert_eq!(g[1].items[0].title, "3");
+        assert_ne!(g[0].key, g[1].key);
+    }
+
+    #[test]
+    fn a_collapsed_group_shows_the_newest_two_lines_and_a_count() {
+        let mut t = Tray::default();
+        for i in 0..5 {
+            t.notify(incoming(&i.to_string()), None, 0);
+        }
+        let all = groups(&t.list);
+        assert_eq!(all[0].collapsed(), (2, 2));
+        let one = Group {
+            items: vec![&t.list[0]],
+            ..all[0].clone()
+        };
+        assert_eq!(one.collapsed(), (0, 0));
+        let two = Group {
+            items: vec![&t.list[0], &t.list[1]],
+            ..all[0].clone()
+        };
+        assert_eq!(two.collapsed(), (1, 0));
+        assert!(!all[0].expanded_by_default());
+        t.notify(
+            Incoming {
+                urgency: Urgency::Critical,
+                ..incoming("!")
+            },
+            None,
+            0,
+        );
+        assert!(groups(&t.list)[0].expanded_by_default());
     }
 
     #[test]
