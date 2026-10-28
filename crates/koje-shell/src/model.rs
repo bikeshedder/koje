@@ -778,6 +778,17 @@ impl Shell {
         &self.desktop.windows
     }
 
+    /// The workspace shown on the focused monitor, named as
+    /// [`WindowState::workspace`]: the open overlay, else the active one.
+    pub fn current_workspace(&self) -> Option<String> {
+        let mon = self.monitor(self.focused_monitor())?;
+        Some(
+            mon.special
+                .as_ref()
+                .map_or_else(|| mon.active_workspace.clone(), |s| format!("special:{s}")),
+        )
+    }
+
     /// The names of the running contexts.
     pub fn running(&self) -> Vec<String> {
         self.contexts().iter().map(|c| c.name.clone()).collect()
@@ -1137,6 +1148,16 @@ mod tests {
         assert_eq!(addresses(&stash.windows), ["0xd", "0xc"]);
         // The strip is the bar's list.
         assert_eq!(o.workspaces, shell().bar(Some("eDP-1")).workspaces);
+    }
+
+    #[test]
+    fn the_current_workspace_is_the_open_overlay_or_the_active_one() {
+        assert_eq!(shell().current_workspace().as_deref(), Some("kp"));
+        let mut s = shell();
+        let mut d = desktop();
+        d.monitors[0].special = Some("mail".into());
+        s.apply(Update::Desktop(d));
+        assert_eq!(s.current_workspace().as_deref(), Some("special:mail"));
     }
 
     #[test]

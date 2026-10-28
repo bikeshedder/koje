@@ -1,6 +1,7 @@
-//! Alt+Tab as GNOME's (M8.49, ADR 0049): the apps with windows, the most
-//! recently used first, one entry per (app, context); Alt+grave (the key above Tab) goes through
-//! one app's windows. Pure: the UI keeps the selection and renders.
+//! Alt+Tab as GNOME's (M8.49, ADR 0049): the apps with windows on the
+//! current workspace (M8.100), the most recently used first, one entry per
+//! (app, context); Alt+grave (the key above Tab) goes through one app's
+//! windows. Pure: the UI keeps the selection and renders.
 
 use crate::model::{Accent, WindowState};
 
@@ -21,10 +22,24 @@ pub struct SwitchWindow {
     pub stashed: bool,
 }
 
-/// The apps of all windows on every workspace – stashed ones too, as GNOME
-/// lists minimized ones –, ordered by their most recent window.
-pub fn apps(windows: &[WindowState], running: &[String]) -> Vec<SwitchApp> {
-    let mut ws: Vec<&WindowState> = windows.iter().collect();
+/// The apps of the windows on `workspace` (a name as in
+/// [`WindowState::workspace`]; every workspace when `None`) – its context's
+/// stashed ones too, as GNOME lists minimized ones –, ordered by their most
+/// recent window.
+pub fn apps(
+    windows: &[WindowState],
+    running: &[String],
+    workspace: Option<&str>,
+) -> Vec<SwitchApp> {
+    let stash = workspace.map(|w| format!("special:stash-{w}"));
+    let mut ws: Vec<&WindowState> = windows
+        .iter()
+        .filter(|w| {
+            workspace.is_none_or(|current| {
+                w.workspace == current || stash.as_deref() == Some(w.workspace.as_str())
+            })
+        })
+        .collect();
     ws.sort_by_key(|w| w.focus_history);
     let mut out: Vec<SwitchApp> = Vec::new();
     for w in ws {
@@ -112,7 +127,7 @@ mod tests {
             win("0x5", "foot", "1", None, 4),
         ];
         let running = ["kp".to_owned(), "privat".to_owned()];
-        let a = apps(&windows, &running);
+        let a = apps(&windows, &running, None);
         let summary: Vec<(&str, Option<&str>, Vec<&str>)> = a
             .iter()
             .map(|a| {
@@ -134,6 +149,28 @@ mod tests {
         );
         assert!(a[2].windows[1].stashed);
         assert_eq!(a[3].accent, Accent::Host);
+    }
+
+    #[test]
+    fn only_the_current_workspace_and_its_stash() {
+        let windows = [
+            win("0x1", "firefox", "kp", Some("kp"), 2),
+            win("0x2", "foot", "privat", Some("privat"), 0),
+            win("0x3", "mail", "special:mail", None, 1),
+            win("0x4", "firefox", "special:stash-kp", Some("kp"), 3),
+            win("0x5", "foot", "1", None, 4),
+            win("0x6", "foot", "special:stash-privat", Some("privat"), 5),
+        ];
+        let running = ["kp".to_owned(), "privat".to_owned()];
+        let addresses = |workspace| -> Vec<String> {
+            apps(&windows, &running, Some(workspace))
+                .iter()
+                .flat_map(|a| a.windows.iter().map(|w| w.address.clone()))
+                .collect()
+        };
+        assert_eq!(addresses("kp"), ["0x1", "0x4"]);
+        assert_eq!(addresses("1"), ["0x5"]);
+        assert_eq!(addresses("special:mail"), ["0x3"]);
     }
 
     #[test]

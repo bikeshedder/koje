@@ -97,7 +97,8 @@ impl Switcher {
             return;
         }
         let shell = self.shell.borrow();
-        let apps = crate::switcher::apps(shell.windows(), &shell.running());
+        let workspace = shell.current_workspace();
+        let apps = crate::switcher::apps(shell.windows(), &shell.running(), workspace.as_deref());
         drop(shell);
         let items = if windows {
             let Some(app) = apps.into_iter().next() else {
