@@ -55,7 +55,7 @@ compositor process and may use Mutter's and the Shell's internals.
 
 | # | Area | Limitation | Experiment workaround | Upstream ask |
 |---|---|---|---|---|
-| L1 | Wayland isolation | Mutter has no `wp_security_context_v1`: no per-context socket and no sandbox flag. | Contexts use Mutter's socket. Mutter offers no screen-capture or virtual-input protocol to Wayland clients (capture is D-Bus, which contexts don't see, ADR 0019). Checked by G.2. | security-context-v1 |
+| L1 | Wayland isolation | Mutter has no `wp_security_context_v1`: no per-context socket and no sandbox flag. | Contexts use Mutter's socket. Mutter offers no screen-capture or virtual-input protocol to Wayland clients (capture is D-Bus, which contexts don't see, ADR 0019). G.2: a context client sees the same 38 globals as a host client; none captures, injects input, lists windows or reads the clipboard in the background. | security-context-v1 |
 | L2 | Window → context | Mutter knows no containers. | `Meta.Window.get_pid()` → kojed `ContextOfPid`. | – |
 | L3 | Same app in two contexts | `Shell.WindowTracker` maps a window to one `.desktop` by app id, in C. The dash groups Firefox of all contexts into one app. | Alt+Tab per workspace (`app-switcher current-workspace-only`). The dash's activate prefers the current workspace. **Grouping stays wrong**, except for programs whose app id koje can set per context (G.5: then the dash and Alt+Tab separate them). | Window → app hook |
 | L4 | Context apps in grid/search | `Shell.AppSystem` reads only XDG `.desktop` files. | kojed exports each context's entries. The extension filters grid, search and dash by workspace (internals). | Grid filter/provider API |

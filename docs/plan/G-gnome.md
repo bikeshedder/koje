@@ -14,8 +14,9 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
 
 - [x] **G.1 ADR 0059, plan, upstream list**
   - ADR 0059 (Proposed), this file, `docs/upstream/gnome-apis.md`, roadmap entry.
-- [ ] **G.2 Wayland globals for a context client on Mutter** *(host)*
+- [x] **G.2 Wayland globals for a context client on Mutter** *(host; ran in the lab)*
   - Done when: [report](../spikes/G.2-mutter-wayland-globals.md) lists every global a context client sees, and screen capture without the portal fails. Decides L1.
+  - Result: the same 38 globals as a host client; no capture, input injection, window list or background clipboard protocol; `grim`/`wf-recorder` fail. The shared socket is acceptable. Left for the host: the portal screen-sharing check, and the list with Xwayland running.
 - [ ] **G.3 Freezing a context under Mutter** *(host)*
   - Done when: [report](../spikes/G.3-mutter-freeze.md) says whether windows survive 1/10/30 min frozen with input going on, and what GNOME shows. Decides L8; if windows are lost, sleep needs another design before G.11.
 - [ ] **G.4 Headless gnome-shell for tests** *(host first, then dev container)*
