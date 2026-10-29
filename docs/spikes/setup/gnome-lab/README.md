@@ -20,6 +20,13 @@ podman exec -d koje-spike-a foot
 ./lab.sh stop                  # the lab and every spike container
 ```
 
+koje's extension (`gnome/extension/koje@koje.io`) is mounted from the
+repository and enabled; after changing it, `./lab.sh stop && ./lab.sh start`.
+The lab's session bus is `$XDG_RUNTIME_DIR/koje-gnome-lab/run/bus`, reachable
+from the dev container: `just test-extension` runs the adapter against the
+extension, and `DBUS_SESSION_BUS_ADDRESS=unix:path=… gdbus call --session -d
+io.koje.Extension …` calls it.
+
 Run `lab.sh` from a VS Code terminal of the dev container (it needs
 `WAYLAND_DISPLAY` from VS Code). `./lab.sh` without arguments lists the
 commands.
@@ -29,9 +36,9 @@ commands.
 | Part | What |
 |---|---|
 | `Containerfile` | Ubuntu 26.04 with gnome-shell, mutter-dev-bin (the devkit), PipeWire, the portals, foot, wayland-utils |
-| `lab-session.sh` | the container's entry point: a stand-in system bus, the session bus, PipeWire, then WirePlumber (it spins at full CPU if started together with PipeWire), then `gnome-shell --devkit --wayland --no-x11` |
+| `lab-session.sh` | the container's entry point: `XDG_CURRENT_DESKTOP=GNOME` (GNOME's Mutter defaults, such as dynamic workspaces, apply only then), a stand-in system bus, the session bus in the runtime directory, PipeWire, then WirePlumber (it spins at full CPU if started together with PipeWire), then `gnome-shell --devkit --wayland --no-x11` |
 | `lab@koje.io/` | lab-only extension: switches on unsafe mode, so `lab.sh eval` (`org.gnome.Shell.Eval`) works from the dev container |
-| `lab.sh` | start, stop, eval, run, exec, context, freeze, thaw |
+| `lab.sh` | start, stop, eval, run, exec, context, freeze, thaw; mounts koje's extension |
 
 The lab runs with `--pid=host` (the dev container's PID namespace; Podman needs
 `--cgroups=enabled` for that here). Contexts keep their own PID namespaces, so

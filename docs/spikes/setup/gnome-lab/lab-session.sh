@@ -6,8 +6,15 @@
 set -eu
 export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/system_bus_socket"
 export GTK_A11Y=none
+# As in a GNOME session on the host: GNOME's defaults for Mutter
+# (dynamic workspaces, workspaces on the primary monitor only) apply only then.
+export XDG_CURRENT_DESKTOP=GNOME
 dbus-daemon --session --fork --address="$DBUS_SYSTEM_BUS_ADDRESS"
-exec dbus-run-session -- sh -c '
+# The session bus in the runtime directory, which the dev container shares:
+# kojed and the koje-gnome tests reach the extension from there.
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+dbus-daemon --session --fork --address="$DBUS_SESSION_BUS_ADDRESS"
+exec sh -c '
   set -eu
   wait_for() { for _ in $(seq 50); do eval "$1" && return 0; sleep 0.2; done; echo "lab: timed out: $1" >&2; exit 1; }
   # WirePlumber started together with PipeWire spins at full CPU and never
@@ -19,6 +26,6 @@ exec dbus-run-session -- sh -c '
   # lab.sh finds the session bus here (the dev container shares its /proc
   # with nested containers, so looking for the process is ambiguous).
   echo "$DBUS_SESSION_BUS_ADDRESS" > "$XDG_RUNTIME_DIR/lab-session-bus"
-  gsettings set org.gnome.shell enabled-extensions "[\"lab@koje.io\"]"
+  gsettings set org.gnome.shell enabled-extensions "[\"lab@koje.io\", \"koje@koje.io\"]"
   gsettings set org.gnome.shell welcome-dialog-last-shown-version "999"
   exec gnome-shell --devkit --wayland --no-x11 "$@"' lab-session "$@"

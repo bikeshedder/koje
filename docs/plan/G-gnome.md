@@ -32,11 +32,15 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
 
 ## Build
 
-- [ ] **G.6 `koje-gnome` adapter**: zbus client of `io.koje.Shell1` implementing `koje_core::ports::Compositor`
+- [x] **G.6 `koje-gnome` adapter**: zbus client of `io.koje.Extension1` implementing `koje_core::ports::Compositor`
   - Done when: windows, events and every `CompositorCommand` map to calls; tests against a fake service; `just check`.
-  - Notes: interface designed here first (XML in `gnome/extension/koje@koje.io/dbus/`); `address` = `Meta.Window.get_id()` as decimal; workspace names `<context>` / `host-<n>`.
-- [ ] **G.7 Extension skeleton**: `io.koje.Shell1` (`Windows`, `ActiveWorkspace`, `Monitors`, `Apply`, event signals), workspace ↔ context map, context workspaces kept alive (L6)
+  - Interface: `gnome/extension/koje@koje.io/dbus/io.koje.Extension1.xml`, bus name `io.koje.Extension` (`io.koje.Shell` is koje-shell's app id). `address` = `Meta.Window.get_id()` as decimal. Workspace names: `<context>`, other workspaces their number from 1 (`host-<n>` would be a valid context name). `Apply(a(sa{sv}))` takes verbs; every command runs and failures come back as one error. `Connected` when the extension's bus name gets an owner.
+  - Tests: against a fake service over a peer-to-peer connection; the fake's introspection is compared with the XML file; `just test-extension` runs the adapter against the extension in the GNOME lab.
+- [x] **G.7 Extension skeleton**: `io.koje.Extension1` (`Windows`, `ActiveWorkspace`, `Monitors`, `Apply`, event signals), workspace ↔ context map, context workspaces kept alive (L6)
   - Done when: installable with `gnome-extensions install`; ESLint clean; checked on the host with `gdbus call`.
+  - Checked in the GNOME lab instead of the host (the lab mounts and enables the extension): every method and signal with `gdbus`; context windows moved and placed; an empty context workspace stays while kept (`keep-workspaces`) and goes when released; `gnome-extensions pack` with `--extra-source` for the modules and `dbus/`; `just lint-extension` clean.
+  - Found: the active workspace's index shifts when GNOME removes one before it, and Mutter reports it again; the extension reports only name changes. GNOME's `workspaces-only-on-primary` (default) limits a context's workspace to the primary monitor (L6).
+  - Follow-up for G.8: kojed must send `keep-workspaces` with its running contexts (a new `CompositorCommand`, nothing on Hyprland).
 - [ ] **G.8 kojed on GNOME**: picks the adapter (`KOJE_COMPOSITOR`, else `XDG_CURRENT_DESKTOP`); Hyprland-only services (gsettings bridge, DisplayConfig, overlays, binds, plugin) only with the Hyprland adapter; Wayland socket per G.2
   - Done when: `koje up`/`down`/`focus`/`run`/`save` work in a GNOME session on the host; unit tests for the selection.
 - [ ] **G.9 Glow and badge** for windows outside their context (ADR 0057's rule) in the extension; colors from kojed

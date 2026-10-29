@@ -1,0 +1,7 @@
+{
+  "uuid": "koje@koje.io",
+  "name": "koje",
+  "description": "koje's contexts in GNOME: windows, workspaces and what kojed asks for (ADR 0059).",
+  "shell-version": ["50"],
+  "url": "https://github.com/bikeshedder/koje"
+}

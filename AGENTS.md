@@ -44,6 +44,8 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 crates/koje-core   pure domain logic: names, config, states, layouts, limits, paths, ports (traits)
 crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
 crates/kojed       background service (Hyprland events, colors, memory watch)
+crates/koje-gnome  GNOME adapter (branch gnome, ADR 0059): Compositor port over koje's GNOME Shell extension
+gnome              koje's GNOME Shell extension (gnome/extension/koje@koje.io) and its ESLint setup
 crates/koje-shell  koje's GTK4 UI (ADR 0042): bar, overview, OSD, notifications, background, the settings app; later window overlays
 build             the Ubuntu 26.04 image `just deb` builds the package in (ADR 0045)
 plugin            koje's Hyprland plugin (C++, ADR 0051): the overview's windows, new windows as in GNOME (ADR 0052); built with the package in its Ubuntu container (build/, scripts/build-deb.sh)
@@ -69,6 +71,7 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 | run CLI | `just koje list` |
 | format | `just fmt` |
 | Debian package (ADR 0045) | `just deb`; on the host `just install` |
+| GNOME extension (branch gnome) | `just lint-extension`; with the GNOME lab running `just test-extension` |
 
 ## How to work here
 

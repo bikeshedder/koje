@@ -1,0 +1,10 @@
+{
+  "name": "koje-gnome-extension",
+  "private": true,
+  "description": "Lint setup for koje's GNOME Shell extension (just lint-extension).",
+  "type": "module",
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "eslint": "9.39.5"
+  }
+}

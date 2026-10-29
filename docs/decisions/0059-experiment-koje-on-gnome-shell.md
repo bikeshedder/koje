@@ -26,8 +26,8 @@ compositor process and may use Mutter's and the Shell's internals.
   branch `gnome`. The Hyprland path stays on that branch untouched until the
   experiment is evaluated (G.14). Removing it needs a new ADR.
 - **A GNOME Shell extension** (`gnome/extension/koje@koje.io`, GJS) is koje's
-  only code in the Shell. It is thin. It exports `io.koje.Shell1` on the session bus
-  (windows, events, move, resize, workspace, focus and close) and draws what is koje's: the glow and
+  only code in the Shell. It is thin. It exports `io.koje.Extension1` on the session bus
+  (bus name `io.koje.Extension`; `io.koje.Shell` is koje-shell's app id) with windows, events, move, resize, workspace, focus and close and draws what is koje's: the glow and
   badge on windows outside their context (0057's semantics), the sleep overlay (0024), and
   one top-bar indicator (context, memory, koje Settings). It also patches the app grid, search and dash
   so they follow the current workspace's context.
@@ -60,7 +60,7 @@ compositor process and may use Mutter's and the Shell's internals.
 | L3 | Same app in two contexts | `Shell.WindowTracker` maps a window to one `.desktop` by app id, in C. The dash groups Firefox of all contexts into one app. | Alt+Tab per workspace (`app-switcher current-workspace-only`). The dash's activate prefers the current workspace. **Grouping stays wrong**, except for programs whose app id koje can set per context (G.5: then the dash and Alt+Tab separate them). | Window → app hook |
 | L4 | Context apps in grid/search | `Shell.AppSystem` reads only XDG `.desktop` files. | kojed exports each context's entries. The extension filters grid, search and dash by workspace (internals). | Grid filter/provider API |
 | L5 | Launching on a context workspace | An app installed on the host launches on the host. | Patch AppIcon activation to run the context's entry. | as L3 |
-| L6 | Dynamic workspaces | GNOME removes empty workspaces and has no names. | Patch `WorkspaceTracker`; labels in thumbnails and the indicator. | Named/pinned workspaces |
+| L6 | Dynamic workspaces | GNOME removes empty workspaces and has no names. GNOME's default `workspaces-only-on-primary` shows the windows of other monitors on every workspace, so a context's workspace spans only the primary monitor (seen in G.7, not yet decided). | Patch `WorkspaceTracker` (G.7: context workspaces kojed keeps stay while empty); labels in thumbnails and the indicator. | Named/pinned workspaces |
 | L7 | Placing new windows | Mutter places Wayland windows itself. | Move on `window-created`. Possible one-frame flicker. | Placement hint for a trusted client |
 | L8 | Frozen contexts | Shell shows "not responding" for a frozen window once it is focused (within 10 s). Mutter queues at most 1 MiB per client; when the queue of a frozen program is full, Mutter disconnects it at the thaw and all its windows are lost (G.3). | Sleeping windows get no input: the overlay catches the pointer, the extension never focuses, moves or resizes them, and suppresses the close dialog for them. Untouched, they survived 30 min (G.3). | Per-window "suspended" state |
 | L9 | Foreign-window glow | – | An effect on `Meta.WindowActor`. Simpler than the plugin. | – |
@@ -68,7 +68,7 @@ compositor process and may use Mutter's and the Shell's internals.
 | L11 | Sharing a context | GNOME's picker offers monitors and windows, not workspaces. | none (as on Hyprland) | – |
 | L12 | Fragility | Internals change every release. Reloading the Shell on Wayland needs a logout. | `shell-version: ["50"]`. | the asks above |
 | L13 | Deferred features | No hidden/special workspaces. Minimized windows stay in the dash and Alt+Tab. | Layouts, stash and overlays are not built. | – |
-| L14 | Testing | Extension code is JS, outside `cargo test`. | Adapter tests against a fake `io.koje.Shell1`. Headless gnome-shell if G.4 works. | – |
+| L14 | Testing | Extension code is JS, outside `cargo test`. | Adapter tests against a fake `io.koje.Extension1`, checked against the interface file the extension loads; the adapter against the real extension in the GNOME lab (`just test-extension`); ESLint (`just lint-extension`). | – |
 
 ## Consequences
 

@@ -25,6 +25,15 @@ lint:
 test *ARGS:
     cargo test --workspace {{ARGS}}
 
+# Lint koje's GNOME Shell extension (ADR 0059; npm fetches ESLint once)
+lint-extension:
+    cd gnome && npm ci --no-audit --no-fund --silent && npx eslint extension
+
+# The GNOME adapter against the extension running in the GNOME lab
+# (docs/spikes/setup/gnome-lab: lab.sh start first)
+test-extension:
+    DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/koje-gnome-lab/run/bus cargo test -p koje-gnome --test extension -- --ignored
+
 # Build all crates
 build:
     cargo build --workspace

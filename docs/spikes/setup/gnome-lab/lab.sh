@@ -18,6 +18,8 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
+# koje's extension from the repository, enabled in the lab (G.7).
+extension=$(cd "$here/../../../../gnome/extension/koje@koje.io" && pwd)
 image=localhost/koje-gnome-lab
 lab=koje-gnome-lab
 run=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR not set}/koje-gnome-lab/run
@@ -71,6 +73,7 @@ case ${1:-} in
       -v "$parent:/run/host-wayland/wayland-0" -e WAYLAND_DISPLAY=/run/host-wayland/wayland-0 \
       -v "$here/lab-session.sh:/usr/local/bin/lab-session:ro" \
       -v "$here/lab@koje.io:/usr/share/gnome-shell/extensions/lab@koje.io:ro" \
+      -v "$extension:/usr/share/gnome-shell/extensions/koje@koje.io:ro" \
       --shm-size 1g "$image" lab-session >/dev/null
     readlink "/proc/$(podman inspect --format '{{.State.Pid}}' "$lab")/ns/mnt" > "$lab_ns_file"
     for _ in $(seq 30); do [[ -S "$run/wayland-0" ]] && break; sleep 1; done
