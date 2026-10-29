@@ -1,0 +1,25 @@
+[package]
+name = "koje-gnome"
+description = "GNOME Shell adapter for koje: implements koje-core's Compositor port over koje's GNOME Shell extension (ADR 0059)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+koje-core.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+zbus.workspace = true
+
+[dev-dependencies]
+quick-xml.workspace = true
+zbus = { workspace = true, features = ["p2p"] }
+
+[lints]
+workspace = true

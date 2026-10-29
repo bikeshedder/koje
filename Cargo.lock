@@ -871,6 +871,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "koje-gnome"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "koje-core",
+ "quick-xml 0.42.0",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "zbus",
+]
+
+[[package]]
 name = "koje-hyprland"
 version = "0.1.0"
 dependencies = [
@@ -1631,6 +1645,7 @@ version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
 dependencies = [
+ "getrandom",
  "js-sys",
  "serde_core",
  "wasm-bindgen",

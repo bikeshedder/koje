@@ -1,0 +1,67 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<!--
+  koje's GNOME Shell extension on the session bus (ADR 0059): bus name
+  io.koje.Extension, object /io/koje/Extension. kojed's adapter
+  (crates/koje-gnome) is the client; its tests check that this file and
+  their fake service agree.
+
+  Windows are named by Meta.Window.get_id(). Workspaces are named by the
+  context they belong to, other workspaces by their number from 1. Rectangles
+  are in logical pixels, relative to their monitor (a connector name).
+-->
+<node>
+  <interface name="io.koje.Extension1">
+    <!-- Every normal window: id, pid, app id, title, workspace, monitor, x, y, width, height. -->
+    <method name="Windows">
+      <arg name="windows" type="a(tussssiiuu)" direction="out"/>
+    </method>
+    <!-- The name of the workspace on screen. -->
+    <method name="ActiveWorkspace">
+      <arg name="name" type="s" direction="out"/>
+    </method>
+    <!-- Every monitor: connector, width, height, and the room panels take at the left, top, right, bottom. -->
+    <method name="Monitors">
+      <arg name="monitors" type="a(suuuuuu)" direction="out"/>
+    </method>
+    <!--
+      Run commands in order: (verb, arguments). Verbs and their arguments:
+        context-rule        tag s, active s, inactive s (colors #RRGGBB)
+        border-colors       window t, active s, inactive s
+        tag-window          window t, tag s
+        place               window t, monitor s, x i, y i, width u, height u
+        move-to-workspace   window t, workspace s
+        focus-window        window t
+        close-window        window t
+        focus-workspace     workspace s
+        carry-to-workspace  window t, workspace s
+        keep-workspaces     workspaces as (contexts whose workspace stays while empty)
+        toggle-special      name s (not available on GNOME: fails)
+      A context's workspace is made when a command names it. Every command
+      runs; failures are reported together in one error afterwards.
+    -->
+    <method name="Apply">
+      <arg name="commands" type="a(sa{sv})" direction="in"/>
+    </method>
+    <signal name="WindowOpened">
+      <arg name="window" type="t"/>
+      <arg name="workspace" type="s"/>
+      <arg name="app_id" type="s"/>
+      <arg name="title" type="s"/>
+    </signal>
+    <signal name="WindowClosed">
+      <arg name="window" type="t"/>
+    </signal>
+    <!-- 0: no window has the focus. -->
+    <signal name="WindowFocused">
+      <arg name="window" type="t"/>
+    </signal>
+    <signal name="WindowTitle">
+      <arg name="window" type="t"/>
+      <arg name="title" type="s"/>
+    </signal>
+    <signal name="WorkspaceFocused">
+      <arg name="name" type="s"/>
+    </signal>
+  </interface>
+</node>
