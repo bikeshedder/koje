@@ -17,6 +17,8 @@ export class Windows {
     constructor(workspaces, service) {
         this._workspaces = workspaces;
         this._service = service;
+        /** Called when a window changed its workspace. */
+        this.changed = () => {};
         /** id → {window, ids: signal handler ids} */
         this._tracked = new Map();
         this._idles = new Set();
@@ -55,6 +57,11 @@ export class Windows {
         if (!t)
             throw new Error(`no window ${id}`);
         return t.window;
+    }
+
+    /** Every tracked Meta.Window. */
+    all() {
+        return [...this._tracked.values()].map(t => t.window);
     }
 
     /** Every tracked window as `(tussssiiuu)`. */
@@ -102,10 +109,12 @@ export class Windows {
             w.connect('unmanaged', () => {
                 ids.forEach(i => w.disconnect(i));
                 this._tracked.delete(id);
+                this._service.forget(id);
                 this._service.emit('WindowClosed', '(t)', [id]);
             }),
             w.connect('notify::title', () =>
                 this._service.emit('WindowTitle', '(ts)', [id, w.get_title() ?? ''])),
+            w.connect('workspace-changed', () => this.changed()),
         ];
         this._tracked.set(id, {window: w, ids});
     }

@@ -18,6 +18,8 @@ export class Service {
         this._workspaces = workspaces;
         /** Set by the extension once the windows are tracked. */
         this.windows = null;
+        /** Called after every `Apply`. */
+        this.changed = () => {};
         /** Colors of a tag (`context-rule`), tags and colors of windows: drawn in G.9. */
         this.rules = new Map();
         this.tags = new Map();
@@ -34,6 +36,12 @@ export class Service {
         Gio.bus_unown_name(this._nameId);
         this._dbus.unexport();
         this._dbus = null;
+    }
+
+    /** A window is gone: its tag and colors too. */
+    forget(id) {
+        this.tags.delete(id);
+        this.colors.delete(id);
     }
 
     emit(signal, type, values) {
@@ -62,6 +70,7 @@ export class Service {
                 failed.push(`${verb}: ${e.message}`);
             }
         }
+        this.changed();
         if (failed.length > 0)
             invocation.return_dbus_error(ERROR, failed.join('; '));
         else

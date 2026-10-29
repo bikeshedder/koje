@@ -49,7 +49,10 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
   - Found: host workspace numbers must skip context workspaces (GNOME removed the empty first workspace, and `1` named the context's); fixed in the extension. The dev container's nested Podman has no cgroups, so window → context (L2) falls back to the PID namespace of the context's init (koje-podman).
   - Left for the host: the same run in a real GNOME session.
 - [ ] **G.16 kojed keeps running contexts' workspaces**: send `keep-workspaces` with the running contexts (a new `CompositorCommand`, nothing on Hyprland), so an empty running context keeps its workspace in GNOME's switcher (L6). Without it a context's workspace is made again when kojed names it.
-- [ ] **G.9 Glow and badge** for windows outside their context (ADR 0057's rule) in the extension; colors from kojed
+- [x] **G.9 Glow and badge** for windows outside their context (ADR 0057's rule) in the extension; colors from kojed
+  - `foreign.js`: the extension decides as the Hyprland plugin did, from kojed's `tag-window` (`koje-<context>`), `context-rule` and `border-colors` (the focus blip); nothing new from kojed. Glow and badge are siblings of the window's actor, bound to it with constraints, restacked on `restacked`.
+  - Checked in the GNOME lab (user looked): glow and badge in place; marks go when the window returns to its context's workspace and come back when it leaves; the badge moves inside under the top bar. St's `box-shadow` left trails while dragging, and one Cairo area as large as the window made dragging slow; the glow is now drawn with Cairo in four edge strips (clean and as fast as other windows).
+  - Not yet: `[desktop] foreign_glow`/`foreign_badge` (kojed's desktop settings are Hyprland-only); the overview's window previews show no marks.
 - [ ] **G.10 Context apps in GNOME's grid, search and dash** (L4/L5): kojed exports each running context's `.desktop` entries; the extension shows those of the current workspace and launches into its context
   - Notes: the same program in several contexts stays one app in the dash and Alt+Tab (L3, G.5); activation prefers the current workspace's windows. No per-context app ids yet.
 - [ ] **G.11 Sleep overlay**: "<context> is asleep – Wake up" on sleeping windows; GNOME's not-responding dialog suppressed for them (L8, after G.3)
