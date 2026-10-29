@@ -211,6 +211,33 @@ impl<R: Runner> Podman<R> {
         self.podman(&["volume", "rm", volume]).map(drop)
     }
 
+    /// Without a container cgroup (nested Podman without cgroups, as in the
+    /// dev container's GNOME lab): the context whose init shares the
+    /// process's PID namespace. Processes in koje's own namespace are the
+    /// host's; Podman is not asked for them.
+    fn context_of_pid_namespace(&self, pid: u32) -> Result<Option<ContextName>> {
+        let ns = |p: &str| std::fs::read_link(self.proc_root.join(p).join("ns/pid")).ok();
+        let Some(want) = ns(&pid.to_string()) else {
+            return Ok(None);
+        };
+        if ns("self").as_ref() == Some(&want) {
+            return Ok(None);
+        }
+        let format = format!("{{{{.Pid}}}} {{{{index .Labels \"{LABEL_CONTEXT}\"}}}}");
+        let out = self.podman(&[
+            "ps",
+            "--filter",
+            &format!("label={LABEL_CONTEXT}"),
+            "--format",
+            &format,
+        ])?;
+        Ok(out
+            .lines()
+            .filter_map(|l| l.trim().split_once(' '))
+            .find(|(init, _)| ns(init).as_ref() == Some(&want))
+            .and_then(|(_, ctx)| ContextName::new(ctx.trim()).ok()))
+    }
+
     /// Names of the dev containers running in the context (its nested Podman).
     pub fn dev_containers(&self, ctx: &ContextName) -> Result<Vec<String>> {
         let out = self.podman(&[
@@ -466,7 +493,7 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
             Err(source) => return Err(Error::Read { path, source }),
         };
         let Some(id) = container_id_from_cgroup(&text) else {
-            return Ok(None);
+            return self.context_of_pid_namespace(pid);
         };
         let format = format!("{{{{index .Config.Labels \"{LABEL_CONTEXT}\"}}}}");
         let label = self.inspect(id, &format)?.unwrap_or_default();
@@ -882,5 +909,38 @@ pub(crate) mod tests {
             let podman = Podman::with_runner(&fake, "/x", proc.path());
             assert_eq!(podman.context_of_pid(9).unwrap(), None, "{label:?}");
         }
+    }
+
+    #[test]
+    fn context_of_pid_by_pid_namespace_without_cgroups() {
+        // Nested Podman without cgroups: every process is in `0::/`.
+        let proc = proc_with_cgroup(42, "0::/\n");
+        let link = |pid: &str, ns: &str| {
+            let dir = proc.path().join(pid).join("ns");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::os::unix::fs::symlink(ns, dir.join("pid")).unwrap();
+        };
+        link("42", "pid:[111]");
+        link("self", "pid:[1]");
+        link("500", "pid:[222]");
+        link("600", "pid:[111]");
+        let fake = Fake::default().answer(true, "500 other\n600 kundenportal\n", "");
+        let podman = Podman::with_runner(&fake, "/x", proc.path());
+        assert_eq!(
+            podman.context_of_pid(42).unwrap(),
+            Some(ContextName::new("kundenportal").unwrap())
+        );
+        assert_eq!(
+            fake.calls.borrow()[0],
+            "ps --filter label=io.koje.context --format {{.Pid}} {{index .Labels \"io.koje.context\"}}"
+        );
+        // A process in koje's own namespace: the host's, Podman not asked.
+        std::fs::create_dir_all(proc.path().join("7")).unwrap();
+        std::fs::write(proc.path().join("7/cgroup"), "0::/\n").unwrap();
+        link("7", "pid:[1]");
+        let fake = Fake::default();
+        let podman = Podman::with_runner(&fake, "/x", proc.path());
+        assert_eq!(podman.context_of_pid(7).unwrap(), None);
+        assert!(fake.calls.borrow().is_empty());
     }
 }
