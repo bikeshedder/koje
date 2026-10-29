@@ -527,7 +527,26 @@ where
         self.running().await;
         self.running.get_or_insert_default().insert(ctx.clone());
         self.paused.remove(ctx);
+        let keep = self.keep_workspaces();
+        if let Err(e) = self.apply(&keep).await {
+            tracing::debug!("keeping workspaces: {e:#}");
+        }
         Ok(())
+    }
+
+    /// GNOME removes empty workspaces: the running contexts' stay (ADR 0059).
+    /// Nothing on a compositor with a stash (Hyprland keeps them otherwise).
+    fn keep_workspaces(&self) -> Vec<CompositorCommand> {
+        if self.compositor.has_stash() {
+            return Vec::new();
+        }
+        let workspaces = self
+            .running
+            .iter()
+            .flatten()
+            .map(windows::workspace)
+            .collect();
+        vec![CompositorCommand::KeepWorkspaces { workspaces }]
     }
 
     /// Every few seconds (M5.7, M5.8): take the live state of each running
@@ -685,6 +704,10 @@ where
         self.live.remove(ctx);
         self.quitting.remove(ctx);
         self.paused.remove(ctx);
+        let keep = self.keep_workspaces();
+        if let Err(e) = self.apply(&keep).await {
+            tracing::debug!("keeping workspaces: {e:#}");
+        }
     }
 
     /// The running contexts; the first time asked from the container runtime.
@@ -1139,6 +1162,7 @@ where
         }
         let mut commands = self.rules();
         commands.extend(self.windows.tags());
+        commands.extend(self.keep_workspaces());
         // A restarted GNOME Shell knows no sleeping context (ADR 0059).
         if !self.compositor.has_stash() {
             commands.extend(self.paused.iter().map(|c| windows::sleep_overlay(c, true)));
@@ -2584,6 +2608,19 @@ cwd = "/home/mj/src/kp"
         d.hide(&work).await.unwrap();
         assert!(d.is_paused(&work));
         assert_eq!(comp.take(), [overlay(true)]);
+        // The running contexts' workspaces stay (the fake runtime: all run).
+        d.stopped(&work).await;
+        assert!(matches!(
+            &comp.take()[..],
+            [CompositorCommand::KeepWorkspaces { workspaces }] if !workspaces.contains(&"work".to_owned())
+        ));
+        d.started(&work).await.unwrap();
+        assert!(matches!(
+            &comp.take()[..],
+            [CompositorCommand::KeepWorkspaces { workspaces }] if workspaces.contains(&"work".to_owned())
+        ));
+        d.hide(&work).await.unwrap();
+        comp.take();
         d.handle(CompositorEvent::Connected).await.unwrap();
         assert!(comp.take().contains(&overlay(true)));
         d.show(&work).await.unwrap();

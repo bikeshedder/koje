@@ -117,8 +117,9 @@ pub fn command(c: &CompositorCommand, monitors: &[Monitor]) -> Result<Vec<String
                 workspace_selector(workspace)?
             )]
         }
-        // Hyprland hides a sleeping context's windows in its stash instead.
-        C::SleepOverlay { .. } => Vec::new(),
+        // Hyprland hides a sleeping context's windows in its stash instead,
+        // and keeps a context's workspace by its beacon window (ADR 0028).
+        C::SleepOverlay { .. } | C::KeepWorkspaces { .. } => Vec::new(),
         // Pinned, a window goes along with its monitor's workspace (Hyprland
         // moves it, `movewindowv2`) and keeps the focus; unpinned it stays.
         C::CarryToWorkspace { address, workspace } => {

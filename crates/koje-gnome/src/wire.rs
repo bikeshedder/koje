@@ -145,6 +145,10 @@ pub fn command(c: &CompositorCommand) -> Result<Command> {
             "carry-to-workspace",
             vec![window(address)?, text("workspace", workspace)],
         ),
+        C::KeepWorkspaces { workspaces } => (
+            "keep-workspaces",
+            vec![("workspaces", Value::from(workspaces.clone()))],
+        ),
         C::SleepOverlay { context, asleep } => (
             "sleep",
             vec![text("context", context), ("asleep", Value::from(*asleep))],
@@ -262,6 +266,9 @@ mod tests {
                 context: "work".into(),
                 asleep: true,
             },
+            C::KeepWorkspaces {
+                workspaces: vec!["work".into()],
+            },
         ])
         .unwrap()
         .into_iter()
@@ -278,7 +285,8 @@ mod tests {
                 "close-window",
                 "focus-workspace",
                 "carry-to-workspace",
-                "sleep"
+                "sleep",
+                "keep-workspaces"
             ]
         );
     }

@@ -90,6 +90,11 @@ pub enum CompositorCommand {
         context: String,
         asleep: bool,
     },
+    /// The workspaces that stay while empty: the running contexts', on a
+    /// compositor that removes empty workspaces (GNOME, ADR 0059).
+    KeepWorkspaces {
+        workspaces: Vec<String>,
+    },
 }
 
 /// What the compositor reports (Hyprland: socket2 events, M2.2).
