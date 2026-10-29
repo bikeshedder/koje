@@ -8,6 +8,7 @@ import {Apps} from './apps.js';
 import {Foreign} from './foreign.js';
 import {Service} from './service.js';
 import {Sleep} from './sleep.js';
+import {TopBar} from './indicator.js';
 import {Windows} from './windows.js';
 import {Workspaces} from './workspaces.js';
 
@@ -29,15 +30,18 @@ export default class KojeExtension extends Extension {
         this._service.changed = update;
         this._windows.changed = update;
         this._apps = new Apps(this._workspaces);
+        this._topBar = new TopBar(this._workspaces);
     }
 
     disable() {
+        this._topBar.destroy();
         this._apps.destroy();
         this._sleep.destroy();
         this._foreign.destroy();
         this._windows.destroy();
         this._service.destroy();
         this._workspaces.destroy();
+        this._topBar = null;
         this._apps = null;
         this._sleep = null;
         this._foreign = null;
