@@ -555,6 +555,29 @@ impl Api {
         shown.map_err(|e| failed(&e))
     }
 
+    /// Wake a sleeping context (as `koje wake`): continue its container,
+    /// then show its windows – the sleep overlay's button on GNOME (ADR 0059).
+    async fn wake(
+        &self,
+        context: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
+        let ctx = context_arg(context)?;
+        let c = ctx.clone();
+        tokio::task::spawn_blocking(move || {
+            let podman = Podman::new();
+            if podman.status(&c)? == ContainerStatus::Paused {
+                podman.unpause(&c)?;
+            }
+            anyhow::Ok(())
+        })
+        .await
+        .map_err(|e| fdo::Error::Failed(e.to_string()))?
+        .map_err(|e| failed(&e))?;
+        self.show(context, emitter).await
+    }
+
     /// `snap <zone>`: the focused window to `left`, `right`, `maximize` or
     /// back (`restore`), below the bar (M8.41).
     async fn snap(&self, zone: &str) -> fdo::Result<()> {

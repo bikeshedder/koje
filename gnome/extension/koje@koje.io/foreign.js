@@ -5,15 +5,14 @@
 // (`tag-window`); its color the active color of the window's own
 // `border-colors` (kojed's focus blip) or of the tag's `context-rule`.
 //
-// Glow and badge are siblings of the window's actor, right below and above
-// it, bound to its position and visibility. The glow is drawn with Cairo
+// Glow and badge follow the window's actor (follow.js). The glow is drawn with Cairo
 // inside its own area, in four strips along the window's edges: St's
 // `box-shadow` left trails while the window was dragged, and one area as
 // large as the window made dragging slow (both seen in the GNOME lab).
 
-import Clutter from 'gi://Clutter';
-import GObject from 'gi://GObject';
 import St from 'gi://St';
+
+import {follow, frameIn, offsets, restack} from './follow.js';
 
 // The glow's strength: focused, unfocused (as the Hyprland plugin's).
 const GLOW_FOCUSED = 0.9;
@@ -77,7 +76,8 @@ export class Foreign {
         this._marks = new Map();
         this._displayIds = [
             global.display.connect('notify::focus-window', () => this.update()),
-            global.display.connect('restacked', () => this._marks.forEach(m => this._restack(m))),
+            global.display.connect('restacked', () => this._marks.forEach(
+                m => restack(m.actor, [m.glow], [m.badge]))),
         ];
     }
 
@@ -144,16 +144,10 @@ export class Foreign {
                 glow.add_child(strip);
             }
             const badge = new St.Label({name: 'koje-badge', reactive: false});
-            for (const a of [glow, badge]) {
-                for (const c of ['X', 'Y']) {
-                    a.add_constraint(new Clutter.BindConstraint({
-                        source: actor, coordinate: Clutter.BindCoordinate[c],
-                    }));
-                }
-                actor.bind_property('visible', a, 'visible', GObject.BindingFlags.SYNC_CREATE);
-            }
+            follow(glow, actor);
+            follow(badge, actor);
             m = {window: w, actor, glow, badge};
-            this._restack(m);
+            restack(actor, [glow], [badge]);
             m.ids = [w.connect('size-changed', () => this._place(m))];
             // The window is gone: its marks too.
             m.actorId = actor.connect('destroy', () => this._unmark(id));
@@ -170,31 +164,13 @@ export class Foreign {
         this._place(m);
     }
 
-    /** Glow right below the window, badge right above it. */
-    _restack({actor, glow, badge}) {
-        const parent = actor.get_parent();
-        for (const a of [glow, badge]) {
-            if (a.get_parent() !== parent) {
-                a.get_parent()?.remove_child(a);
-                parent?.add_child(a);
-            }
-        }
-        parent?.set_child_below_sibling(glow, actor);
-        parent?.set_child_above_sibling(badge, actor);
-    }
-
     // Offsets from the actor, which also holds client-side shadows and may
     // start below the frame (title bars as subsurfaces); the badge sits on
     // the top edge, inside the window where that edge is under the top bar.
     _place(m) {
         const {window: w, glow, badge} = m;
-        const frame = w.get_frame_rect();
-        const buffer = w.get_buffer_rect();
-        const x = frame.x - buffer.x;
-        const y = frame.y - buffer.y;
-        const [glowX, glowY] = glow.get_constraints();
-        glowX.offset = x - REACH;
-        glowY.offset = y - REACH;
+        const {x, y, frame} = frameIn(w);
+        offsets(glow, x - REACH, y - REACH);
         if (m.width !== frame.width || m.height !== frame.height) {
             Object.assign(m, {width: frame.width, height: frame.height});
             const W = frame.width + 2 * REACH;
@@ -213,9 +189,8 @@ export class Foreign {
         }
         const [, height] = badge.get_preferred_height(-1);
         const area = w.get_work_area_current_monitor();
-        const [badgeX, badgeY] = badge.get_constraints();
-        badgeX.offset = x + BADGE_LEFT;
-        badgeY.offset = frame.y - height / 2 < area.y ? y + 4 : y - Math.round(height / 2);
+        offsets(badge, x + BADGE_LEFT,
+            frame.y - height / 2 < area.y ? y + 4 : y - Math.round(height / 2));
     }
 
     _unmark(id) {

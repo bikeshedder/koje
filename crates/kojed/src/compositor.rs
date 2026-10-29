@@ -90,6 +90,13 @@ impl Compositor for Desktop {
         })
     }
 
+    fn has_stash(&self) -> bool {
+        match self {
+            Self::Hyprland(h) => h.has_stash(),
+            Self::Gnome(g) => g.has_stash(),
+        }
+    }
+
     async fn apply(&self, commands: &[CompositorCommand]) -> Result<(), Error> {
         match self {
             Self::Hyprland(h) => h.apply(commands).await?,

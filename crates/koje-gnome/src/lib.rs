@@ -130,6 +130,10 @@ impl Compositor for Gnome {
         let proxy = self.proxy().await?;
         self.call("Apply", proxy.apply(&commands)).await
     }
+
+    fn has_stash(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

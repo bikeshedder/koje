@@ -37,6 +37,7 @@
         focus-workspace     workspace s
         carry-to-workspace  window t, workspace s
         keep-workspaces     workspaces as (contexts whose workspace stays while empty)
+        sleep               context s, asleep b (its windows under the sleep overlay)
         toggle-special      name s (not available on GNOME: fails)
       A context's workspace is made when a command names it. Every command
       runs; failures are reported together in one error afterwards.

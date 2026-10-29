@@ -84,6 +84,12 @@ pub enum CompositorCommand {
         address: String,
         workspace: String,
     },
+    /// A context fell asleep or woke up, on a compositor without a stash
+    /// (GNOME, ADR 0059): its windows stay and get the sleep overlay.
+    SleepOverlay {
+        context: String,
+        asleep: bool,
+    },
 }
 
 /// What the compositor reports (Hyprland: socket2 events, M2.2).
@@ -133,6 +139,12 @@ pub trait Compositor {
         &self,
         commands: &[CompositorCommand],
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    /// Whether the compositor has hidden workspaces for a context's stash
+    /// (Hyprland). Without them (GNOME, ADR 0059) a sleeping context's
+    /// windows stay where they are under the sleep overlay.
+    fn has_stash(&self) -> bool {
+        true
+    }
 }
 
 /// Lifecycle of a context container as seen from koje.

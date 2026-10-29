@@ -74,6 +74,15 @@ pub fn move_to_context(
     })
 }
 
+/// A context's windows under the sleep overlay, or not (compositors
+/// without a stash, ADR 0059).
+pub fn sleep_overlay(ctx: &ContextName, asleep: bool) -> CompositorCommand {
+    CompositorCommand::SleepOverlay {
+        context: ctx.to_string(),
+        asleep,
+    }
+}
+
 /// Show a context: its workspace (created by the compositor if empty).
 pub fn focus(ctx: &ContextName) -> CompositorCommand {
     CompositorCommand::FocusWorkspace {

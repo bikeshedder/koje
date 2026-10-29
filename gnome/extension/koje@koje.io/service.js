@@ -18,6 +18,8 @@ export class Service {
         this._workspaces = workspaces;
         /** Set by the extension once the windows are tracked. */
         this.windows = null;
+        /** Set by the extension: the sleeping contexts. */
+        this.sleep = null;
         /** Called after every `Apply`. */
         this.changed = () => {};
         /** Colors of a tag (`context-rule`), tags and colors of windows: drawn in G.9. */
@@ -92,6 +94,9 @@ export class Service {
             break;
         case 'place': {
             const w = window();
+            // A frozen program must get no configure events (G.3).
+            if (this.sleep?.asleep(w))
+                break;
             const index = Monitors.indexOf(a.monitor);
             if (index < 0)
                 throw new Error(`unknown monitor ${a.monitor}`);
@@ -124,6 +129,9 @@ export class Service {
         }
         case 'keep-workspaces':
             this._workspaces.keep(a.workspaces);
+            break;
+        case 'sleep':
+            this.sleep.set(a.context, a.asleep);
             break;
         case 'toggle-special':
             throw new Error('not available on GNOME');

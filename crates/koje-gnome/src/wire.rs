@@ -145,6 +145,10 @@ pub fn command(c: &CompositorCommand) -> Result<Command> {
             "carry-to-workspace",
             vec![window(address)?, text("workspace", workspace)],
         ),
+        C::SleepOverlay { context, asleep } => (
+            "sleep",
+            vec![text("context", context), ("asleep", Value::from(*asleep))],
+        ),
     };
     Ok((
         verb.to_owned(),
@@ -254,6 +258,10 @@ mod tests {
                 address: a(),
                 workspace: "work".into(),
             },
+            C::SleepOverlay {
+                context: "work".into(),
+                asleep: true,
+            },
         ])
         .unwrap()
         .into_iter()
@@ -269,7 +277,8 @@ mod tests {
                 "toggle-special",
                 "close-window",
                 "focus-workspace",
-                "carry-to-workspace"
+                "carry-to-workspace",
+                "sleep"
             ]
         );
     }

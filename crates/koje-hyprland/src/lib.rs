@@ -191,6 +191,9 @@ impl Compositor for Hyprland {
             Vec::new()
         };
         let lines = requests::commands(commands, &monitors)?;
+        if lines.is_empty() {
+            return Ok(());
+        }
         let request = requests::batch(&lines);
         let reply = self.request(&request).await?;
         requests::check_reply(&request, &reply)

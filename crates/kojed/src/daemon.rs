@@ -249,6 +249,9 @@ where
     /// `koje sleep` (M7.4): all windows of `ctx` into its stash first.
     pub async fn hide(&mut self, ctx: &ContextName) -> Result<()> {
         self.paused.insert(ctx.clone());
+        if !self.compositor.has_stash() {
+            return self.apply(&[windows::sleep_overlay(ctx, true)]).await;
+        }
         let shown = self.shown(ctx).await?;
         let commands = self.live_mut(ctx)?.hide_all(ctx, &shown)?;
         self.apply(&commands).await
@@ -257,6 +260,9 @@ where
     /// `koje wake` (M7.4): the active layout back.
     pub async fn show(&mut self, ctx: &ContextName) -> Result<()> {
         self.paused.remove(ctx);
+        if !self.compositor.has_stash() {
+            return self.apply(&[windows::sleep_overlay(ctx, false)]).await;
+        }
         let shown = self.shown(ctx).await?;
         let commands = self.live_mut(ctx)?.show_active(ctx, &shown);
         self.apply(&commands).await
@@ -1133,6 +1139,10 @@ where
         }
         let mut commands = self.rules();
         commands.extend(self.windows.tags());
+        // A restarted GNOME Shell knows no sleeping context (ADR 0059).
+        if !self.compositor.has_stash() {
+            commands.extend(self.paused.iter().map(|c| windows::sleep_overlay(c, true)));
+        }
         commands.extend(recolor);
         commands.extend(moves);
         tracing::info!(
@@ -1287,6 +1297,8 @@ mod tests {
     struct FakeCompositor {
         windows: Mutex<Vec<WindowInfo>>,
         applied: Mutex<Vec<CompositorCommand>>,
+        /// GNOME: no hidden workspaces (ADR 0059).
+        no_stash: bool,
     }
 
     impl FakeCompositor {
@@ -1350,6 +1362,10 @@ mod tests {
         ) -> impl Future<Output = Result<(), Self::Error>> + Send {
             self.applied.lock().unwrap().extend_from_slice(commands);
             std::future::ready(Ok(()))
+        }
+
+        fn has_stash(&self) -> bool {
+            !self.no_stash
         }
     }
 
@@ -2545,6 +2561,34 @@ cwd = "/home/mj/src/kp"
             address: "0xa".into(),
             workspace: "work".into()
         }));
+    }
+
+    /// ADR 0059: without a stash the windows stay, under the sleep overlay;
+    /// a restarted GNOME Shell hears again which contexts sleep.
+    #[tokio::test(flavor = "current_thread")]
+    async fn sleep_without_a_stash_is_an_overlay() {
+        let s = setup();
+        let comp = FakeCompositor {
+            no_stash: true,
+            ..FakeCompositor::default()
+        };
+        comp.open("0xa", 10);
+        let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        comp.take();
+        let work = ctx("work");
+        let overlay = |asleep| CompositorCommand::SleepOverlay {
+            context: "work".into(),
+            asleep,
+        };
+        d.hide(&work).await.unwrap();
+        assert!(d.is_paused(&work));
+        assert_eq!(comp.take(), [overlay(true)]);
+        d.handle(CompositorEvent::Connected).await.unwrap();
+        assert!(comp.take().contains(&overlay(true)));
+        d.show(&work).await.unwrap();
+        assert!(!d.is_paused(&work));
+        assert_eq!(comp.take(), [overlay(false)]);
     }
 
     #[tokio::test(flavor = "current_thread")]
