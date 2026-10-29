@@ -63,3 +63,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0056 | [Everything in koje.conf is a setting: the look in koje Settings, shortcuts in GNOME Settings](0056-everything-in-koje-conf-is-a-setting.md) | Accepted |
 | 0057 | [Windows look as in GNOME; windows outside their context glow and carry a badge](0057-windows-as-in-gnome-foreign-windows-marked.md) | Accepted |
 | 0058 | [Notifications are grouped by app and compact, as in Android](0058-notifications-grouped-as-in-android.md) | Accepted |
+| 0059 | [Experiment: koje as a customization of GNOME Shell](0059-experiment-koje-on-gnome-shell.md) | Proposed (branch `gnome`) |

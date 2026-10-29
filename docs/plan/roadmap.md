@@ -21,6 +21,7 @@ experiments on the host.
 | [M7 Desktop extras](M7-desktop-extras.md) | Overlays, pinning, snap zones | `mail`/`chat` overlays, `pin`/`unpin`, `snap` |
 | [M8 UI](M8-ui.md) | koje-shell (bar, overview, Quick Settings, OSD) as GNOME's, the koje session, settings app, window overlays | The koje session with the shell usable daily; settings app manages contexts, states and layouts |
 | [M9 Integrations](M9-integrations.md) | Per-application tuning once koje works | `devcontainer` integration; program-specific restore details (tabs, …) |
+| [G GNOME experiment](G-gnome.md) | Branch `gnome`: koje as a GNOME Shell extension + kojed instead of rebuilding GNOME on Hyprland (ADR 0059) | Evaluation report (G.14) with a recommendation |
 
 Outlook (not scheduled): CRIU hibernation, drag-into-zone and colored title
 bars – see `docs/architecture.md`. koje's own Hyprland plugin exists since

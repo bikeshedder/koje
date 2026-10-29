@@ -12,6 +12,11 @@ its context glows in the context's color with a badge naming it (ADR 0057).
 koje switches named **layouts**, stashes unused windows, saves and restores
 **states**, pauses contexts and enforces memory limits.
 
+**Branch `gnome`** is an experiment (ADR 0059, `docs/plan/G-gnome.md`): koje
+inside a stock GNOME session through a GNOME Shell extension instead of
+rebuilding GNOME on Hyprland. There, work on the `G.n` tasks; leave the
+Hyprland path alone.
+
 The full concept (German) is `docs/concept/koje-konzept.pdf` (source: `.typ`).
 An English summary is `docs/architecture.md`. Settled decisions are in
 `docs/decisions/`, unsettled ones in `docs/open-questions.md`.
