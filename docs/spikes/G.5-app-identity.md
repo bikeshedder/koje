@@ -11,6 +11,10 @@ with the same program in two contexts and on the host, and do exported
 
 ## Setup
 
+In the lab instead (dev container, [gnome-lab](setup/gnome-lab/README.md)): `./lab.sh start`, then use
+`./lab.sh context a` for `run-context.sh a wayland-0`, and `./lab.sh run foot` for the host's `foot &`. Exported `.desktop` files go into the lab: `./lab.sh exec sh -c 'mkdir -p ~/.local/share/applications && cat > …'`. Use `./lab.sh eval '…'` instead of Looking Glass. Note in the
+report that it ran in the lab.
+
 ```sh
 docs/spikes/setup/run-context.sh a wayland-0
 docs/spikes/setup/run-context.sh b wayland-0

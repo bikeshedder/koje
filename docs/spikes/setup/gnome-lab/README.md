@@ -1,0 +1,51 @@
+# GNOME lab (dev container)
+
+GNOME Shell 50.1 (Ubuntu 26.04, as on the host) nested in the dev container,
+for the G spikes (ADR 0059). Its session opens as a window on your desktop
+(Mutter's devkit, through the Wayland socket VS Code forwards into the dev
+container). Spike contexts are containers on the lab's Wayland socket, made
+by the usual `run-context.sh`. Nothing touches your desktop session, your
+containers or your GNOME settings.
+
+```sh
+cd docs/spikes/setup/gnome-lab
+./lab.sh build                 # once: localhost/koje-gnome-lab (Ubuntu 26.04 + gnome-shell)
+../build-base.sh               # once: the spike context image localhost/koje-spike/base
+./lab.sh start                 # the "Mutter Development Kit" window opens
+./lab.sh context a             # context container koje-spike-a on the lab
+podman exec -d koje-spike-a foot
+./lab.sh run foot              # a host client of the lab, for comparison
+./lab.sh eval 'global.get_window_actors().map(a => a.meta_window.get_wm_class() + ":" + a.meta_window.get_pid()).join(" ")'
+./lab.sh freeze a; ./lab.sh thaw a
+./lab.sh stop                  # the lab and every spike container
+```
+
+Run `lab.sh` from a VS Code terminal of the dev container (it needs
+`WAYLAND_DISPLAY` from VS Code). `./lab.sh` without arguments lists the
+commands.
+
+## How it is built
+
+| Part | What |
+|---|---|
+| `Containerfile` | Ubuntu 26.04 with gnome-shell, mutter-dev-bin (the devkit), PipeWire, the portals, foot, wayland-utils |
+| `lab-session.sh` | the container's entry point: a stand-in system bus, the session bus, PipeWire, then WirePlumber (it spins at full CPU if started together with PipeWire), then `gnome-shell --devkit --wayland --no-x11` |
+| `lab@koje.io/` | lab-only extension: switches on unsafe mode, so `lab.sh eval` (`org.gnome.Shell.Eval`) works from the dev container |
+| `lab.sh` | start, stop, eval, run, exec, context, freeze, thaw |
+
+The lab runs with `--pid=host` (the dev container's PID namespace; Podman needs
+`--cgroups=enabled` for that here). Contexts keep their own PID namespaces, so
+Mutter sees their real PIDs as on the host (`Meta.Window.get_pid()`, window →
+context, L2). In a sibling namespace it would see 0. Its processes outlive
+the container's main process, so `lab.sh stop` kills everything in the lab's
+mount namespace.
+
+## Differences from the host
+
+| | Host | Lab |
+|---|---|---|
+| Rendering | GPU | software (llvmpipe), no `/dev/dri`; Firefox works but is slow |
+| Pausing a context | `podman pause` (cgroup freezer) | `lab.sh freeze` (SIGSTOP to every process but the init); for Mutter the same: the client stops reading its socket |
+| System services | logind, polkit, NetworkManager, UPower, GDM | none (a stand-in system bus); GNOME logs warnings and goes on |
+| Sound | the host's PipeWire | the lab's own PipeWire (no devices); enough for the screen-cast portal |
+| Screenshots | GNOME's | `org.gnome.Shell.Screenshot` never returns on this software-rendered virtual monitor; look at the devkit window instead |

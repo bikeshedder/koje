@@ -1,0 +1,6 @@
+{
+  "uuid": "lab@koje.io",
+  "name": "koje GNOME lab",
+  "description": "Lab only: unsafe mode, so the dev container can drive the nested shell (Eval, Screenshot).",
+  "shell-version": ["50"]
+}

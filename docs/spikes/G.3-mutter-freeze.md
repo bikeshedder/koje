@@ -12,6 +12,10 @@ are lost? Decides L8 (ADR 0059).
 
 ## Setup
 
+In the lab instead (dev container, [gnome-lab](setup/gnome-lab/README.md)): `./lab.sh start`, then use
+`./lab.sh context a` for `run-context.sh a wayland-0`, and `./lab.sh freeze a` / `./lab.sh thaw a` for `podman pause` / `unpause` (SIGSTOP instead of the cgroup freezer). For the journal, use `podman logs koje-gnome-lab`. Note in the
+report that it ran in the lab.
+
 ```sh
 docs/spikes/setup/run-context.sh a wayland-0
 podman exec -d koje-spike-a foot

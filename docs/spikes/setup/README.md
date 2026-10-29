@@ -18,6 +18,7 @@ container. Host: Ubuntu 26.04 with GNOME (Wayland). Reports go to
 | `wl-secure-socket <path> <context>` | Wayland socket via `security-context-v1` for one context (M2.9, Rust, build in the dev container) |
 | `host-bus-proxy.sh <name>` | filtered view of the host's session bus for a context (M2.4) |
 | `portal-check.py inhibit <s> \| watch-settings` | portal clients that stay connected (M2.11, runs in the context) |
+| `gnome-lab/` | GNOME Shell 50 nested in the dev container for the G spikes (ADR 0059), see [gnome-lab/README.md](gnome-lab/README.md) |
 | `bus-forward.py <name> <address>` | forwards one D-Bus name from the context bus to the host proxy (M2.4, runs in the context) |
 
 Everything the scripts create carries the label `io.koje.spike=true` and the

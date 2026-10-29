@@ -1,0 +1,15 @@
+# GNOME lab for the G spikes (ADR 0059): GNOME Shell 50 as on the host
+# (Ubuntu 26.04), run nested in the dev container. See README.md here.
+FROM docker.io/library/ubuntu:26.04
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        gnome-shell \
+        mutter-dev-bin \
+        dbus-daemon dbus-user-session \
+        libgl1-mesa-dri \
+        xdg-desktop-portal xdg-desktop-portal-gnome \
+        pipewire wireplumber \
+        foot wayland-utils \
+        fonts-cantarell adwaita-icon-theme \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*

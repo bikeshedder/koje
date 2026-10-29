@@ -55,13 +55,15 @@ args=(
   # Podman's 64 MB default crashes their renderers ("reason: 'crashed', code 4").
   # A limit, not reserved memory. Override: KOJE_SPIKE_SHM=2g
   --shm-size "${KOJE_SPIKE_SHM:-1g}"
-  # GPU (Mesa drivers in the image: AMD/Intel). NVIDIA: see KOJE_SPIKE_GPU below.
-  --device /dev/dri
   # Nested Podman (M2.5): fuse-overlayfs for storage, tun for pasta networking
   # of the inner containers (without it: "Failed to open() /dev/net/tun").
   --device /dev/fuse
   --device /dev/net/tun
 )
+
+# GPU (Mesa drivers in the image: AMD/Intel). NVIDIA: see KOJE_SPIKE_GPU below.
+# Without /dev/dri (the dev container's GNOME lab) programs render in software.
+[[ -e /dev/dri ]] && args+=(--device /dev/dri)
 
 # Sound via PipeWire (and its PulseAudio compatibility socket, if present).
 [[ -S "$run/pipewire-0" ]] && args+=(-v "$run/pipewire-0:/run/user/$uid/pipewire-0")
@@ -119,5 +121,6 @@ done
 cmd=(dbus-daemon --session --nofork --nopidfile --address="unix:path=/run/user/$uid/bus")
 
 # Print the exact command for the report, then run it.
-printf 'podman run -d'; printf ' %q' "${args[@]}" localhost/koje-spike/base:latest "${cmd[@]}"; echo
-podman run -d "${args[@]}" localhost/koje-spike/base:latest "${cmd[@]}"
+image=${KOJE_SPIKE_IMAGE:-localhost/koje-spike/base:latest}
+printf 'podman run -d'; printf ' %q' "${args[@]}" "$image" "${cmd[@]}"; echo
+podman run -d "${args[@]}" "$image" "${cmd[@]}"

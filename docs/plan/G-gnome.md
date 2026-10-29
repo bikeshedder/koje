@@ -20,8 +20,12 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
   - Done when: [report](../spikes/G.3-mutter-freeze.md) says whether windows survive 1/10/30 min frozen with input going on, and what GNOME shows. Decides L8; if windows are lost, sleep needs another design before G.11.
 - [ ] **G.4 Headless gnome-shell for tests** *(host first, then dev container)*
   - Done when: [report](../spikes/G.4-headless-gnome-shell.md) says whether `gnome-shell --headless` loads an unpacked extension in the build container and can be driven over D-Bus.
+  - First finding (G.15, dev container): `gnome-shell --headless --wayland --no-x11 --virtual-monitor 1280x800` in the lab image starts, loads an extension from `/usr/share/gnome-shell/extensions`, takes clients and answers `Eval` (unsafe mode); screenshots never return on the software-rendered virtual monitor.
 - [ ] **G.5 App identity across contexts** *(host)*
   - Done when: [report](../spikes/G.5-app-identity.md) shows how the dash, Alt+Tab and the app grid treat the same app in two contexts and on the host, with and without exported `.desktop` files. Decides L3/L5.
+
+- [x] **G.15 GNOME lab in the dev container**: GNOME Shell 50 nested (devkit window on the desktop) with spike contexts on it, so the spikes run isolated from the host session
+  - `docs/spikes/setup/gnome-lab/` (`lab.sh`, README with the differences from the host). Checked: the shell starts, a context's foot and a host foot open in it with their real PIDs, freeze/thaw, `stop` leaves no processes. G.2's first step ran as a check: context and host clients see the same 38 globals, `grim` fails. Not checked from here: what the devkit window looks like on the desktop.
 
 ## Build
 
