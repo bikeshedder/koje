@@ -2,6 +2,9 @@
 // for kojed (service.js) and draws what is koje's own. Every GNOME internal it
 // touches is listed in docs/upstream/gnome-apis.md.
 
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {Apps} from './apps.js';
@@ -12,8 +15,24 @@ import {TopBar} from './indicator.js';
 import {Windows} from './windows.js';
 import {Workspaces} from './workspaces.js';
 
+// kojed's user unit: in a GNOME session nothing else starts it (koje's own
+// session does on Hyprland). GNOME gives systemd the session's environment.
+function startKojed() {
+    Gio.DBus.session.call('org.freedesktop.systemd1', '/org/freedesktop/systemd1',
+        'org.freedesktop.systemd1.Manager', 'StartUnit',
+        new GLib.Variant('(ss)', ['kojed.service', 'replace']), null,
+        Gio.DBusCallFlags.NONE, -1, null, (conn, result) => {
+            try {
+                conn.call_finish(result);
+            } catch (e) {
+                log(`koje: starting kojed.service: ${e.message}`);
+            }
+        });
+}
+
 export default class KojeExtension extends Extension {
     enable() {
+        startKojed();
         this._workspaces = new Workspaces();
         this._service = new Service(this.dir, this._workspaces);
         this._windows = new Windows(this._workspaces, this._service);

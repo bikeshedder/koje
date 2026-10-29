@@ -397,7 +397,78 @@ fn installed(paths: &Paths) -> Vec<Check> {
         .collect()
 }
 
-fn kojed() -> Vec<Check> {
+/// The GNOME Shell koje's extension is for (ADR 0059).
+const GNOME_SHELL: u32 = 50;
+
+/// `GNOME Shell 50.1` → 50.
+pub fn gnome_major(version: &str) -> Option<u32> {
+    version
+        .trim()
+        .strip_prefix("GNOME Shell ")?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()
+}
+
+fn gnome_shell() -> Check {
+    let version = std::process::Command::new("gnome-shell")
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
+    match gnome_major(&version) {
+        Some(GNOME_SHELL) => Check::ok(version),
+        Some(_) => Check::warn(
+            format!("{version}: koje's extension is for GNOME Shell {GNOME_SHELL}"),
+            "it may not load; see docs/plan/G-gnome.md",
+        ),
+        None => Check::fail(
+            "GNOME Shell: not found",
+            "koje on GNOME needs GNOME Shell 50",
+        ),
+    }
+}
+
+/// Whether `name` has an owner on the session bus.
+fn on_session_bus(name: &str) -> bool {
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
+        return false;
+    };
+    runtime.block_on(async {
+        let conn = zbus::Connection::session().await.ok()?;
+        let dbus = zbus::fdo::DBusProxy::new(&conn).await.ok()?;
+        dbus.name_has_owner(name.try_into().ok()?).await.ok()
+    }) == Some(true)
+}
+
+fn gnome_extension() -> Check {
+    let uuid = koje_core::setup::GNOME_EXTENSION;
+    if on_session_bus("io.koje.Extension") {
+        return Check::ok(format!("GNOME Shell extension {uuid}"));
+    }
+    let installed = std::path::Path::new("/usr/share/gnome-shell/extensions")
+        .join(uuid)
+        .join("metadata.json")
+        .is_file();
+    if installed {
+        Check::fail(
+            format!("GNOME Shell extension {uuid}: not running"),
+            "koje setup, then log out and in once",
+        )
+    } else {
+        Check::fail(
+            format!("GNOME Shell extension {uuid}: not installed"),
+            "install the koje package",
+        )
+    }
+}
+
+fn kojed(gnome: bool) -> Vec<Check> {
     match crate::kojed::call::<_, String>("WaylandStatus", &()) {
         Err(e) => vec![Check::fail(
             format!("kojed: {e:#}"),
@@ -407,6 +478,8 @@ fn kojed() -> Vec<Check> {
             Check::ok("kojed"),
             Check::ok("Wayland security contexts (ADR 0022)"),
         ],
+        // GNOME has no security contexts: known and accepted (ADR 0059, L1).
+        Ok(status) if gnome => vec![Check::ok("kojed"), Check::warn(status, "")],
         Ok(status) => vec![
             Check::ok("kojed"),
             Check::fail(
@@ -500,13 +573,20 @@ fn nvidia() -> Option<Check> {
 }
 
 pub fn run(paths: &Paths) -> Result<()> {
-    let mut checks = vec![package(), packages(), hyprland()];
-    checks.extend(bindings());
-    checks.extend(plugin());
-    checks.extend(screens(paths));
-    checks.extend(session_units());
-    checks.extend(installed(paths));
-    checks.extend(kojed());
+    let gnome = koje_core::compositor::Kind::from_env().map_err(anyhow::Error::msg)?
+        == koje_core::compositor::Kind::Gnome;
+    let mut checks = vec![package(), packages()];
+    if gnome {
+        checks.extend([gnome_shell(), gnome_extension()]);
+    } else {
+        checks.push(hyprland());
+        checks.extend(bindings());
+        checks.extend(plugin());
+        checks.extend(screens(paths));
+        checks.extend(session_units());
+        checks.extend(installed(paths));
+    }
+    checks.extend(kojed(gnome));
     checks.extend([image(), forwarder(), subids()]);
     checks.extend(nvidia());
     for c in &checks {
@@ -522,6 +602,14 @@ pub fn run(paths: &Paths) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gnome_versions() {
+        assert_eq!(gnome_major("GNOME Shell 50.1\n"), Some(50));
+        assert_eq!(gnome_major("GNOME Shell 49.4"), Some(49));
+        assert_eq!(gnome_major(""), None);
+        assert_eq!(gnome_major("Hyprland"), None);
+    }
 
     #[test]
     fn versions() {

@@ -23,7 +23,10 @@ fn command(xdg: &Path, args: &[&str]) -> Command {
         )
         .env_remove("RUST_LOG")
         .env_remove("VISUAL")
-        .env_remove("EDITOR");
+        .env_remove("EDITOR")
+        // Hyprland unless a test says otherwise, also when run in GNOME.
+        .env_remove("KOJE_COMPOSITOR")
+        .env_remove("XDG_CURRENT_DESKTOP");
     cmd
 }
 
@@ -1495,4 +1498,32 @@ fn a_cancelled_area_takes_no_screenshot() {
     assert!(out.status.success());
     let log = std::fs::read_to_string(t.join("shot.log")).unwrap();
     assert!(!log.contains("grim"), "{log}");
+}
+
+/// ADR 0059: what GNOME Shell does not have is refused with a reason.
+#[test]
+fn gnome_refuses_layouts_stash_overlays_pin_and_snap() {
+    let tmp = tempfile::tempdir().unwrap();
+    for args in [
+        &["layout", "main"][..],
+        &["stash"],
+        &["unstash"],
+        &["overlay", "mail"],
+        &["pin"],
+        &["unpin"],
+        &["snap", "left"],
+    ] {
+        for env in [
+            ("KOJE_COMPOSITOR", "gnome"),
+            ("XDG_CURRENT_DESKTOP", "ubuntu:GNOME"),
+        ] {
+            let out = koje_with(tmp.path(), args, &[env], "");
+            let err = String::from_utf8_lossy(&out.stderr);
+            assert!(!out.status.success(), "{args:?} {env:?}");
+            assert!(
+                err.contains(&format!("koje {} is not available on GNOME", args[0])),
+                "{args:?} {env:?}: {err}"
+            );
+        }
+    }
 }

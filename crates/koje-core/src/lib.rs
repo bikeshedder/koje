@@ -13,6 +13,7 @@ pub mod api;
 pub mod apps;
 pub mod capture;
 pub mod color;
+pub mod compositor;
 pub mod config;
 pub mod container;
 pub mod context;

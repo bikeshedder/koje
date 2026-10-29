@@ -13,7 +13,33 @@ use koje_core::states::{self, Role, Summary};
 use crate::cli::{Command, Ctx, ImageCmd, StateCmd};
 use crate::prompt::confirm;
 
+/// What GNOME Shell does not have (ADR 0059): layouts and the stash,
+/// overlays, pinning and snapping.
+fn not_on_gnome(command: &Command) -> Option<&'static str> {
+    Some(match command {
+        Command::Layout { .. } => "layout",
+        Command::Stash { .. } => "stash",
+        Command::Unstash { .. } => "unstash",
+        Command::Overlay { .. } => "overlay",
+        Command::Pin => "pin",
+        Command::Unpin => "unpin",
+        Command::Snap { .. } => "snap",
+        _ => return None,
+    })
+}
+
+fn refuse_on_gnome(command: &Command) -> Result<()> {
+    if let Some(name) = not_on_gnome(command)
+        && koje_core::compositor::Kind::from_env().map_err(anyhow::Error::msg)?
+            == koje_core::compositor::Kind::Gnome
+    {
+        bail!("koje {name} is not available on GNOME (ADR 0059)");
+    }
+    Ok(())
+}
+
 pub fn run(command: &Command) -> Result<()> {
+    refuse_on_gnome(command)?;
     let paths = Paths::from_env()?;
     match command {
         Command::List { json } => list(&paths, *json),

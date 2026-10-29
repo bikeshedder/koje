@@ -63,12 +63,7 @@ fn keywords(hyprland: bool, global_config: std::path::PathBuf) -> Vec<Arc<tokio:
 /// The compositor from the environment, and the contexts' Wayland sockets
 /// for it.
 async fn connect(runtime: &std::path::Path) -> Result<(compositor::Desktop, wayland::Sockets)> {
-    let kind = compositor::select(
-        std::env::var("KOJE_COMPOSITOR").ok().as_deref(),
-        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
-        std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some(),
-    )
-    .map_err(anyhow::Error::msg)?;
+    let kind = compositor::Kind::from_env().map_err(anyhow::Error::msg)?;
     tracing::info!(compositor = ?kind, "compositor chosen");
     Ok(match kind {
         compositor::Kind::Hyprland => (

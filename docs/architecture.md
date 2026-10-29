@@ -182,6 +182,12 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje doctor` | check packages, Hyprland, installed files, kojed, security contexts, image, sub-ids, NVIDIA |
 | `koje session start \| restart \| end <log-out\|restart\|power-off>` | the koje session (ADR 0048): `start` runs Hyprland with koje's config (the login screen's "koje" entry) and stops koje's services when it exits; `restart` restarts koje's services with their current unit files (Waybar and mako stop: the shell is the bar and the notification server) and loads koje's Hyprland plugin again from its file, the session goes on – `koje setup` does it after a package update; `end` asks through the shell (GNOME's 60-second countdown) |
 
+**On GNOME** (branch `gnome`, ADR 0059): `koje layout`, `stash`, `unstash`,
+`snap`, `overlay`, `pin` and `unpin` answer "not available on GNOME"; `koje
+setup` enables koje's GNOME Shell extension; `koje doctor` checks GNOME Shell
+and the extension instead of Hyprland. GNOME is chosen as kojed chooses
+(`KOJE_COMPOSITOR`, else `XDG_CURRENT_DESKTOP`).
+
 **States:** `default` (read by a plain `up`), `fresh`
 (curated start), `empty` (reserved, virtual, read-only), any other name. Missing
 state → `fresh` → `empty` (only when a state was never created). Role names are

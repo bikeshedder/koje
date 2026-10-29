@@ -78,6 +78,8 @@ pub enum Action {
     },
     /// Build the base image (last; a failure does not undo the rest).
     BuildImage,
+    /// Enable koje's GNOME Shell extension (ADR 0059).
+    EnableGnomeExtension,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -586,8 +588,65 @@ pub fn refresh(
     out
 }
 
+/// koje's GNOME Shell extension (ADR 0059).
+pub const GNOME_EXTENSION: &str = "koje@koje.io";
+
+/// GNOME: enable koje's extension unless `enabled` (GNOME's
+/// `enabled-extensions`) has it.
+pub fn gnome_extension(enabled: &[String]) -> Step {
+    if enabled.iter().any(|e| e == GNOME_EXTENSION) {
+        Step {
+            mark: Mark::Unchanged,
+            what: format!("GNOME Shell extension {GNOME_EXTENSION}: enabled"),
+            action: Action::Nothing,
+        }
+    } else {
+        Step {
+            mark: Mark::New,
+            what: format!(
+                "GNOME Shell extension {GNOME_EXTENSION}: enable (log out and in once if GNOME does not know it yet)"
+            ),
+            action: Action::EnableGnomeExtension,
+        }
+    }
+}
+
+/// A string list as `gsettings get` prints it (`['a', 'b']`, `@as []`).
+pub fn parse_strv(text: &str) -> Vec<String> {
+    let text = text.trim().trim_start_matches("@as").trim();
+    let Some(inner) = text.strip_prefix('[').and_then(|t| t.strip_suffix(']')) else {
+        return Vec::new();
+    };
+    inner
+        .split(',')
+        .map(|s| s.trim().trim_matches(|c| c == '\'' || c == '"').to_owned())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// A string list for `gsettings set`.
+pub fn format_strv(items: &[String]) -> String {
+    let quoted: Vec<String> = items.iter().map(|s| format!("'{s}'")).collect();
+    format!("[{}]", quoted.join(", "))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gnome_extension_step_and_lists() {
+        use super::{Action, Mark, format_strv, gnome_extension, parse_strv};
+        assert_eq!(parse_strv("@as []"), Vec::<String>::new());
+        let list = parse_strv("['ubuntu-dock@ubuntu.com', 'ding@rastersoft.com']\n");
+        assert_eq!(list, ["ubuntu-dock@ubuntu.com", "ding@rastersoft.com"]);
+        assert_eq!(
+            format_strv(&list),
+            "['ubuntu-dock@ubuntu.com', 'ding@rastersoft.com']"
+        );
+        assert_eq!(gnome_extension(&list).action, Action::EnableGnomeExtension);
+        let on = parse_strv("['koje@koje.io']");
+        assert_eq!(gnome_extension(&on).mark, Mark::Unchanged);
+    }
+
     use super::*;
 
     const SNIPPET: &[u8] = b"# koje\n";

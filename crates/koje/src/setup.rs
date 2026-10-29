@@ -138,8 +138,58 @@ fn waybar_state(path: &Path) -> WaybarFile {
     }
 }
 
-/// Everything setup would do, in order (the image last).
+/// GNOME's `enabled-extensions`.
+fn gnome_enabled_extensions() -> Vec<String> {
+    std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.shell", "enabled-extensions"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| setup::parse_strv(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_default()
+}
+
+/// Enable koje's extension: through the running Shell, else in the settings
+/// GNOME reads at the next login (a freshly installed extension).
+fn enable_gnome_extension() -> Result<()> {
+    let enabled = std::process::Command::new("gnome-extensions")
+        .args(["enable", setup::GNOME_EXTENSION])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if enabled {
+        return Ok(());
+    }
+    let mut list = gnome_enabled_extensions();
+    if !list.iter().any(|e| e == setup::GNOME_EXTENSION) {
+        list.push(setup::GNOME_EXTENSION.to_owned());
+    }
+    let ok = std::process::Command::new("gsettings")
+        .args([
+            "set",
+            "org.gnome.shell",
+            "enabled-extensions",
+            &setup::format_strv(&list),
+        ])
+        .status()
+        .context("running gsettings")?
+        .success();
+    if !ok {
+        anyhow::bail!("gsettings could not enable {}", setup::GNOME_EXTENSION);
+    }
+    Ok(())
+}
+
+/// Everything setup would do, in order (the image last). On GNOME (ADR
+/// 0059): the extension and the image.
 pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
+    if koje_core::compositor::Kind::from_env().map_err(anyhow::Error::msg)?
+        == koje_core::compositor::Kind::Gnome
+    {
+        return Ok(vec![
+            setup::gnome_extension(&gnome_enabled_extensions()),
+            setup::image(image_exists()),
+        ]);
+    }
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .context("HOME is not set")?;
@@ -186,13 +236,17 @@ pub fn plan(paths: &Paths) -> Result<Vec<Step>> {
             path == unit,
         ));
     }
-    let image = on_path("podman").then(|| {
+    steps.push(setup::image(image_exists()));
+    Ok(steps)
+}
+
+/// Whether koje's base image exists; `None` without Podman.
+fn image_exists() -> Option<bool> {
+    on_path("podman").then(|| {
         koje_podman::Podman::new()
             .image_exists(koje_podman::image::BASE_IMAGE)
             .unwrap_or(false)
-    });
-    steps.push(setup::image(image));
-    Ok(steps)
+    })
 }
 
 fn file(label: &str, path: &Path, contents: &'static [u8], mode: u32) -> Step {
@@ -243,6 +297,7 @@ fn execute(action: &Action) -> Result<()> {
                 let _ = std::fs::remove_dir(dir);
             }
         }
+        Action::EnableGnomeExtension => enable_gnome_extension()?,
         Action::BuildImage => {
             // Last step; a failure does not undo the rest.
             if let Err(e) = crate::commands::image_build(false) {
