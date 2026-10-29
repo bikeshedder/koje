@@ -40,6 +40,10 @@ compositor process and may use Mutter's and the Shell's internals.
   The koje settings app (`koje-shell settings`) stays. It is about koje only.
 - **Deferred:** layouts and stash, overlays, pin and unpin, snap zones. A state keeps
   one geometry per window. The commands report "not available on GNOME".
+- **The same program in several contexts is one app** in GNOME's dash and
+  Alt+Tab for the prototype (L3, spike G.5). Activation prefers the current
+  workspace's windows. Per-context app ids, a koje-owned window → app
+  mapping or an upstream API are tried once the prototype works.
 - **Internals are allowed** during the experiment. Every internal the extension
   touches is listed in [docs/upstream/gnome-apis.md](../upstream/gnome-apis.md)
   as a candidate upstream API.

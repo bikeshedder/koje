@@ -72,7 +72,7 @@ built from. "Search" is `Shell.AppSystem.search("foot")`.
   GTK/libadwaita apps use their application id. Changing it would mean
   modifying the program, which koje does not do. So for most apps this is no
   general answer.
-- Options for the rest, to decide before G.10:
+- Options for the rest (decided 2026-10-29: option 1 for the prototype, the others once it works):
   1. accept the grouping and patch activation to prefer the current workspace (ADR 0059's plan);
   2. a koje-owned window → app mapping in the extension, replacing what the dash, Alt+Tab and the overview read from `Shell.WindowTracker` (more internals);
   3. the upstream ask (a window → app hook, or a per-connection app id from security-context-v1, `docs/upstream/gnome-apis.md`).
