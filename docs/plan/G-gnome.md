@@ -17,8 +17,9 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
 - [x] **G.2 Wayland globals for a context client on Mutter** *(host; ran in the lab)*
   - Done when: [report](../spikes/G.2-mutter-wayland-globals.md) lists every global a context client sees, and screen capture without the portal fails. Decides L1.
   - Result: the same 38 globals as a host client; no capture, input injection, window list or background clipboard protocol; `grim`/`wf-recorder` fail. The shared socket is acceptable. Left for the host: the portal screen-sharing check, and the list with Xwayland running.
-- [ ] **G.3 Freezing a context under Mutter** *(host)*
+- [x] **G.3 Freezing a context under Mutter** *(host; ran in the lab)*
   - Done when: [report](../spikes/G.3-mutter-freeze.md) says whether windows survive 1/10/30 min frozen with input going on, and what GNOME shows. Decides L8; if windows are lost, sleep needs another design before G.11.
+  - Result: untouched frozen windows survive 30 min with no dialog. Focusing them triggers "not responding" within 10 s. Heavy input (focus, resize, typing) fills Mutter's 1 MiB per-client queue within minutes, and the program is disconnected at the thaw, losing every window. G.11 must keep input away from sleeping windows.
 - [ ] **G.4 Headless gnome-shell for tests** *(host first, then dev container)*
   - Done when: [report](../spikes/G.4-headless-gnome-shell.md) says whether `gnome-shell --headless` loads an unpacked extension in the build container and can be driven over D-Bus.
   - First finding (G.15, dev container): `gnome-shell --headless --wayland --no-x11 --virtual-monitor 1280x800` in the lab image starts, loads an extension from `/usr/share/gnome-shell/extensions`, takes clients and answers `Eval` (unsafe mode); screenshots never return on the software-rendered virtual monitor.
@@ -42,6 +43,7 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
 - [ ] **G.10 Context apps in GNOME's grid, search and dash** (L4/L5): kojed exports each running context's `.desktop` entries; the extension shows those of the current workspace and launches into its context
   - Notes: the same program in several contexts stays one app in the dash and Alt+Tab (L3, G.5); activation prefers the current workspace's windows. No per-context app ids yet.
 - [ ] **G.11 Sleep overlay**: "<context> is asleep – Wake up" on sleeping windows; GNOME's not-responding dialog suppressed for them (L8, after G.3)
+  - Notes (G.3): the overlay catches pointer input; sleeping windows are never focused (activate, Alt+Tab, dash, clicks) or moved/resized; GNOME's close dialog stays suppressed for them. Otherwise Mutter disconnects the frozen program once its 1 MiB queue is full and all its windows are lost.
 - [ ] **G.12 Top-bar indicator**: current context (name, color), memory against its limits, "koje Settings…"
 - [ ] **G.13 Packaging and CLI**: the extension in the .deb, `koje setup` enables it, `koje doctor` checks GNOME version and extension; deferred commands report "not available on GNOME" (CLI, `docs/architecture.md`, ADR 0005 together)
 - [ ] **G.14 Evaluation**: code kept vs. not needed (lines), daily-use findings, limitations hit, recommendation (adopt → ADR to remove the Hyprland path; or stop)

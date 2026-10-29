@@ -62,7 +62,7 @@ compositor process and may use Mutter's and the Shell's internals.
 | L5 | Launching on a context workspace | An app installed on the host launches on the host. | Patch AppIcon activation to run the context's entry. | as L3 |
 | L6 | Dynamic workspaces | GNOME removes empty workspaces and has no names. | Patch `WorkspaceTracker`; labels in thumbnails and the indicator. | Named/pinned workspaces |
 | L7 | Placing new windows | Mutter places Wayland windows itself. | Move on `window-created`. Possible one-frame flicker. | Placement hint for a trusted client |
-| L8 | Frozen contexts | Shell shows "not responding" per frozen window. A frozen client may be disconnected when its socket buffer fills. | Suppress the dialog for sleeping contexts, and show koje's overlay. G.3 must prove that windows survive. | Per-window "suspended" state |
+| L8 | Frozen contexts | Shell shows "not responding" for a frozen window once it is focused (within 10 s). Mutter queues at most 1 MiB per client; when the queue of a frozen program is full, Mutter disconnects it at the thaw and all its windows are lost (G.3). | Sleeping windows get no input: the overlay catches the pointer, the extension never focuses, moves or resizes them, and suppresses the close dialog for them. Untouched, they survived 30 min (G.3). | Per-window "suspended" state |
 | L9 | Foreign-window glow | – | An effect on `Meta.WindowActor`. Simpler than the plugin. | – |
 | L10 | Notifications from contexts | GNOME shows the forwarder as the sender. | koje-forward adds hint `x-koje-context`; the extension tints the banner. | Source hint |
 | L11 | Sharing a context | GNOME's picker offers monitors and windows, not workspaces. | none (as on Hyprland) | – |
