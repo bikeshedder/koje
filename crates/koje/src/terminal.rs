@@ -6,9 +6,7 @@ use koje_core::paths::Paths;
 
 use crate::cli::ActiveCtx;
 
-/// The terminal in both places: the base image ships it (ADR 0023), `koje
-/// doctor` checks the host's.
-pub const TERMINAL: &str = "foot";
+pub use koje_core::apps::TERMINAL;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Place {

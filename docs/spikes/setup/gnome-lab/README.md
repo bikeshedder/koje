@@ -55,4 +55,5 @@ mount namespace.
 | Pausing a context | `podman pause` (cgroup freezer) | `lab.sh freeze` (SIGSTOP to every process but the init); for Mutter the same: the client stops reading its socket |
 | System services | logind, polkit, NetworkManager, UPower, GDM | none (a stand-in system bus); GNOME logs warnings and goes on |
 | Sound | the host's PipeWire | the lab's own PipeWire (no devices); enough for the screen-cast portal |
+| Context files from the shell | GNOME Shell reads `/proc/<pid>/root/…` of a context (its app icons) | denied: the lab runs in a sibling user namespace; context apps show without icons |
 | Screenshots | GNOME's | `org.gnome.Shell.Screenshot` never returns on this software-rendered virtual monitor; look at the devkit window instead |

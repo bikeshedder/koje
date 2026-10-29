@@ -254,6 +254,57 @@ impl Api {
         String::new()
     }
 
+    /// A running context's programs for GNOME's app grid and search (ADR
+    /// 0059): `(desktop file id, name, icon, keywords)`, sorted by name; the
+    /// icon a file below `/proc/<pid>/root`, else a theme name, `""` for none.
+    async fn apps(&self, context: &str) -> fdo::Result<Vec<(String, String, String, Vec<String>)>> {
+        let ctx = context_arg(context)?;
+        let (apps, pid) = tokio::task::spawn_blocking(move || {
+            let podman = Podman::new();
+            let apps = context_apps(&podman, &ctx)?;
+            anyhow::Ok((apps, podman.running_pid(&ctx)?))
+        })
+        .await
+        .map_err(|e| fdo::Error::Failed(e.to_string()))?
+        .map_err(|e| failed(&e))?;
+        let root = pid.map(|pid| format!("/proc/{pid}/root"));
+        Ok(apps
+            .into_iter()
+            .map(|a| {
+                let icon = match (&a.icon, &root) {
+                    (Some(icon), Some(root)) => koje_core::apps::host_icon(icon, root, |p| {
+                        std::path::Path::new(p).is_file()
+                    }),
+                    (icon, _) => icon.clone().unwrap_or_default(),
+                };
+                (a.id, a.name, icon, a.keywords)
+            })
+            .collect())
+    }
+
+    /// Start a running context's program by its desktop file id.
+    async fn launch_app(&self, context: &str, id: &str) -> fdo::Result<()> {
+        let ctx = context_arg(context)?;
+        let id = id.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let podman = Podman::new();
+            let apps = context_apps(&podman, &ctx)?;
+            let Some(app) = apps.iter().find(|a| a.id == id) else {
+                anyhow::bail!("{ctx} has no program {id}");
+            };
+            koje_core::ports::ContainerRuntime::launch(
+                &podman,
+                &ctx,
+                &koje_core::apps::launch_line(app),
+                None,
+            )?;
+            anyhow::Ok(())
+        })
+        .await
+        .map_err(|e| fdo::Error::Failed(e.to_string()))?
+        .map_err(|e| failed(&e))
+    }
+
     /// Running contexts: `(name, color, windows, active)` – the bar (M5.15).
     async fn running_contexts(&self) -> Vec<(String, String, u32, bool)> {
         let mut d = self.daemon.lock().await;
@@ -619,4 +670,13 @@ pub async fn emit(conn: &zbus::Connection, change: &Change) -> zbus::Result<()> 
             Api::window_removed(&emitter, address, context.as_str()).await
         }
     }
+}
+
+/// The programs of a running context (`koje apps`).
+fn context_apps(podman: &Podman, ctx: &ContextName) -> anyhow::Result<Vec<koje_core::apps::App>> {
+    use koje_core::ports::ContainerRuntime as _;
+    koje_core::lifecycle::require_running(podman.status(ctx)?, ctx.as_str())
+        .map_err(anyhow::Error::msg)?;
+    let listing = podman.query(ctx, &["sh", "-c", koje_core::apps::LIST_SCRIPT])?;
+    Ok(koje_core::apps::parse_listing(&listing))
 }

@@ -61,13 +61,12 @@ pub fn run(
 /// (`StartupWMClass`) and its program's file name.
 fn listing(apps: &[koje_core::apps::App], pid: Option<u32>) -> serde_json::Value {
     let icon = |name: &str| -> String {
-        let found = pid.and_then(|pid| {
-            koje_core::apps::icon_candidates(name)
-                .into_iter()
-                .map(|p| format!("/proc/{pid}/root{p}"))
-                .find(|p| std::path::Path::new(p).is_file())
-        });
-        found.unwrap_or_else(|| name.to_owned())
+        match pid {
+            Some(pid) => koje_core::apps::host_icon(name, &format!("/proc/{pid}/root"), |p| {
+                std::path::Path::new(p).is_file()
+            }),
+            None => name.to_owned(),
+        }
     };
     apps.iter()
         .map(|a| {

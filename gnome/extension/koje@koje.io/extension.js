@@ -4,6 +4,7 @@
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+import {Apps} from './apps.js';
 import {Foreign} from './foreign.js';
 import {Service} from './service.js';
 import {Windows} from './windows.js';
@@ -20,13 +21,16 @@ export default class KojeExtension extends Extension {
         // colors, moves) and when the user moves it.
         this._service.changed = () => this._foreign.update();
         this._windows.changed = () => this._foreign.update();
+        this._apps = new Apps(this._workspaces);
     }
 
     disable() {
+        this._apps.destroy();
         this._foreign.destroy();
         this._windows.destroy();
         this._service.destroy();
         this._workspaces.destroy();
+        this._apps = null;
         this._foreign = null;
         this._windows = null;
         this._service = null;

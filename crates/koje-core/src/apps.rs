@@ -208,6 +208,31 @@ pub fn icon_candidates(icon: &str) -> Vec<String> {
     out
 }
 
+/// The terminal that programs with `Terminal=true` run in: the base image
+/// ships it (ADR 0023), `koje doctor` checks the host's.
+pub const TERMINAL: &str = "foot";
+
+/// The `sh -c` line that starts `app` in its context (in [`TERMINAL`] when
+/// it needs one); `exec`, so the program replaces the shell.
+pub fn launch_line(app: &App) -> String {
+    let mut command = app.command.clone();
+    if app.terminal {
+        command.insert(0, TERMINAL.to_owned());
+    }
+    format!("exec {}", crate::capture::shell_join(&command))
+}
+
+/// An app's icon for the host: its first candidate file below the context's
+/// root (`/proc/<pid>/root`) that `is_file`, else the name for the host's
+/// theme.
+pub fn host_icon(icon: &str, root: &str, is_file: impl Fn(&str) -> bool) -> String {
+    icon_candidates(icon)
+        .into_iter()
+        .map(|p| format!("{root}{p}"))
+        .find(|p| is_file(p))
+        .unwrap_or_else(|| icon.to_owned())
+}
+
 /// The menu from [`LIST_SCRIPT`]'s output, sorted by name. An id seen first
 /// (the user's directory) hides later files with the same id, also when the
 /// first one is hidden – that is how users remove an entry.
@@ -251,6 +276,36 @@ pub fn parse_listing(out: &str) -> Vec<App> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launching_and_icons() {
+        let mut app = App {
+            name: "Files".into(),
+            id: "org.gnome.Nautilus.desktop".into(),
+            path: "/usr/share/applications/org.gnome.Nautilus.desktop".into(),
+            command: vec!["nautilus".into(), "--new-window".into()],
+            terminal: false,
+            icon: Some("org.gnome.Nautilus".into()),
+            keywords: Vec::new(),
+            wm_class: None,
+        };
+        assert_eq!(launch_line(&app), "exec nautilus --new-window");
+        app.command = vec!["htop".into()];
+        app.terminal = true;
+        assert_eq!(launch_line(&app), "exec foot htop");
+
+        let root = "/proc/7/root";
+        let found = |p: &str| p == "/proc/7/root/usr/share/icons/hicolor/48x48/apps/x.png";
+        assert_eq!(
+            host_icon("x", root, found),
+            "/proc/7/root/usr/share/icons/hicolor/48x48/apps/x.png"
+        );
+        assert_eq!(host_icon("y", root, found), "y");
+        assert_eq!(
+            host_icon("/opt/y.svg", root, |_| true),
+            "/proc/7/root/opt/y.svg"
+        );
+    }
 
     fn entry(extra: &str) -> String {
         format!("[Desktop Entry]\nType=Application\nName=Files\nExec=nautilus %U\n{extra}")
