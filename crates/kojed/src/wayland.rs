@@ -8,6 +8,9 @@
 //!
 //! Layout: `$XDG_RUNTIME_DIR/koje/<context>/wayland/wayland-0`. The directory is
 //! mounted into the context, so a recreated socket is visible there at once.
+//!
+//! GNOME's Mutter has no security contexts (ADR 0059, L1): there the socket
+//! in that directory is a hard link to Mutter's own ([`Sockets::shared`]).
 
 use std::collections::BTreeMap;
 use std::io::PipeWriter;
@@ -65,11 +68,25 @@ enum Msg {
     Probe(oneshot::Sender<Result<(), String>>),
 }
 
-/// Handle to the worker thread.
+/// Handle to the worker thread, or to the links to a shared socket.
 #[derive(Debug, Clone)]
 pub struct Sockets {
-    tx: mpsc::Sender<Msg>,
+    inner: Inner,
 }
+
+#[derive(Debug, Clone)]
+enum Inner {
+    Security(mpsc::Sender<Msg>),
+    /// Hard links to the compositor's socket `display` (GNOME).
+    Shared {
+        runtime: PathBuf,
+        display: PathBuf,
+    },
+}
+
+/// Why contexts share GNOME's socket (`koje doctor`).
+const SHARED: &str =
+    "GNOME's Mutter has no security contexts: contexts share its Wayland socket (ADR 0059, L1)";
 
 impl Sockets {
     /// Start the worker. `display` finds the compositor's Wayland socket (it
@@ -91,14 +108,33 @@ impl Sockets {
                 .run(&rx);
             })
             .context("starting the Wayland thread")?;
-        Ok(Self { tx })
+        Ok(Self {
+            inner: Inner::Security(tx),
+        })
+    }
+
+    /// Contexts get hard links to the compositor's socket `display`.
+    pub fn shared(runtime: PathBuf, display: PathBuf) -> Self {
+        Self {
+            inner: Inner::Shared { runtime, display },
+        }
+    }
+
+    fn tx(&self) -> Option<&mpsc::Sender<Msg>> {
+        match &self.inner {
+            Inner::Security(tx) => Some(tx),
+            Inner::Shared { .. } => None,
+        }
     }
 
     /// The socket of `ctx`, created if needed.
     pub async fn ensure(&self, ctx: &ContextName) -> Result<PathBuf> {
+        let tx = match &self.inner {
+            Inner::Security(tx) => tx,
+            Inner::Shared { runtime, display } => return link(runtime, display, ctx),
+        };
         let (reply, rx) = oneshot::channel();
-        self.tx
-            .send(Msg::Ensure(ctx.clone(), reply))
+        tx.send(Msg::Ensure(ctx.clone(), reply))
             .map_err(|_| anyhow!("the Wayland thread is gone"))?;
         rx.await
             .map_err(|_| anyhow!("the Wayland thread is gone"))?
@@ -108,9 +144,11 @@ impl Sockets {
     /// Whether kojed reaches the compositor and it offers security contexts
     /// (`koje doctor`).
     pub async fn probe(&self) -> Result<()> {
+        let Some(tx) = self.tx() else {
+            return Err(anyhow!(SHARED));
+        };
         let (reply, rx) = oneshot::channel();
-        self.tx
-            .send(Msg::Probe(reply))
+        tx.send(Msg::Probe(reply))
             .map_err(|_| anyhow!("the Wayland thread is gone"))?;
         rx.await
             .map_err(|_| anyhow!("the Wayland thread is gone"))?
@@ -119,14 +157,64 @@ impl Sockets {
 
     /// Stop serving the socket of `ctx` (`koje down`).
     pub fn release(&self, ctx: &ContextName) {
-        let _ = self.tx.send(Msg::Release(ctx.clone()));
+        match &self.inner {
+            Inner::Security(tx) => {
+                let _ = tx.send(Msg::Release(ctx.clone()));
+            }
+            Inner::Shared { runtime, .. } => {
+                let _ = std::fs::remove_file(dir(runtime, ctx).join(SOCKET_NAME));
+            }
+        }
     }
 
     /// The compositor (re)connected: new connection, new sockets for every
     /// context that had one.
     pub fn reset(&self) {
-        let _ = self.tx.send(Msg::Reset);
+        match &self.inner {
+            Inner::Security(tx) => {
+                let _ = tx.send(Msg::Reset);
+            }
+            Inner::Shared { runtime, display } => {
+                for ctx in with_sockets(runtime) {
+                    if let Err(e) = link(runtime, display, &ctx) {
+                        tracing::warn!(context = %ctx, "{e:#}");
+                    }
+                }
+            }
+        }
     }
+}
+
+/// The compositor's socket: `WAYLAND_DISPLAY`, relative to `runtime` unless
+/// absolute (`wayland-0` without it).
+pub fn display_from_env(runtime: &Path) -> PathBuf {
+    runtime.join(std::env::var_os("WAYLAND_DISPLAY").unwrap_or_else(|| SOCKET_NAME.into()))
+}
+
+/// `ctx`'s socket as a hard link to `display`, made again when `display` was
+/// replaced (as the sound links, ADR 0029).
+fn link(runtime: &Path, display: &Path, ctx: &ContextName) -> Result<PathBuf> {
+    use std::os::unix::fs::MetadataExt as _;
+    let identity = |p: &Path| {
+        std::fs::symlink_metadata(p)
+            .ok()
+            .map(|m| (m.dev(), m.ino()))
+    };
+    let dir = dir(runtime, ctx);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .with_context(|| format!("creating {}", dir.display()))?;
+    let socket = dir.join(SOCKET_NAME);
+    let want =
+        identity(display).ok_or_else(|| anyhow!("no Wayland socket {}", display.display()))?;
+    if identity(&socket) != Some(want) {
+        let _ = std::fs::remove_file(&socket);
+        std::fs::hard_link(display, &socket)
+            .with_context(|| format!("linking {} to {}", socket.display(), display.display()))?;
+    }
+    Ok(socket)
 }
 
 struct State;
@@ -309,6 +397,46 @@ mod tests {
         std::fs::write(run.join("koje/Not A Context"), "").unwrap();
         assert_eq!(with_sockets(run), [a]);
         assert_eq!(with_sockets(&run.join("nothing")), []);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn shared_sockets_are_links_to_the_compositors() {
+        use std::os::unix::fs::MetadataExt as _;
+        let tmp = tempfile::tempdir().unwrap();
+        let run = tmp.path();
+        let display = run.join("wayland-0");
+        let ino = |p: &Path| std::fs::metadata(p).unwrap().ino();
+        let listener = UnixListener::bind(&display).unwrap();
+        let sockets = Sockets::shared(run.to_owned(), display.clone());
+        let a = ContextName::new("a").unwrap();
+
+        let socket = sockets.ensure(&a).await.unwrap();
+        assert_eq!(socket, dir(run, &a).join(SOCKET_NAME));
+        assert_eq!(ino(&socket), ino(&display));
+        UnixStream::connect(&socket).unwrap();
+        assert!(
+            sockets
+                .probe()
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("ADR 0059")
+        );
+
+        // The compositor made its socket again: `reset` links the new one.
+        drop(listener);
+        std::fs::remove_file(&display).unwrap();
+        let _listener = UnixListener::bind(&display).unwrap();
+        assert_ne!(ino(&socket), ino(&display));
+        sockets.reset();
+        assert_eq!(ino(&socket), ino(&display));
+
+        sockets.release(&a);
+        assert!(!socket.exists());
+        assert!(display.exists());
+        // No compositor socket: an error, no link.
+        let none = Sockets::shared(run.to_owned(), run.join("wayland-9"));
+        assert!(none.ensure(&a).await.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]

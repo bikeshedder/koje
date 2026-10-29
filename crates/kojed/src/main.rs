@@ -1,7 +1,8 @@
 //! `kojed` – background service.
 //!
 //! Responsibilities (see the concept, section "Architektur"):
-//! - follow Hyprland's event socket and assign each new window to its context
+//! - follow the compositor's events (Hyprland, or GNOME Shell through koje's
+//!   extension, ADR 0059; [`compositor`]) and assign each new window to its context
 //!   (PID → cgroup → container label) – M4.4,
 //! - set border colors per context – M4.5,
 //! - apply layouts and keep autosaving layouts in sync,
@@ -12,6 +13,7 @@
 //! One current-thread tokio runtime (ADR 0026).
 
 mod api;
+mod compositor;
 mod daemon;
 mod desktop;
 mod displays;
@@ -36,7 +38,11 @@ use tracing_subscriber::EnvFilter;
 /// What kojed sets in Hyprland with `keyword`: GNOME's input settings (ADR
 /// 0044, M8.43), the overlays' keys (M7.1) and `[desktop]` (ADR 0056) from
 /// `config.toml`. Notify the returned ones after Hyprland reset its keywords.
-fn keywords(global_config: std::path::PathBuf) -> [Arc<tokio::sync::Notify>; 3] {
+/// Nothing on GNOME: it applies its own settings (ADR 0059).
+fn keywords(hyprland: bool, global_config: std::path::PathBuf) -> Vec<Arc<tokio::sync::Notify>> {
+    if !hyprland {
+        return Vec::new();
+    }
     let input = Arc::new(tokio::sync::Notify::new());
     tokio::spawn(gsettings::run(Hyprland::from_env(), input.clone()));
     let overlays = Arc::new(tokio::sync::Notify::new());
@@ -51,7 +57,35 @@ fn keywords(global_config: std::path::PathBuf) -> [Arc<tokio::sync::Notify>; 3] 
         global_config,
         desktop.clone(),
     ));
-    [input, overlays, desktop]
+    vec![input, overlays, desktop]
+}
+
+/// The compositor from the environment, and the contexts' Wayland sockets
+/// for it.
+async fn connect(runtime: &std::path::Path) -> Result<(compositor::Desktop, wayland::Sockets)> {
+    let kind = compositor::select(
+        std::env::var("KOJE_COMPOSITOR").ok().as_deref(),
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some(),
+    )
+    .map_err(anyhow::Error::msg)?;
+    tracing::info!(compositor = ?kind, "compositor chosen");
+    Ok(match kind {
+        compositor::Kind::Hyprland => (
+            compositor::Desktop::Hyprland(Hyprland::from_env()),
+            wayland::Sockets::start(runtime.to_owned(), || {
+                Ok(koje_hyprland::instance::wayland_from_env()?)
+            })?,
+        ),
+        compositor::Kind::Gnome => (
+            compositor::Desktop::Gnome(
+                koje_gnome::Gnome::session()
+                    .await
+                    .context("connecting to the session bus")?,
+            ),
+            wayland::Sockets::shared(runtime.to_owned(), wayland::display_from_env(runtime)),
+        ),
+    })
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -67,14 +101,12 @@ async fn main() -> Result<()> {
     let runtime = std::path::PathBuf::from(
         std::env::var_os("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR is not set")?,
     );
-    let sockets = wayland::Sockets::start(runtime.clone(), || {
-        Ok(koje_hyprland::instance::wayland_from_env()?)
-    })?;
-    let hyprland = Hyprland::from_env();
-    let mut events = hyprland.events();
+    let (desktop, sockets) = connect(&runtime).await?;
+    let hyprland = matches!(desktop, compositor::Desktop::Hyprland(_));
+    let mut events = desktop.events();
     let screens_paths = paths.clone();
     let global_config = paths.global_config();
-    let mut daemon = daemon::Daemon::new(hyprland, Podman::new(), paths);
+    let mut daemon = daemon::Daemon::new(desktop, Podman::new(), paths);
     // The contexts before the first client asks (errors are logged; a
     // compositor that is not up yet gets its rules on `Connected`).
     if let Err(e) = daemon.reload().await {
@@ -86,7 +118,10 @@ async fn main() -> Result<()> {
         &std::fs::metadata("/proc/self").context("reading /proc/self")?,
     );
     let players = players::Players::new(uid);
-    let displays = displays::Displays::new(Hyprland::from_env(), screens_paths.clone(), &runtime);
+    // GNOME Settings' Displays panel on Hyprland (ADR 0046); on GNOME, Mutter
+    // serves it.
+    let displays = hyprland
+        .then(|| displays::Displays::new(Hyprland::from_env(), screens_paths.clone(), &runtime));
     let conn = zbus::connection::Builder::session()
         .context("connecting to the session bus")?
         .name(BUS_NAME)?
@@ -97,7 +132,7 @@ async fn main() -> Result<()> {
                 sockets: sockets.clone(),
                 players: players.clone(),
                 runtime: runtime.clone(),
-                displays: Arc::clone(&displays),
+                displays: displays.clone(),
             },
         )?
         .build()
@@ -106,17 +141,19 @@ async fn main() -> Result<()> {
             format!("owning {BUS_NAME} on the session bus (is kojed running already?)")
         })?;
     tracing::info!("serving {BUS_NAME}");
-    // GNOME Settings' Displays panel (ADR 0046, M8.51).
-    displays.serve(&conn).await?;
-    // GNOME's monitors.xml while Hyprland runs (ADR 0046, M8.52).
-    tokio::spawn(screens::run(
-        Hyprland::from_env(),
-        screens_paths,
-        runtime.clone(),
-        Arc::clone(&displays),
-    ));
+    if let Some(displays) = &displays {
+        // GNOME Settings' Displays panel (ADR 0046, M8.51).
+        displays.serve(&conn).await?;
+        // GNOME's monitors.xml while Hyprland runs (ADR 0046, M8.52).
+        tokio::spawn(screens::run(
+            Hyprland::from_env(),
+            screens_paths,
+            runtime.clone(),
+            Arc::clone(displays),
+        ));
+    }
     tokio::spawn(relink_sound(runtime));
-    let reapply = keywords(global_config);
+    let reapply = keywords(hyprland, global_config);
     tokio::spawn(tick(
         Arc::clone(&daemon),
         sockets.clone(),

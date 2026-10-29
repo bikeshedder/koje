@@ -6,12 +6,12 @@ use std::sync::Arc;
 use koje_core::api::OBJECT_PATH;
 use koje_core::media::PlayerAction;
 use koje_core::name::{ContextName, LayoutName, StateName};
-use koje_hyprland::Hyprland;
 use koje_podman::Podman;
 use tokio::sync::Mutex;
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
+use crate::compositor::Desktop;
 use crate::daemon::{Change, Daemon};
 use crate::players::Players;
 use crate::wayland::Sockets;
@@ -19,7 +19,7 @@ use crate::wayland::Sockets;
 /// How long restored windows may take to appear.
 const RESTORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-pub type Shared = Arc<Mutex<Daemon<Hyprland, Podman>>>;
+pub type Shared = Arc<Mutex<Daemon<Desktop, Podman>>>;
 
 #[derive(Debug)]
 pub struct Api {
@@ -28,8 +28,9 @@ pub struct Api {
     pub players: Players,
     /// The host's `XDG_RUNTIME_DIR`.
     pub runtime: std::path::PathBuf,
-    /// The screens (Mutter's API for GNOME Settings, ADR 0046).
-    pub displays: std::sync::Arc<crate::displays::Displays>,
+    /// The screens (Mutter's API for GNOME Settings, ADR 0046); on GNOME
+    /// Mutter's own.
+    pub displays: Option<std::sync::Arc<crate::displays::Displays>>,
 }
 
 /// `""` or `empty` → `None`.
@@ -345,12 +346,18 @@ impl Api {
     /// Keep the display change GNOME Settings made (the shell's "Keep
     /// Changes", M8.53); whether one was waiting.
     async fn keep_display_change(&self) -> bool {
-        self.displays.keep().await
+        match &self.displays {
+            Some(d) => d.keep().await,
+            None => false,
+        }
     }
 
     /// Undo it now (the shell's "Revert"); whether one was waiting.
     async fn revert_display_change(&self) -> bool {
-        self.displays.revert().await
+        match &self.displays {
+            Some(d) => d.revert().await,
+            None => false,
+        }
     }
 
     /// GNOME Settings changed the screens: the shell asks whether to keep
