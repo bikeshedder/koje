@@ -32,9 +32,11 @@ static CFunctionHook* g_renderFullscreenHook = nullptr;
 static CFunctionHook* g_addDamageBoxHook    = nullptr;
 static CFunctionHook* g_addDamageRegionHook = nullptr;
 static CFunctionHook* g_updateStateHook     = nullptr;
+static CFunctionHook* g_renderWindowHook    = nullptr;
 
 using origRenderWindows   = void (*)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&);
 using origUpdateState     = void (*)(void*);
+using origRenderWindow    = void (*)(void*, PHLWINDOW, PHLMONITOR, const Time::steady_tp&, bool, eRenderPassMode, bool, bool);
 using origAddDamageBox    = void (*)(void*, const CBox&);
 using origAddDamageRegion = void (*)(void*, const pixman_region32_t*);
 
@@ -68,17 +70,35 @@ static bool replaceWindows(PHLMONITOR monitor, PHLWORKSPACE workspace) {
     return true;
 }
 
+// The special workspace whose windows Hyprland draws now.
+static PHLWORKSPACEREF g_specialPass;
+
 // Hyprland's drawing of a workspace's windows; an opening or closing
 // overlay zoomed (overlays.cpp).
 static void renderWindows(CFunctionHook* hook, void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
     if (replaceWindows(monitor, workspace))
         return;
     const bool zoomed = zoomOverlay(monitor, workspace);
+    if (workspace && workspace->m_isSpecialWorkspace)
+        g_specialPass = workspace;
     ((origRenderWindows)hook->m_original)(thisptr, monitor, workspace, now);
+    g_specialPass.reset();
     if (zoomed)
         unzoomOverlay();
     if (workspace && workspace->m_isSpecialWorkspace && monitor->m_specialFade->value() > 0.F)
         g_pHyprRenderer->m_renderPass.add(makeUnique<CKojeNoCullPassElement>());
+}
+
+// Drawing a special workspace, Hyprland draws the windows of every special
+// workspace shown – while one overlay replaces another, both fade: the old
+// one's windows were drawn again under the new one's zoom, larger and nearly
+// opaque. A special workspace's pass draws only its own windows.
+static void hkRenderWindow(void* thisptr, PHLWINDOW window, PHLMONITOR monitor, const Time::steady_tp& now, bool decorate, eRenderPassMode mode, bool ignorePosition,
+                           bool standalone) {
+    const auto pass = g_specialPass.lock();
+    if (pass && window && window->m_workspace && window->m_workspace->m_isSpecialWorkspace && window->m_workspace != pass)
+        return;
+    ((origRenderWindow)g_renderWindowHook->m_original)(thisptr, window, monitor, now, decorate, mode, ignorePosition, standalone);
 }
 
 static void hkRenderWindows(void* thisptr, PHLMONITOR monitor, PHLWORKSPACE workspace, const Time::steady_tp& now) {
@@ -212,9 +232,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_addDamageBoxHook    = hook("_ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE", (void*)hkAddDamageBox);
     g_addDamageRegionHook = hook("_ZN8CMonitor9addDamageEPK15pixman_region32", (void*)hkAddDamageRegion);
     g_updateStateHook     = hook("Desktop::View::CWindow::onUpdateState(", (void*)hkUpdateState);
+    g_renderWindowHook    = hook("CHyprRenderer::renderWindow(", (void*)hkRenderWindow);
     if (!findRenderWindow())
         fail("Hyprland has no CHyprRenderer::renderWindow – the plugin was built for another version");
-    if (!g_renderWindowsHook->hook() || !g_renderFullscreenHook->hook() || !g_addDamageBoxHook->hook() || !g_addDamageRegionHook->hook())
+    if (!g_renderWindowsHook->hook() || !g_renderFullscreenHook->hook() || !g_addDamageBoxHook->hook() || !g_addDamageRegionHook->hook() || !g_renderWindowHook->hook())
         fail("could not hook Hyprland's rendering");
     if (!g_updateStateHook->hook())
         fail("could not hook Hyprland's window states");
