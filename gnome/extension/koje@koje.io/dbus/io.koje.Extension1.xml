@@ -7,7 +7,8 @@
   their fake service agree.
 
   Windows are named by Meta.Window.get_id(). Workspaces are named by the
-  context they belong to, other workspaces by their number from 1. Rectangles
+  context they belong to, other workspaces by their number from 1 among the
+  workspaces that are no context's. Rectangles
   are in logical pixels, relative to their monitor (a connector name).
 -->
 <node>
