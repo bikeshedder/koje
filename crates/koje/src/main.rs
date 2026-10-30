@@ -8,6 +8,7 @@ mod cli;
 mod commands;
 mod doctor;
 mod kojed;
+mod lifecycle;
 mod setup;
 mod terminal;
 mod wayland;

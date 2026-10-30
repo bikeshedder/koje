@@ -37,7 +37,7 @@ pub fn sync(paths: &Paths, name: &ContextName, cfg: &ContextConfig, edited: bool
         Some(real)
     } else {
         if edited {
-            println!(
+            crate::say!(
                 "note: {name}'s container is from before live mounts – mount changes apply \
                  after recreating it: {recreate}"
             );
@@ -63,23 +63,23 @@ pub fn sync(paths: &Paths, name: &ContextName, cfg: &ContextConfig, edited: bool
             .live_mount(&home_dir, &below, path)
             .with_context(|| format!("mounting {} into {name}", path.display()))?;
         if real.is_some() {
-            println!("mounted {} into {name}", path.display());
+            crate::say!("mounted {} into {name}", path.display());
         }
     }
     for path in &plan.remove {
         let below = below_home(path, &home).unwrap_or_default();
         podman.live_unmount(&home_dir, &below)?;
-        println!("unmounted {} from {name}", path.display());
+        crate::say!("unmounted {} from {name}", path.display());
     }
     for path in &plan.stale_real {
-        println!(
+        crate::say!(
             "note: {} is no longer configured, but stays mounted in {name} until its \
              container is recreated ({recreate})",
             path.display()
         );
     }
     for path in &plan.missing_real {
-        println!(
+        crate::say!(
             "note: {} is outside the home and can't be mounted live – it gets mounted \
              when {name}'s container is recreated ({recreate})",
             path.display()

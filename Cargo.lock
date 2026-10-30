@@ -465,6 +465,7 @@ dependencies = [
  "koje-podman",
  "serde",
  "tempfile",
+ "thiserror",
  "tokio",
  "tracing",
  "zbus",

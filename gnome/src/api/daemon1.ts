@@ -15,13 +15,13 @@ export interface Methods {
     NewContext: {in: [string]; out: [string]};
     Config: {in: [string]; out: [Record<string, unknown>]};
     SetConfig: {in: [string, Record<string, GLib.Variant>]; out: [string[]]};
-    Up: {in: [string, string, string]; out: []};
-    Down: {in: [string, string, boolean]; out: []};
+    Up: {in: [string, string, string, boolean, boolean]; out: []};
+    Down: {in: [string, string, boolean, boolean]; out: []};
     Sleep: {in: [string]; out: []};
     Wake: {in: [string]; out: []};
     Recreate: {in: [string]; out: []};
     States: {in: [string]; out: [[string, string, boolean, boolean, number, number, number, string][]]};
-    Save: {in: [string, string]; out: []};
+    Save: {in: [string, string]; out: [string, number]};
     CopyState: {in: [string, string, string]; out: []};
     RenameState: {in: [string, string, string]; out: []};
     RemoveState: {in: [string, string]; out: []};
@@ -55,13 +55,13 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     NewContext: ['(s)', '(s)'],
     Config: ['(s)', '(a{sv})'],
     SetConfig: ['(sa{sv})', '(as)'],
-    Up: ['(sss)', '()'],
-    Down: ['(ssb)', '()'],
+    Up: ['(sssbb)', '()'],
+    Down: ['(ssbb)', '()'],
     Sleep: ['(s)', '()'],
     Wake: ['(s)', '()'],
     Recreate: ['(s)', '()'],
     States: ['(s)', '(a(ssbbuuxs))'],
-    Save: ['(ss)', '()'],
+    Save: ['(ss)', '(su)'],
     CopyState: ['(sss)', '()'],
     RenameState: ['(sss)', '()'],
     RemoveState: ['(ss)', '()'],
@@ -92,7 +92,8 @@ export interface Signals {
     ContextsChanged: [];
     OperationStarted: [string, string];
     OperationFinished: [string, string];
-    OperationFailed: [string, string, string];
+    OperationFailed: [string, string, string, string];
+    OperationProgress: [string, string, string];
     StatesChanged: [string];
     WindowAdded: [string, string];
     WindowRemoved: [string, string];

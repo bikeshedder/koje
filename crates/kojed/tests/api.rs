@@ -228,7 +228,7 @@ async fn settings_app_calls(conn: &zbus::Connection) {
     let default = states.iter().find(|s| s.0 == "default").unwrap();
     assert_eq!((default.1.as_str(), default.3), ("default", true));
     let (): () = call(&conn, "RemoveState", &("shop", "default")).await;
-    let err = call_err(&conn, "Up", &("shop", "", "later")).await;
+    let err = call_err(&conn, "Up", &("shop", "", "later", true, true)).await;
     assert!(err.contains("io.koje.Error.InvalidArgs"), "{err}");
 }
 

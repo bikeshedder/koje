@@ -180,8 +180,8 @@ windows get the sleep overlay. Memory stays allocated (can be swapped out).
 | `koje-gnome` | adapter: koje's GNOME Shell extension over D-Bus (`Compositor`, ADR 0059) |
 | `koje-forward` | static D-Bus forwarder that runs inside every context (ADR 0025) |
 | `kojed` | service: windows and their contexts, colors, states, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027, 0060) |
-| `koje-runtime` | driving context containers: up, down, sleep, mounts, dotfiles, host bus, limits; shared by the CLI and kojed |
-| `koje` | CLI, client of core, koje-runtime and kojed |
+| `koje-runtime` | driving context containers: up, down, sleep, mounts, dotfiles, host bus, limits; kojed runs `up`, `down`, `save`, `sleep` and `recreate`, the CLI the rest (`shell`, `run`, `open`, …) |
+| `koje` | CLI, client of core, koje-runtime and kojed; `up`, `down`, `save`, `sleep`, `wake`, `recreate` go through kojed (G.29) |
 
 UI (ADR 0060), in `gnome/`: the Shell extension (plain JS so far) and koje
 Settings (`koje-settings`, `io.koje.Settings`: TypeScript on GJS, GTK 4 and

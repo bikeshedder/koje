@@ -52,6 +52,9 @@ pub enum Error {
     /// `Up` found a recovery file (ADR 0006): call it again with
     /// `restore` or `discard`.
     RecoveryPending(String),
+    /// `Down` closed the windows, but some stayed open (a program asking to
+    /// save); the context still runs. Call it again with `force`.
+    WindowsOpen(String),
     Failed(String),
 }
 
@@ -59,6 +62,11 @@ impl From<anyhow::Error> for Error {
     fn from(e: anyhow::Error) -> Self {
         if let Some(invalid) = e.downcast_ref::<crate::manage::Invalid>() {
             return Self::InvalidConfig(invalid.0.clone());
+        }
+        if e.downcast_ref::<koje_runtime::runtime::StillOpen>()
+            .is_some()
+        {
+            return Self::WindowsOpen(format!("{e:#}"));
         }
         if let Some(koje_core::error::Error::UnknownContext(_)) = e.downcast_ref() {
             return Self::NotFound(format!("{e:#}"));
@@ -459,20 +467,25 @@ impl Api {
     }
 
     /// Start a context and restore a state (`""`: its `default`), or switch
-    /// a running one to the state, as `koje up --no-focus` (ADR 0060).
-    /// `recovery` after a crash: `restore` or `discard` the recovery file;
-    /// `""` fails with `io.koje.Error.RecoveryPending` when there is one.
-    /// Returns at once; `OperationFinished` or `OperationFailed` follow.
+    /// a running one to the state, as `koje up` (ADR 0060). `recovery` after
+    /// a crash: `restore`, `discard` or `keep` the recovery file; `""` fails
+    /// with `io.koje.Error.RecoveryPending` when there is one. `focus` shows
+    /// its workspace first; `save` saves a running one's windows before it
+    /// switches. Returns at once; `OperationFinished` or `OperationFailed`
+    /// follow.
+    #[allow(clippy::fn_params_excessive_bools)] // the D-Bus signature
     async fn up(
         &self,
         context: &str,
         state: &str,
         recovery: &str,
+        focus: bool,
+        save: bool,
         #[zbus(connection)] conn: &zbus::Connection,
     ) -> Result<(), Error> {
         let ctx = context_name(context)?;
         let (recover, no_recover) = match recovery {
-            "" => (false, false),
+            "" | "keep" => (false, false),
             "restore" => (true, false),
             "discard" => (false, true),
             other => return Err(Error::InvalidArgs(format!("recovery: {other:?}"))),
@@ -499,10 +512,10 @@ impl Api {
                 ctx.as_str(),
                 state.as_deref(),
                 koje_runtime::runtime::UpOptions {
-                    no_save: false,
+                    no_save: !save,
                     recover,
                     no_recover,
-                    focus: false,
+                    focus,
                 },
             )
         })
@@ -510,34 +523,36 @@ impl Api {
 
     /// Save the windows into `state` (`""`: the state the context is in) and
     /// stop the context, as `koje down`; `save` false stops without saving.
-    /// Fails when windows stay open (a program asking to save). Returns at
-    /// once; `OperationFinished` or `OperationFailed` follow.
+    /// Windows that stay open (a program asking to save) fail it with
+    /// `io.koje.Error.WindowsOpen`, unless `force`. Returns at once;
+    /// `OperationFinished` or `OperationFailed` follow.
     fn down(
         &self,
         context: &str,
         state: &str,
         save: bool,
+        force: bool,
         #[zbus(connection)] conn: &zbus::Connection,
     ) -> Result<(), Error> {
         let ctx = context_name(context)?;
         let state = (!state.is_empty()).then(|| state.to_owned());
         self.operation(conn, ctx, "down", move |paths, ctx| {
-            koje_runtime::runtime::down(paths, ctx.as_str(), state.as_deref(), !save)
+            koje_runtime::runtime::down(paths, ctx.as_str(), state.as_deref(), !save, force)
         })
     }
 
     /// Save the windows of a running context into `state` (`""`: the state
-    /// it is in), as `koje save`.
+    /// it is in), as `koje save`: the state written and its windows.
     async fn save(
         &self,
         context: &str,
         state: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) -> Result<(), Error> {
+    ) -> Result<(String, u32), Error> {
         let ctx = context_name(context)?;
         let (paths, state) = (self.paths.clone(), state.to_owned());
         let c = ctx.clone();
-        blocking(move || {
+        let (saved, windows) = blocking(move || {
             koje_runtime::runtime::save(
                 &paths,
                 c.as_str(),
@@ -546,7 +561,10 @@ impl Api {
         })
         .await?;
         let _ = Self::states_changed(&emitter, ctx.as_str()).await;
-        Ok(())
+        Ok((
+            saved.to_string(),
+            u32::try_from(windows).unwrap_or(u32::MAX),
+        ))
     }
 
     /// Pause a context, as `koje sleep`. Returns at once.
@@ -571,7 +589,7 @@ impl Api {
     ) -> Result<(), Error> {
         let ctx = context_name(context)?;
         self.operation(conn, ctx, "recreate", |paths, ctx| {
-            koje_runtime::runtime::recreate(paths, ctx.as_str(), true)
+            koje_runtime::runtime::recreate(paths, ctx.as_str())
         })
     }
 
@@ -591,13 +609,24 @@ impl Api {
         operation: &str,
     ) -> zbus::Result<()>;
 
-    /// It failed; `error` says why.
+    /// It failed: `error` is an error name (`io.koje.Error.Failed`,
+    /// `io.koje.Error.WindowsOpen`, …), `message` says why.
     #[zbus(signal)]
     async fn operation_failed(
         emitter: &SignalEmitter<'_>,
         context: &str,
         operation: &str,
         error: &str,
+        message: &str,
+    ) -> zbus::Result<()>;
+
+    /// A line of what it does or noticed, as `koje` prints it.
+    #[zbus(signal)]
+    async fn operation_progress(
+        emitter: &SignalEmitter<'_>,
+        context: &str,
+        operation: &str,
+        line: &str,
     ) -> zbus::Result<()>;
 
     /// The last memory reading of a context (`""` = the active one) for the
@@ -679,20 +708,29 @@ impl Api {
         context: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> fdo::Result<()> {
-        use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
+        use koje_core::lifecycle::{PausePlan, plan_wake};
+        use koje_core::ports::ContainerRuntime as _;
         let ctx = context_arg(context)?;
         let c = ctx.clone();
         tokio::task::spawn_blocking(move || {
             let podman = Podman::new();
-            if podman.status(&c)? == ContainerStatus::Paused {
-                podman.unpause(&c)?;
+            match plan_wake(podman.status(&c)?) {
+                PausePlan::Do => podman.unpause(&c)?,
+                PausePlan::Already => {}
+                PausePlan::NotRunning => {
+                    anyhow::bail!("{c} is not running – start it with: koje up {c} -s empty")
+                }
             }
             anyhow::Ok(())
         })
         .await
         .map_err(|e| fdo::Error::Failed(e.to_string()))?
         .map_err(|e| failed(&e))?;
-        self.show(context, emitter).await
+        // Awake now; without the extension there is no overlay to take away.
+        if let Err(e) = self.show(context, emitter).await {
+            tracing::warn!(context = %ctx, "windows not shown after waking: {e}");
+        }
+        Ok(())
     }
 
     /// The state a running context is in (ADR 0032); `""` for `empty` or
@@ -795,8 +833,25 @@ impl Api {
                 }
             };
             let _ = Self::operation_started(&emitter, ctx.as_str(), operation).await;
+            // The runtime's lines, in order and before the end.
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
             let c = ctx.clone();
-            let result = blocking(move || f(&paths, &c)).await;
+            let run = blocking(move || {
+                koje_runtime::say::to(
+                    move |line| {
+                        let _ = tx.send(line.to_owned());
+                    },
+                    || f(&paths, &c),
+                )
+            });
+            let progress = async {
+                while let Some(line) = rx.recv().await {
+                    tracing::info!(context = %ctx, "{operation}: {line}");
+                    let _ =
+                        Self::operation_progress(&emitter, ctx.as_str(), operation, &line).await;
+                }
+            };
+            let (result, ()) = tokio::join!(run, progress);
             if let Ok(mut b) = busy.lock() {
                 b.remove(&ctx);
             }
@@ -805,12 +860,13 @@ impl Api {
                     let _ = Self::operation_finished(&emitter, ctx.as_str(), operation).await;
                 }
                 Err(e) => {
-                    let error = match e {
-                        Error::Failed(m) | Error::NotFound(m) | Error::InvalidArgs(m) => m,
-                        other => other.to_string(),
-                    };
-                    tracing::warn!(context = %ctx, "{operation}: {error}");
-                    let _ = Self::operation_failed(&emitter, ctx.as_str(), operation, &error).await;
+                    let name = zbus::DBusError::name(&e).to_string();
+                    let message = zbus::DBusError::description(&e)
+                        .map_or_else(|| e.to_string(), ToOwned::to_owned);
+                    tracing::warn!(context = %ctx, "{operation}: {message}");
+                    let _ =
+                        Self::operation_failed(&emitter, ctx.as_str(), operation, &name, &message)
+                            .await;
                 }
             }
             let _ = Self::contexts_changed(&emitter).await;
@@ -877,4 +933,33 @@ fn context_apps(podman: &Podman, ctx: &ContextName) -> anyhow::Result<Vec<koje_c
         .map_err(anyhow::Error::msg)?;
     let listing = podman.query(ctx, &["sh", "-c", koje_core::apps::LIST_SCRIPT])?;
     Ok(koje_core::apps::parse_listing(&listing))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errors_get_their_names() {
+        let open = anyhow::Error::new(koje_runtime::runtime::StillOpen {
+            context: ContextName::new("kp").unwrap(),
+            windows: vec!["foot".to_owned()],
+        })
+        .context("stopping kp");
+        let e = Error::from(open);
+        assert_eq!(
+            zbus::DBusError::name(&e).as_str(),
+            "io.koje.Error.WindowsOpen"
+        );
+        assert!(
+            zbus::DBusError::description(&e)
+                .unwrap()
+                .contains("koje down kp --no-save")
+        );
+        let other = Error::from(anyhow::anyhow!("podman: boom"));
+        assert_eq!(
+            zbus::DBusError::name(&other).as_str(),
+            "io.koje.Error.Failed"
+        );
+    }
 }

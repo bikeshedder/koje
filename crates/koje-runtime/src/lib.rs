@@ -10,3 +10,4 @@ pub mod memory;
 pub mod mounts;
 pub mod prompt;
 pub mod runtime;
+pub mod say;

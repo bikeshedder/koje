@@ -12,6 +12,7 @@ publish.workspace = true
 koje-core.workspace = true
 koje-podman.workspace = true
 anyhow.workspace = true
+thiserror.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true

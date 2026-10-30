@@ -29,9 +29,7 @@ pub fn run(command: &Command) -> Result<()> {
             }
         }
         Command::Config { stdin } => config(&paths, *stdin),
-        Command::Recreate { ctx, yes } => {
-            koje_runtime::runtime::recreate(&paths, &ctx.context, *yes)
-        }
+        Command::Recreate { ctx, yes } => crate::lifecycle::recreate(&paths, &ctx.context, *yes),
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
         Command::State(cmd) => state(&paths, cmd),
@@ -44,11 +42,11 @@ pub fn run(command: &Command) -> Result<()> {
             recover,
             no_recover,
             no_focus,
-        } => koje_runtime::runtime::up(
+        } => crate::lifecycle::up(
             &paths,
             &ctx.context,
             state.as_deref(),
-            koje_runtime::runtime::UpOptions {
+            crate::lifecycle::Up {
                 no_save: *no_save,
                 recover: *recover,
                 no_recover: *no_recover,
@@ -59,7 +57,7 @@ pub fn run(command: &Command) -> Result<()> {
             ctx,
             state,
             no_save,
-        } => koje_runtime::runtime::down(&paths, &ctx.context, state.as_deref(), *no_save),
+        } => crate::lifecycle::down(&paths, &ctx.context, state.as_deref(), *no_save),
 
         Command::Shell { ctx, dev, user } => {
             koje_runtime::runtime::shell(&paths, &ctx.context, dev.as_deref(), user.as_deref())
@@ -80,13 +78,13 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Dotfiles { context } => koje_runtime::dotfiles::run(&paths, context.as_deref()),
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 
-        Command::Sleep(ctx) => koje_runtime::runtime::sleep(&paths, &ctx.context),
-        Command::Wake(ctx) => koje_runtime::runtime::wake(&paths, &ctx.context),
+        Command::Sleep(ctx) => crate::lifecycle::sleep(&paths, &ctx.context),
+        Command::Wake(ctx) => crate::lifecycle::wake(&paths, &ctx.context),
 
         Command::Focus(ctx) => focus(&paths, ctx),
 
         Command::Save { ctx, state } => {
-            koje_runtime::runtime::save(&paths, &ctx.context, state.as_deref())
+            crate::lifecycle::save(&paths, &ctx.context, state.as_deref())
         }
         Command::Stats { context } => koje_runtime::memory::stats(&paths, context.as_deref()),
         Command::Limit { ctx, soft, hard } => {

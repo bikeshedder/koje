@@ -25,7 +25,7 @@ fn presets(paths: &Paths, cfg: &ContextConfig) -> Vec<(PresetName, PathBuf)> {
             match std::fs::canonicalize(&dir) {
                 Ok(real) if real.is_dir() => Some((p.clone(), real)),
                 _ => {
-                    println!(
+                    crate::say!(
                         "note: dotfiles preset {p} of {} does not exist – create {}",
                         cfg.name,
                         dir.display()
@@ -62,7 +62,7 @@ pub fn sync_mounts(
     let wanted: BTreeSet<&PathBuf> = want.iter().map(|(rel, _)| rel).collect();
     for rel in live.difference(&wanted) {
         podman.live_unmount(home_dir, rel)?;
-        println!("unmounted ~/{} from {name}", rel.display());
+        crate::say!("unmounted ~/{} from {name}", rel.display());
     }
     Ok(())
 }
@@ -101,12 +101,12 @@ pub fn link(paths: &Paths, cfg: &ContextConfig) -> Result<()> {
     if !plan.steps.is_empty() {
         let out = run(dotfiles::APPLY_SCRIPT, dotfiles::apply_args(&plan.steps))?;
         for line in out.lines() {
-            println!("note: dotfiles of {name}: {line}");
+            crate::say!("note: dotfiles of {name}: {line}");
         }
-        println!("dotfiles: {} change(s) in {name}", plan.steps.len());
+        crate::say!("dotfiles: {} change(s) in {name}", plan.steps.len());
     }
     for p in &plan.conflicts {
-        println!(
+        crate::say!(
             "note: kept ~/{} in {name} – it is the context's own; move it away to use the preset's",
             p.display()
         );
@@ -149,7 +149,7 @@ pub fn run(paths: &Paths, context: Option<&str>) -> Result<()> {
         })
         .unwrap_or_default();
     all.sort();
-    println!(
+    crate::say!(
         "presets in {}: {}",
         dir.display(),
         if all.is_empty() {
@@ -159,13 +159,13 @@ pub fn run(paths: &Paths, context: Option<&str>) -> Result<()> {
         }
     );
     if configs.is_empty() {
-        println!("no context running – presets are linked when one starts");
+        crate::say!("no context running – presets are linked when one starts");
     }
     let mut failed = 0;
     for cfg in &configs {
         let name = &cfg.name;
         let used: Vec<&str> = cfg.dotfiles.iter().map(PresetName::as_str).collect();
-        println!(
+        crate::say!(
             "{name}: {}",
             if used.is_empty() {
                 format!("no presets (add them to `dotfiles` with: koje edit {name})")
@@ -175,7 +175,7 @@ pub fn run(paths: &Paths, context: Option<&str>) -> Result<()> {
         );
         let done = crate::mounts::sync(paths, name, cfg, false).and_then(|()| link(paths, cfg));
         if let Err(e) = done {
-            println!("note: {name}: {e:#}");
+            crate::say!("note: {name}: {e:#}");
             failed += 1;
         }
     }

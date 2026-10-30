@@ -1,6 +1,7 @@
 //! End-to-end tests of the `koje` binary with isolated XDG directories.
-//! They never touch the real user configuration, Podman, Hyprland or kojed
-//! (the session bus points nowhere).
+//! They never touch the real user configuration, Podman, GNOME or the
+//! user's kojed: the session bus points nowhere, or to a private bus with a
+//! kojed of the test's own ([`Session`]).
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -441,6 +442,102 @@ fn image_build_runs_podman_build_for_the_user() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("built koje/base:latest"));
 }
 
+/// A private session bus with kojed on it (G.29: kojed runs `up`, `down`,
+/// `sleep`, `recreate`, `save`), with the test's XDG directories and `PATH`;
+/// killed on drop. kojed waits for GNOME Shell and serves meanwhile.
+struct Session {
+    tmp: PathBuf,
+    path: String,
+    bus: String,
+    bus_pid: u32,
+    kojed: std::process::Child,
+}
+
+impl Session {
+    fn start(tmp: &Path, path: &str) -> Self {
+        Self::start_with(tmp, path, &[])
+    }
+
+    fn start_with(tmp: &Path, path: &str, env: &[(&str, &str)]) -> Self {
+        let out = Command::new("dbus-daemon")
+            .args(["--session", "--fork", "--print-address=1", "--print-pid=2"])
+            .output()
+            .expect("dbus-daemon (the dev container has it)");
+        let bus = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .next()
+            .expect("bus address")
+            .to_owned();
+        let bus_pid = String::from_utf8_lossy(&out.stderr).trim().parse().unwrap();
+        // Next to koje: `cargo test --workspace` builds both.
+        let exe = Path::new(env!("CARGO_BIN_EXE_koje")).with_file_name("kojed");
+        assert!(exe.exists(), "build kojed first: cargo build -p kojed");
+        std::fs::create_dir_all(tmp.join("run")).unwrap();
+        let kojed = command(tmp, &[])
+            .get_envs()
+            .fold(Command::new(exe), |mut c, (k, v)| {
+                match v {
+                    Some(v) => c.env(k, v),
+                    None => c.env_remove(k),
+                };
+                c
+            })
+            .env("PATH", path)
+            .env("DBUS_SESSION_BUS_ADDRESS", &bus)
+            .envs(env.iter().copied())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start kojed");
+        let session = Self {
+            tmp: tmp.to_owned(),
+            path: path.to_owned(),
+            bus,
+            bus_pid,
+            kojed,
+        };
+        for _ in 0..100 {
+            let owned = Command::new("dbus-send")
+                .args([
+                    &format!("--bus={}", session.bus),
+                    "--print-reply",
+                    "--dest=org.freedesktop.DBus",
+                    "/org/freedesktop/DBus",
+                    "org.freedesktop.DBus.NameHasOwner",
+                    "string:io.koje.Daemon",
+                ])
+                .output()
+                .unwrap();
+            if String::from_utf8_lossy(&owned.stdout).contains("boolean true") {
+                return session;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("kojed did not take io.koje.Daemon");
+    }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let mut cmd = command(&self.tmp, args);
+        cmd.env("PATH", &self.path)
+            .env("DBUS_SESSION_BUS_ADDRESS", &self.bus)
+            .stdin(Stdio::null());
+        cmd
+    }
+
+    fn koje(&self, args: &[&str]) -> Output {
+        self.command(args).output().expect("run koje")
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        let _ = self.kojed.kill();
+        let _ = self.kojed.wait();
+        let _ = Command::new("kill").arg(self.bus_pid.to_string()).status();
+    }
+}
+
 fn koje_fake(tmp: &Path, path: &str, args: &[&str]) -> Output {
     command(tmp, args)
         .env("PATH", path)
@@ -453,9 +550,10 @@ fn koje_fake(tmp: &Path, path: &str, args: &[&str]) -> Output {
 fn up_creates_once_then_starts_and_down_stops() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
 
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    let out = stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     assert!(out.contains("started kp (container created)"), "{out}");
     let calls = podman_log(tmp.path());
     assert!(
@@ -469,16 +567,17 @@ fn up_creates_once_then_starts_and_down_stops() {
     assert!(calls.contains("--label io.koje.context=kp"), "{calls}");
     assert!(calls.lines().any(|l| l == "start koje-kp"), "{calls}");
 
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    // Without -s: a running context stays as it is (-s switches its state).
+    let out = stdout(&s.koje(&["up", "kp"]));
     assert!(out.contains("already running"), "{out}");
 
-    let out = stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    let out = stdout(&s.koje(&["down", "kp", "--no-save"]));
     assert!(out.contains("stopped kp"), "{out}");
-    let out = stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    let out = stdout(&s.koje(&["down", "kp", "--no-save"]));
     assert!(out.contains("not running"), "{out}");
 
     // The second start reuses the container: no second create.
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    let out = stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     assert!(
         out.contains("started kp") && !out.contains("created"),
         "{out}"
@@ -490,13 +589,14 @@ fn up_creates_once_then_starts_and_down_stops() {
 fn shell_needs_a_running_context_and_execs_into_it() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    let out = koje_fake(tmp.path(), &path, &["shell", "kp"]);
+    let out = s.koje(&["shell", "kp"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp -s empty"));
 
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
-    stdout(&koje_fake(tmp.path(), &path, &["shell", "kp"]));
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
+    stdout(&s.koje(&["shell", "kp"]));
     // stdin is not a terminal in tests: no -t.
     assert!(
         podman_log(tmp.path()).contains("exec -i koje-kp sh -c command -v bash"),
@@ -504,7 +604,7 @@ fn shell_needs_a_running_context_and_execs_into_it() {
         podman_log(tmp.path())
     );
 
-    stdout(&koje_fake(tmp.path(), &path, &["shell", "kp", "--dev"]));
+    stdout(&s.koje(&["shell", "kp", "--dev"]));
     let log = podman_log(tmp.path());
     assert!(
         log.contains("exec koje-kp podman ps --format {{.Names}}"),
@@ -514,7 +614,7 @@ fn shell_needs_a_running_context_and_execs_into_it() {
         log.contains("exec -i koje-kp podman exec -i web sh -c"),
         "{log}"
     );
-    let out = koje_fake(tmp.path(), &path, &["shell", "kp", "--dev", "db"]);
+    let out = s.koje(&["shell", "kp", "--dev", "db"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("running: web"));
 }
 
@@ -522,6 +622,7 @@ fn shell_needs_a_running_context_and_execs_into_it() {
 fn open_passes_urls_and_mounted_files_only() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
     // A mounted folder (an absolute path outside any protected dir) with a file.
     let shared = tmp.path().join("shared");
@@ -538,16 +639,12 @@ fn open_passes_urls_and_mounted_files_only() {
         ),
     )
     .unwrap();
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
 
-    let out = stdout(&koje_fake(
-        tmp.path(),
-        &path,
-        &["open", "kp", "https://example.org"],
-    ));
+    let out = stdout(&s.koje(&["open", "kp", "https://example.org"]));
     assert!(out.contains("opened https://example.org in kp"), "{out}");
     let file = shared.join("spec.pdf").display().to_string();
-    stdout(&koje_fake(tmp.path(), &path, &["open", "kp", &file]));
+    stdout(&s.koje(&["open", "kp", &file]));
     let log = podman_log(tmp.path());
     assert!(
         log.contains("exec -d koje-kp xdg-open https://example.org"),
@@ -562,9 +659,9 @@ fn open_passes_urls_and_mounted_files_only() {
     );
 
     let elsewhere = tmp.path().join("elsewhere.txt").display().to_string();
-    let out = koje_fake(tmp.path(), &path, &["open", "kp", &elsewhere]);
+    let out = s.koje(&["open", "kp", &elsewhere]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("not visible in kp"));
-    let out = koje_fake(tmp.path(), &path, &["open", "kp", "/does/not/exist"]);
+    let out = s.koje(&["open", "kp", "/does/not/exist"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("does not exist"));
 }
 
@@ -572,20 +669,17 @@ fn open_passes_urls_and_mounted_files_only() {
 fn sleep_and_wake() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    assert!(
-        !koje_fake(tmp.path(), &path, &["sleep", "kp"])
-            .status
-            .success()
-    );
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
-    assert!(stdout(&koje_fake(tmp.path(), &path, &["sleep", "kp"])).contains("kp is asleep"));
-    assert!(stdout(&koje_fake(tmp.path(), &path, &["sleep", "kp"])).contains("already asleep"));
+    assert!(!s.koje(&["sleep", "kp"]).status.success());
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
+    assert!(stdout(&s.koje(&["sleep", "kp"])).contains("kp is asleep"));
+    assert!(stdout(&s.koje(&["sleep", "kp"])).contains("already asleep"));
     // up on a paused context points to wake.
-    let out = koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]);
+    let out = s.koje(&["up", "kp", "-s", "empty"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("koje wake kp"));
-    assert!(stdout(&koje_fake(tmp.path(), &path, &["wake", "kp"])).contains("kp is awake"));
-    assert!(stdout(&koje_fake(tmp.path(), &path, &["wake", "kp"])).contains("not asleep"));
+    assert!(stdout(&s.koje(&["wake", "kp"])).contains("kp is awake"));
+    assert!(stdout(&s.koje(&["wake", "kp"])).contains("not asleep"));
     let log = podman_log(tmp.path());
     assert!(
         log.lines().any(|l| l == "pause koje-kp") && log.lines().any(|l| l == "unpause koje-kp"),
@@ -597,8 +691,9 @@ fn sleep_and_wake() {
 fn rm_removes_container_and_home_volume() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
 
     // The question lists the container (running) and the home volume; "n" keeps all.
     let out = command(tmp.path(), &["rm", "kp"])
@@ -615,7 +710,7 @@ fn rm_removes_container_and_home_volume() {
     assert!(!out.status.success());
     assert!(config_of(tmp.path(), "kp").exists());
 
-    stdout(&koje_fake(tmp.path(), &path, &["rm", "kp", "--yes"]));
+    stdout(&s.koje(&["rm", "kp", "--yes"]));
     let log = podman_log(tmp.path());
     let tail: Vec<&str> = log
         .lines()
@@ -664,19 +759,14 @@ fn up_starts_proxy_and_forwarder_down_stops_the_proxy() {
     let forwarder = tmp.path().join("koje-forward");
     std::fs::write(&forwarder, "").unwrap();
     let run = tmp.path().join("run");
-    std::fs::create_dir_all(&run).unwrap();
     stdout(&koje(tmp.path(), &["new", "kp"]));
-
-    let koje_up = |args: &[&str]| {
-        command(tmp.path(), args)
-            .env("PATH", &path)
-            .env("XDG_RUNTIME_DIR", &run)
-            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/fake/host/bus")
-            .env("KOJE_FORWARD", &forwarder)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
-    };
+    // kojed runs `up`: the forwarder and the host bus are kojed's.
+    let s = Session::start_with(
+        tmp.path(),
+        &path,
+        &[("KOJE_FORWARD", forwarder.to_str().unwrap())],
+    );
+    let koje_up = |args: &[&str]| s.koje(args);
     let out = stdout(&koje_up(&["up", "kp", "-s", "empty"]));
     assert!(
         !out.contains("host interfaces"),
@@ -691,7 +781,8 @@ fn up_starts_proxy_and_forwarder_down_stops_the_proxy() {
     );
     assert!(
         systemd.contains(&format!(
-            "xdg-dbus-proxy unix:path=/fake/host/bus {}/bus --filter",
+            "xdg-dbus-proxy {} {}/bus --filter",
+            s.bus,
             dir.display()
         )),
         "{systemd}"
@@ -721,7 +812,7 @@ fn up_starts_proxy_and_forwarder_down_stops_the_proxy() {
     );
 
     // Again: the forwarder already owns its names and is not started twice.
-    stdout(&koje_up(&["up", "kp", "-s", "empty"]));
+    stdout(&koje_up(&["up", "kp"]));
     let starts = podman_log(tmp.path())
         .matches("exec -d koje-kp /usr/local/libexec/koje/koje-forward")
         .count();
@@ -739,30 +830,25 @@ fn up_starts_proxy_and_forwarder_down_stops_the_proxy() {
 fn up_falls_back_to_empty_and_restores_through_kojed() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    assert!(
-        !koje_fake(tmp.path(), &path, &["up", "nope", "-s", "empty"])
-            .status
-            .success()
-    );
+    assert!(!s.koje(&["up", "nope", "-s", "empty"]).status.success());
     assert_eq!(podman_log(tmp.path()), "", "nothing reached podman");
 
     // No state yet: `default` → `fresh` → `empty`.
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp"]));
+    let out = stdout(&s.koje(&["up", "kp"]));
     assert!(
         out.contains("no state default yet – starting kp without windows"),
         "{out}"
     );
-    let out = koje_fake(tmp.path(), &path, &["down", "kp"]);
-    assert!(String::from_utf8_lossy(&out.stderr).contains("koje down kp --no-save"));
-    let out = stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    let out = stdout(&s.koje(&["down", "kp", "--no-save"]));
     assert!(
         out.contains("programs not closed in order") && out.contains("stopped kp"),
         "{out}"
     );
     assert!(podman_log(tmp.path()).contains("stop --time 10 koje-kp"));
 
-    // A stored state with windows is restored by kojed (not running here).
+    // A stored state with windows: kojed starts its programs.
     let states = tmp.path().join("data/koje/kp/states");
     std::fs::create_dir_all(&states).unwrap();
     std::fs::write(
@@ -770,23 +856,25 @@ fn up_falls_back_to_empty_and_restores_through_kojed() {
         "active_layout = \"main\"\n[[windows]]\nid = \"term\"\ncommand = \"foot\"\n",
     )
     .unwrap();
-    let out = koje_fake(tmp.path(), &path, &["up", "kp"]);
-    assert!(!out.status.success());
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("restoring state default of kp"), "{err}");
+    let out = stdout(&s.koje(&["up", "kp"]));
+    assert!(
+        out.contains("restoring state default: 1 window(s), 1 program(s) started"),
+        "{out}"
+    );
 }
 
 #[test]
-fn up_with_wayland_needs_kojed() {
+fn up_with_wayland_needs_the_session_socket() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     std::fs::remove_file(tmp.path().join("config/koje/config.toml")).unwrap();
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    let out = command(tmp.path(), &["up", "kp", "-s", "empty"])
-        .env("PATH", &path)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    // No kojed: nothing to run it.
+    let out = koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]);
+    assert!(!out.status.success());
+    // kojed, but no GNOME session with its Wayland socket.
+    let s = Session::start(tmp.path(), &path);
+    let out = s.koje(&["up", "kp", "-s", "empty"]);
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("Wayland socket"), "{err}");
@@ -802,14 +890,9 @@ fn up_with_wayland_needs_kojed() {
 fn save_needs_a_running_context_and_a_writable_state() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    let save = |args: &[&str]| {
-        command(tmp.path(), args)
-            .env("PATH", &path)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
-    };
+    let save = |args: &[&str]| s.koje(args);
     let out = save(&["save", "kp", "-s", "empty"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("empty"));
@@ -944,6 +1027,7 @@ fn setup_asks_and_stdin_closed_means_no() {
 fn run_starts_a_program_in_the_running_context() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
     let shared = tmp.path().join("shared");
     std::fs::create_dir_all(&shared).unwrap();
@@ -969,7 +1053,7 @@ fn run_starts_a_program_in_the_running_context() {
     assert!(!out.status.success(), "not running yet");
     assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp"));
 
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     stdout(&run(&shared, &["run", "kp", "foot", "--app-id=x y"]));
     stdout(&run(tmp.path(), &["run", "kp", "firefox"]));
     let log = podman_log(tmp.path());
@@ -991,6 +1075,7 @@ fn run_starts_a_program_in_the_running_context() {
 fn up_after_a_crash_keeps_or_takes_the_recovery_file() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
     let recovery = tmp.path().join("state/koje/kp/recovery.toml");
     std::fs::create_dir_all(recovery.parent().unwrap()).unwrap();
@@ -1000,25 +1085,27 @@ fn up_after_a_crash_keeps_or_takes_the_recovery_file() {
     )
     .unwrap();
     // No terminal to ask: kept, the normal state (none: empty) is loaded.
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp"]));
+    let out = stdout(&s.koje(&["up", "kp"]));
     assert!(out.contains("recovery file is kept"), "{out}");
     assert!(recovery.exists());
-    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    stdout(&s.koje(&["down", "kp", "--no-save"]));
     assert!(!recovery.exists(), "a clean down deletes it");
 
-    // --recover takes it: kojed would restore it (not running here).
+    // --recover takes it.
     std::fs::write(
         &recovery,
         "active_layout = \"main\"\n[[windows]]\nid = \"term\"\ncommand = \"foot\"\n",
     )
     .unwrap();
-    let out = koje_fake(tmp.path(), &path, &["up", "kp", "--recover"]);
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("restoring the recovery file of kp"), "{err}");
+    let out = stdout(&s.koje(&["up", "kp", "--recover"]));
+    assert!(
+        out.contains("restoring the recovery file: 1 window(s)"),
+        "{out}"
+    );
     // --no-recover discards it.
-    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    stdout(&s.koje(&["down", "kp", "--no-save"]));
     std::fs::write(&recovery, "active_layout = \"main\"\n").unwrap();
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "--no-recover"]));
+    let out = stdout(&s.koje(&["up", "kp", "--no-recover"]));
     assert!(out.contains("discarded the recovery file"), "{out}");
     assert!(!recovery.exists());
 }
@@ -1027,8 +1114,9 @@ fn up_after_a_crash_keeps_or_takes_the_recovery_file() {
 fn up_prepares_live_mounts() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     let log = podman_log(tmp.path());
     let data = tmp.path().join("podman.status.voldata");
     assert!(log.contains("volume create koje-kp-home"), "{log}");
@@ -1047,19 +1135,20 @@ fn up_prepares_live_mounts() {
 fn recreate_asks_and_keeps_the_home() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    let out = koje_fake(tmp.path(), &path, &["recreate", "kp", "--yes"]);
+    let out = s.koje(&["recreate", "kp", "--yes"]);
     assert!(!out.status.success(), "no container yet");
     assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp"));
 
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
-    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
+    stdout(&s.koje(&["down", "kp", "--no-save"]));
     // Nobody to answer: nothing happens.
-    let out = koje_fake(tmp.path(), &path, &["recreate", "kp"]);
+    let out = s.koje(&["recreate", "kp"]);
     assert!(!out.status.success());
     assert!(!podman_log(tmp.path()).lines().any(|l| l == "rm koje-kp"));
     // Stopped: the container goes, the home volume stays, it stays stopped.
-    let out = stdout(&koje_fake(tmp.path(), &path, &["recreate", "kp", "--yes"]));
+    let out = stdout(&s.koje(&["recreate", "kp", "--yes"]));
     assert!(out.contains("removed kp's container"), "{out}");
     let log = podman_log(tmp.path());
     assert!(log.lines().any(|l| l == "rm koje-kp"), "{log}");
@@ -1070,28 +1159,29 @@ fn recreate_asks_and_keeps_the_home() {
 fn up_notices_changed_settings() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     let log = podman_log(tmp.path());
     let label = log
         .split_whitespace()
         .find(|w| w.starts_with("io.koje.config="))
         .expect("a fingerprint label on the new container")
         .to_owned();
-    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    stdout(&s.koje(&["down", "kp", "--no-save"]));
     // Same settings: nothing to say.
     std::fs::write(
         tmp.path().join("podman.status.fp"),
         label.trim_start_matches("io.koje.config="),
     )
     .unwrap();
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    let out = stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     assert!(!out.contains("changed since"), "{out}");
-    stdout(&koje_fake(tmp.path(), &path, &["down", "kp", "--no-save"]));
+    stdout(&s.koje(&["down", "kp", "--no-save"]));
     // Another fingerprint (the access profile was changed): a hint, no
     // terminal to ask – the old container starts.
     std::fs::write(tmp.path().join("podman.status.fp"), "v2-0000000000000000").unwrap();
-    let out = stdout(&koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]));
+    let out = stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     assert!(out.contains("apply after: koje recreate kp"), "{out}");
     assert!(!podman_log(tmp.path()).lines().any(|l| l == "rm koje-kp"));
 }

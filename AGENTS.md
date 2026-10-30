@@ -45,7 +45,7 @@ crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
 crates/kojed       background service (windows and contexts, colors, states, memory watch; D-Bus API)
 crates/koje-gnome  GNOME adapter (ADR 0059): Compositor port over koje's GNOME Shell extension
 crates/koje-podman Podman adapter (ContainerRuntime), base image
-crates/koje-runtime driving context containers (up, down, mounts, host bus, limits); shared by the CLI and kojed
+crates/koje-runtime driving context containers (up, down, mounts, host bus, limits); kojed runs the lifecycle, the CLI shell/run/open
 crates/koje-forward static D-Bus forwarder inside every context (ADR 0025)
 gnome              koje's UI (ADR 0060): the GNOME Shell extension (gnome/extension/koje@koje.io, JS), the settings app (gnome/src/settings, TypeScript + Blueprint), the D-Bus client generated from kojed's interface file (gnome/src/api)
 build             the Ubuntu 26.04 image `just deb` builds the package in (ADR 0045)

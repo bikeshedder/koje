@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result, bail};
 use koje_core::config::{ContextConfig, GlobalConfig};
 use koje_core::context;
 use koje_core::lifecycle::{
-    DownPlan, PausePlan, UpPlan, pick_dev_container, plan_down, plan_sleep, plan_up, plan_wake,
+    DownPlan, PausePlan, UpPlan, pick_dev_container, plan_down, plan_sleep, plan_up,
     require_running,
 };
 use koje_core::name::{ContextName, StateName};
@@ -24,7 +24,7 @@ use koje_podman::image::BASE_IMAGE;
 pub struct UpOptions {
     /// Switching a running context: do not save the current windows first.
     pub no_save: bool,
-    /// After a crash: restore / discard the recovery file without asking.
+    /// After a crash: restore / discard the recovery file; neither keeps it.
     pub recover: bool,
     pub no_recover: bool,
     /// Switch to the context's workspace before its programs start.
@@ -80,12 +80,12 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
     let fingerprint = koje_core::container::fingerprint(&cfg.image, &access);
-    let plan = recreate_if_changed(&podman, &name, plan, &fingerprint)?;
+    note_if_changed(&podman, &name, plan, &fingerprint);
     let host = prepare_host(&podman, &name, &access, plan)?;
     // Folders below the home: mounted live into the shared home, before the
     // container starts (ADR 0033).
     if let Err(e) = crate::mounts::sync(paths, &name, &cfg, false) {
-        println!("note: mounts not brought up to date: {e:#}");
+        crate::say!("note: mounts not brought up to date: {e:#}");
     }
     match plan {
         UpPlan::CreateAndStart => {
@@ -101,17 +101,19 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
                 .create(&built.spec)
                 .with_context(|| format!("creating the container for {name}"))?;
             podman.start(&name)?;
-            println!("started {name} (container created)");
+            crate::say!("started {name} (container created)");
         }
         UpPlan::Start => {
             podman.start(&name)?;
-            println!("started {name}");
+            crate::say!("started {name}");
         }
         UpPlan::AlreadyRunning if live_known && state.is_some() => {
             switch_state(paths, &name, &requested, to_load.take(), no_save)?;
         }
-        UpPlan::AlreadyRunning if lost => println!("{name} is running, but its windows were lost"),
-        UpPlan::AlreadyRunning => println!("{name} is already running"),
+        UpPlan::AlreadyRunning if lost => {
+            crate::say!("{name} is running, but its windows were lost");
+        }
+        UpPlan::AlreadyRunning => crate::say!("{name} is already running"),
         UpPlan::Paused => unreachable!("handled above"),
     }
     after_start(paths, &podman, &cfg, &global)?;
@@ -119,7 +121,7 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
         && host.forwarder.is_some()
         && let Err(e) = crate::hostbus::start_forwarder(&podman, &name, &access, host.uid)
     {
-        println!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
+        crate::say!("note: host interfaces unavailable – the forwarder did not start: {e:#}");
     }
     // Show the context's workspace before its programs start (ADR 0028): their
     // windows open where the user looks, kojed does not have to move them.
@@ -144,7 +146,7 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
             .unwrap_or_default();
         let started: u32 = crate::kojed::call("Restore", &(name.as_str(), text.as_str(), current))
             .with_context(|| format!("restoring {label} of {name}"))?;
-        println!(
+        crate::say!(
             "restoring {label}: {} window(s), {started} program(s) started",
             state.windows.len()
         );
@@ -164,11 +166,11 @@ fn after_start(
     // (ADR 0035; not stored by Podman, so after every start).
     if let Err(e) = crate::memory::apply_kernel_limit(podman, name, &cfg.effective_limits(global)?)
     {
-        println!("note: {e:#}");
+        crate::say!("note: {e:#}");
     }
     // Dotfiles presets (ADR 0038): programs read their config when they start.
     if let Err(e) = crate::dotfiles::link(paths, cfg) {
-        println!("note: dotfiles of {name} not linked: {e:#}");
+        crate::say!("note: dotfiles of {name} not linked: {e:#}");
     }
     Ok(())
 }
@@ -181,48 +183,40 @@ fn show_workspace(name: &ContextName) {
 }
 
 /// The container was made with other settings (image, access) than
-/// the config has now (M5.11): a stopped one may be recreated right away
-/// (asked; what was installed in it is lost), a running one says how.
-fn recreate_if_changed(
-    podman: &Podman,
-    name: &ContextName,
-    plan: UpPlan,
-    fingerprint: &str,
-) -> Result<UpPlan> {
+/// the config has now (M5.11): says how they apply. `koje up` offers to
+/// recreate a stopped one first ([`config_changed`]).
+fn note_if_changed(podman: &Podman, name: &ContextName, plan: UpPlan, fingerprint: &str) {
     if !matches!(plan, UpPlan::Start | UpPlan::AlreadyRunning) {
-        return Ok(plan);
+        return;
     }
-    // No label: from before fingerprints – nothing to compare.
-    let Some(old) = podman.label(name, koje_core::container::LABEL_CONFIG)? else {
-        return Ok(plan);
-    };
-    if !koje_core::container::fingerprint_differs(&old, fingerprint) {
-        return Ok(plan);
-    }
-    let hint = format!(
-        "note: {name}'s image or access changed since its container was created – \
-         they apply after: koje recreate {name}"
-    );
-    if plan == UpPlan::AlreadyRunning || !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        println!("{hint}");
-        return Ok(plan);
-    }
-    let now = crate::prompt::confirm(
-        &format!(
-            "{name}'s image or access changed since its container was created. \
-             Recreate it now? Everything installed in it outside your home is lost."
+    match changed_since_created(podman, name, fingerprint) {
+        Ok(true) => crate::say!(
+            "note: {name}'s image or access changed since its container was created – \
+             they apply after: koje recreate {name}"
         ),
-        false,
-    )?;
-    if !now {
-        println!("{hint}");
-        return Ok(plan);
+        Ok(false) => {}
+        Err(e) => tracing::debug!("comparing {name}'s container with its config: {e:#}"),
     }
-    podman
-        .remove(name)
-        .with_context(|| format!("removing {name}'s container"))?;
-    println!("removed {name}'s container (its home is kept)");
-    Ok(UpPlan::CreateAndStart)
+}
+
+fn changed_since_created(podman: &Podman, name: &ContextName, fingerprint: &str) -> Result<bool> {
+    // No label: from before fingerprints – nothing to compare.
+    Ok(podman
+        .label(name, koje_core::container::LABEL_CONFIG)?
+        .is_some_and(|old| koje_core::container::fingerprint_differs(&old, fingerprint)))
+}
+
+/// Whether `context`'s stopped container was made with other settings
+/// (image, access) than its config has now: `koje up` asks to recreate it.
+pub fn config_changed(paths: &Paths, context: &ContextName) -> Result<bool> {
+    let cfg = context::load(paths, context)?;
+    let global = GlobalConfig::load(&paths.global_config())?;
+    let podman = Podman::new();
+    if podman.status(context)? != ContainerStatus::Stopped {
+        return Ok(false);
+    }
+    let fingerprint = koje_core::container::fingerprint(&cfg.image, &cfg.effective_access(&global));
+    changed_since_created(&podman, context, &fingerprint)
 }
 
 /// What the context gets from the host, prepared before its container
@@ -258,7 +252,7 @@ fn prepare_host(
         host.forwarder = crate::hostbus::forwarder_binary();
         match crate::hostbus::start_proxy(name, access) {
             Ok(dir) => host.host_bus_dir = Some(dir),
-            Err(e) => println!("note: host interfaces unavailable: {e:#}"),
+            Err(e) => crate::say!("note: host interfaces unavailable: {e:#}"),
         }
     }
     Ok(host)
@@ -307,16 +301,16 @@ fn switch_state(
             Some(c) => {
                 let live = live_state(name)?;
                 koje_core::states::write(paths, name, c, &live)?;
-                println!(
+                crate::say!(
                     "saved {} window(s) of {name} into state {c}",
                     live.windows.len()
                 );
                 if c == requested {
-                    println!("{name} is in state {c} already");
+                    crate::say!("{name} is in state {c} already");
                     return Ok(());
                 }
             }
-            None => println!("note: {name} is in no stored state (empty) – nothing saved"),
+            None => crate::say!("note: {name} is in no stored state (empty) – nothing saved"),
         }
     }
     let target = target.unwrap_or_else(|| Load {
@@ -334,7 +328,7 @@ fn switch_state(
     let (kept, closed, started): (u32, u32, u32) =
         crate::kojed::call("SwitchState", &(name.as_str(), text.as_str(), target_name))
             .with_context(|| format!("switching {name} to {label}"))?;
-    println!(
+    crate::say!(
         "{name}: switched to {label} – {kept} window(s) kept, {closed} closed, {started} program(s) started"
     );
     Ok(())
@@ -346,8 +340,8 @@ fn windows_lost(name: &ContextName) -> Option<bool> {
     crate::kojed::call::<_, bool>("WindowsLost", &(name.as_str(),)).ok()
 }
 
-/// The state to load, or the recovery file after a crash (ADR 0006): asked,
-/// or decided by `--recover` / `--no-recover`.
+/// The state to load, or the recovery file after a crash (ADR 0006), as
+/// `--recover` / `--no-recover` decide; neither keeps it.
 fn load_or_recover(
     paths: &Paths,
     name: &ContextName,
@@ -363,35 +357,21 @@ fn load_or_recover(
         Action::Restore => true,
         Action::Discard => {
             recovery::delete(paths, name)?;
-            println!("discarded the recovery file of {name}");
+            crate::say!("discarded the recovery file of {name}");
             false
         }
-        Action::Ask if !std::io::IsTerminal::is_terminal(&std::io::stdin()) => {
-            // Nobody to ask (a launcher, autostart): keep it for later.
-            println!(
+        Action::Ask => {
+            // Nobody decided (`koje up` asks first): keep it for later.
+            crate::say!(
                 "note: {name} did not shut down cleanly – its recovery file is kept; \
                  restore it with: koje up {name} --recover (or after koje down {name} --no-save)"
             );
             false
         }
-        Action::Ask => {
-            let ago = found
-                .as_ref()
-                .and_then(|r| r.saved_at.elapsed().ok())
-                .map_or_else(|| "earlier".to_owned(), recovery::ago);
-            let yes = crate::prompt::confirm(
-                &format!("{name} did not shut down cleanly – restore its windows from {ago}?"),
-                true,
-            )?;
-            if !yes {
-                recovery::delete(paths, name)?;
-            }
-            yes
-        }
     };
     if take && let Some(r) = found {
         for issue in &r.loaded.repaired {
-            println!("note: recovery file: repaired: {issue}");
+            crate::say!("note: recovery file: repaired: {issue}");
         }
         return Ok(Some(Load {
             label: "the recovery file".to_owned(),
@@ -416,7 +396,7 @@ fn state_to_load(
     }) {
         Resolved::Empty { fell_back } => {
             if fell_back && !requested.is_empty_state() {
-                println!("no state {requested} yet – starting {name} without windows");
+                crate::say!("no state {requested} yet – starting {name} without windows");
             }
             Ok(None)
         }
@@ -425,13 +405,13 @@ fn state_to_load(
             fell_back,
         } => {
             if fell_back {
-                println!("no state {requested} yet – loading {state_name}");
+                crate::say!("no state {requested} yet – loading {state_name}");
             }
             let Some(loaded) = koje_core::states::read(paths, name, &state_name)? else {
                 return Ok(None);
             };
             for issue in &loaded.repaired {
-                println!("note: state {state_name}: repaired: {issue}");
+                crate::say!("note: state {state_name}: repaired: {issue}");
             }
             Ok(Some(Load {
                 label: format!("state {state_name}"),
@@ -454,7 +434,8 @@ fn live_state(name: &ContextName) -> Result<koje_core::state::State> {
 
 /// `koje save <context> [-s <state>]`: write the running windows and layouts
 /// into a state (default: the state it is in, else `default`; ADR 0032).
-pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
+/// Returns the state and how many windows went into it.
+pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<(StateName, usize)> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let target = save_target(&name, &cfg, state)?;
@@ -464,15 +445,18 @@ pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<()> {
     }
     let live = live_state(&name)?;
     koje_core::states::write(paths, &name, &target, &live)?;
-    println!(
-        "saved {} window(s) of {name} into state {target}",
-        live.windows.len()
-    );
-    Ok(())
+    Ok((target, live.windows.len()))
 }
 
-/// `koje down <context> --no-save`: stop the context container.
-pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) -> Result<()> {
+/// `koje down <context> --no-save`: stop the context container. Windows that
+/// stay open stop it only with `force` ([`StillOpen`]).
+pub fn down(
+    paths: &Paths,
+    context: &str,
+    state: Option<&str>,
+    no_save: bool,
+    force: bool,
+) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let target = if no_save {
@@ -492,18 +476,18 @@ pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) ->
                 format!("not stopped – to stop without saving: koje down {name} --no-save")
             })?;
             koje_core::states::write(paths, &name, t, &live)?;
-            println!("saved {} window(s) into state {t}", live.windows.len());
+            crate::say!("saved {} window(s) into state {t}", live.windows.len());
         }
-        close_programs(&name)?;
+        close_programs(&name, force)?;
         podman.stop(&name)?;
-        println!("stopped {name}");
+        crate::say!("stopped {name}");
         // A clean shutdown: no crash to recover from (ADR 0006).
         koje_core::recovery::delete(paths, &name)?;
     }
     match plan {
         DownPlan::Stop | DownPlan::UnpauseAndStop => {}
-        DownPlan::AlreadyStopped => println!("{name} is not running"),
-        DownPlan::NotCreated => println!("{name} has not been started yet"),
+        DownPlan::AlreadyStopped => crate::say!("{name} is not running"),
+        DownPlan::NotCreated => crate::say!("{name} has not been started yet"),
     }
     crate::hostbus::stop_proxy(&name);
     if let Err(e) = crate::kojed::call::<_, ()>("Stopped", &(name.as_str(),)) {
@@ -519,7 +503,7 @@ pub fn down(paths: &Paths, context: &str, state: Option<&str>, no_save: bool) ->
 /// changes a running container cannot take (ADR 0033, 0034). Saves and closes
 /// like `down`, removes the container (home volume, states and config stay),
 /// and starts it again with the saved state; a stopped context stays stopped.
-pub fn recreate(paths: &Paths, context: &str, yes: bool) -> Result<()> {
+pub fn recreate(paths: &Paths, context: &str) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let podman = Podman::new();
@@ -527,31 +511,20 @@ pub fn recreate(paths: &Paths, context: &str, yes: bool) -> Result<()> {
     if status == ContainerStatus::Missing {
         bail!("{name} has no container yet – koje up {name} creates it");
     }
-    if !yes
-        && !crate::prompt::confirm(
-            &format!(
-                "Recreate {name}'s container? Everything installed in it outside your home \
-                 is lost; the home, states and config stay."
-            ),
-            false,
-        )?
-    {
-        bail!("{name} unchanged");
-    }
     let running = matches!(status, ContainerStatus::Running | ContainerStatus::Paused);
     // Where `down` saves – and what comes back afterwards.
     let state = save_target(&name, &cfg, None)?;
     if running {
-        down(paths, context, None, false)?;
+        down(paths, context, None, false, false)?;
     }
     podman
         .remove(&name)
         .with_context(|| format!("removing {name}'s container"))?;
-    println!("removed {name}'s container (its home is kept)");
+    crate::say!("removed {name}'s container (its home is kept)");
     if running {
         up(paths, context, Some(state.as_str()), UpOptions::default())
     } else {
-        println!("{name}'s container is created again at the next: koje up {name}");
+        crate::say!("{name}'s container is created again at the next: koje up {name}");
         Ok(())
     }
 }
@@ -559,31 +532,46 @@ pub fn recreate(paths: &Paths, context: &str, yes: bool) -> Result<()> {
 /// How long `down` waits for programs to end.
 const CLOSE_TIMEOUT_SECS: u32 = 10;
 
+/// Windows stayed open while `down` closed them (a program may be asking to
+/// save): the context still runs; `koje down` asks whether to stop anyway.
+#[derive(Debug, thiserror::Error)]
+#[error("{context} is still running – close those windows, then: koje down {context} --no-save")]
+pub struct StillOpen {
+    pub context: ContextName,
+    pub windows: Vec<String>,
+}
+
 /// End the context's programs in order before the container stops (M5.4):
-/// kojed closes windows or signals programs and waits. Asks before stopping
-/// when windows stay open (a program may be asking to save).
-fn close_programs(name: &ContextName) -> Result<()> {
+/// kojed closes windows or signals programs and waits. Fails with
+/// [`StillOpen`] when windows stay open, unless `force`.
+fn close_programs(name: &ContextName, force: bool) -> Result<()> {
     let wait = std::time::Duration::from_secs(u64::from(CLOSE_TIMEOUT_SECS) + 10);
     let open: Vec<String> =
         match crate::kojed::call_within("CloseWindows", &(name.as_str(), CLOSE_TIMEOUT_SECS), wait)
         {
             Ok(open) => open,
             Err(e) => {
-                println!("note: programs not closed in order ({e:#}) – stopping {name} directly");
+                crate::say!(
+                    "note: programs not closed in order ({e:#}) – stopping {name} directly"
+                );
                 return Ok(());
             }
         };
     if open.is_empty() {
         return Ok(());
     }
-    println!("still open after {CLOSE_TIMEOUT_SECS} s (maybe asking to save):");
+    crate::say!("still open after {CLOSE_TIMEOUT_SECS} s (maybe asking to save):");
     for w in &open {
-        println!("  {w}");
+        crate::say!("  {w}");
     }
-    if !crate::prompt::confirm(&format!("Stop {name} anyway?"), false)? {
-        bail!("{name} is still running – close those windows, then: koje down {name} --no-save");
+    if force {
+        return Ok(());
     }
-    Ok(())
+    Err(StillOpen {
+        context: name.clone(),
+        windows: open,
+    }
+    .into())
 }
 
 /// `koje shell <context> [--dev [name]]`: an interactive shell in the running
@@ -646,7 +634,7 @@ pub fn run(
     // `exec` so the program replaces the shell that starts it.
     let line = format!("exec {}", koje_core::capture::shell_join(command));
     podman.launch_as(&name, user, &line, workdir.as_deref())?;
-    println!("started {} in {name}", command.join(" "));
+    crate::say!("started {} in {name}", command.join(" "));
     Ok(())
 }
 
@@ -674,7 +662,7 @@ pub fn open(paths: &Paths, context: &str, target: &str) -> Result<()> {
     let podman = Podman::new();
     require_running(podman.status(&name)?, name.as_str()).map_err(anyhow::Error::msg)?;
     podman.exec_detached(&name, &["xdg-open", &arg])?;
-    println!("opened {arg} in {name}");
+    crate::say!("opened {arg} in {name}");
     Ok(())
 }
 
@@ -689,33 +677,12 @@ pub fn sleep(paths: &Paths, context: &str) -> Result<()> {
             // Its windows out of the way first (M7.4): frozen windows would
             // still be drawn and may be reported as not responding.
             if let Err(e) = crate::kojed::call::<_, ()>("Hide", &(name.as_str(),)) {
-                println!("note: windows stay where they are ({e:#})");
+                crate::say!("note: windows stay where they are ({e:#})");
             }
             podman.pause(&name)?;
-            println!("{name} is asleep – wake it with: koje wake {name}");
+            crate::say!("{name} is asleep – wake it with: koje wake {name}");
         }
-        PausePlan::Already => println!("{name} is already asleep"),
-        PausePlan::NotRunning => {
-            bail!("{name} is not running – start it with: koje up {name} -s empty")
-        }
-    }
-    Ok(())
-}
-
-/// `koje wake <context>`: resume a paused context.
-pub fn wake(paths: &Paths, context: &str) -> Result<()> {
-    let name = ContextName::new(context)?;
-    context::load(paths, &name)?;
-    let podman = Podman::new();
-    match plan_wake(podman.status(&name)?) {
-        PausePlan::Do => {
-            podman.unpause(&name)?;
-            if let Err(e) = crate::kojed::call::<_, ()>("Show", &(name.as_str(),)) {
-                println!("note: windows not brought back ({e:#}) – Super+Shift+H shows the stash");
-            }
-            println!("{name} is awake");
-        }
-        PausePlan::Already => println!("{name} is not asleep"),
+        PausePlan::Already => crate::say!("{name} is already asleep"),
         PausePlan::NotRunning => {
             bail!("{name} is not running – start it with: koje up {name} -s empty")
         }
@@ -728,7 +695,7 @@ fn ensure_image(podman: &Podman, cfg: &ContextConfig) -> Result<()> {
     if cfg.image != BASE_IMAGE || podman.image_exists(BASE_IMAGE)? {
         return Ok(());
     }
-    println!("{BASE_IMAGE} is missing – building it first (a few minutes)");
+    crate::say!("{BASE_IMAGE} is missing – building it first (a few minutes)");
     let user = koje_podman::host::image_user().context("finding the current user")?;
     podman.build_base(&user, false)?;
     Ok(())
@@ -758,6 +725,6 @@ fn spec(
 
 fn print_notes(built: &Built) {
     for note in &built.notes {
-        println!("note: {note}");
+        crate::say!("note: {note}");
     }
 }

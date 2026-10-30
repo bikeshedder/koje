@@ -117,9 +117,12 @@ export class SettingsWindow {
             this.#busy.delete(context);
             this.#scheduleRefresh();
         });
-        this.#kojed.connect('OperationFailed', (context, operation, error) => {
+        this.#kojed.connect('OperationFailed', (context, operation, error, message) => {
             this.#busy.delete(context);
-            this.#toast(`${context}: ${operation} failed – ${error}`);
+            if (operation === 'down' && error === 'io.koje.Error.WindowsOpen')
+                void this.#stopAnyway(context);
+            else
+                this.#toast(`${context}: ${operation} failed – ${message}`);
             this.#scheduleRefresh();
         });
         this.#kojed.watch(running => {
@@ -341,7 +344,7 @@ export class SettingsWindow {
 
     async #up(context: string, state: string, recovery = ''): Promise<void> {
         try {
-            await this.#kojed.call('Up', context, state, recovery);
+            await this.#kojed.call('Up', context, state, recovery, false, true);
         } catch (e) {
             if (e instanceof KojedError && e.short === 'RecoveryPending') {
                 const answer = await ask(this.#window, `${context} Did Not Shut Down Cleanly`,
@@ -357,12 +360,22 @@ export class SettingsWindow {
         }
     }
 
-    async #down(context: string): Promise<void> {
+    async #down(context: string, save = true, force = false): Promise<void> {
         try {
-            await this.#kojed.call('Down', context, '', true);
+            await this.#kojed.call('Down', context, '', save, force);
         } catch (e) {
             this.#error(e);
         }
+    }
+
+    // Down saved the windows and closed what it could; the rest may be
+    // asking to save.
+    async #stopAnyway(context: string): Promise<void> {
+        const answer = await ask(this.#window, `${context} Still Has Open Windows`,
+            'A program may be asking to save. Its windows were saved into the state; stopping now loses what is unsaved in them.',
+            [['stop', 'Stop Anyway', Adw.ResponseAppearance.DESTRUCTIVE]]);
+        if (answer === 'stop')
+            await this.#down(context, false, true);
     }
 
     async #newContext(): Promise<void> {
@@ -630,8 +643,7 @@ export class SettingsWindow {
                 await this.#up(context, s.name);
                 break;
             case 'save':
-                await this.#kojed.call('Save', context, s.name);
-                this.#toast(`Saved the windows into ${s.name}`);
+                this.#saved(await this.#kojed.call('Save', context, s.name));
                 break;
             case 'copy': {
                 const to = await askName(this.#window, `Copy ${s.name}`, 'Copy', `${s.name}-copy`);
@@ -659,13 +671,16 @@ export class SettingsWindow {
         }
     }
 
+    #saved([state, windows]: [string, number]): void {
+        this.#toast(windows === 1 ? `Saved 1 window into ${state}` : `Saved ${windows} windows into ${state}`);
+    }
+
     async #saveAs(): Promise<void> {
         const name = await askName(this.#window, 'Save Windows As', 'Save');
         if (!name)
             return;
         try {
-            await this.#kojed.call('Save', this.#selected, name);
-            this.#toast(`Saved the windows into ${name}`);
+            this.#saved(await this.#kojed.call('Save', this.#selected, name));
         } catch (e) {
             this.#error(e);
         }

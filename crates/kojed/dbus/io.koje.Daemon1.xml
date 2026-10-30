@@ -12,8 +12,9 @@
   Errors: io.koje.Error.NotFound (no such context or state), .InvalidArgs (a
   name or value that cannot be used), .InvalidConfig (SetConfig refused; nothing
   written), .Busy (another operation on the context is under way),
-  .RecoveryPending (Up found a recovery file), .Failed (everything else; the
-  message says why). Older members answer org.freedesktop.DBus.Error.*.
+  .RecoveryPending (Up found a recovery file), .WindowsOpen (Down left
+  windows open, in OperationFailed), .Failed (everything else; the message
+  says why). Older members answer org.freedesktop.DBus.Error.*.
 
   Strings for "none" are empty: "" context means the active one where a
   member says so.
@@ -89,25 +90,33 @@
 
     <!--
       Start a context and restore a state ("": its default role), or switch
-      a running one to the state, as `koje up --no-focus`. recovery after a
-      crash (ADR 0006): "restore" or "discard" the recovery file; "" fails
-      with io.koje.Error.RecoveryPending when there is one. Returns at once;
-      OperationFinished or OperationFailed follow.
+      a running one to the state, as `koje up`. recovery after a crash (ADR
+      0006): "restore", "discard" or "keep" the recovery file; "" fails with
+      io.koje.Error.RecoveryPending when there is one. focus shows the
+      context's workspace before its programs start; save saves a running
+      context's windows into the state it is in before it switches. Returns
+      at once; OperationProgress, then OperationFinished or OperationFailed
+      follow.
     -->
     <method name="Up">
       <arg name="context" type="s" direction="in"/>
       <arg name="state" type="s" direction="in"/>
       <arg name="recovery" type="s" direction="in"/>
+      <arg name="focus" type="b" direction="in"/>
+      <arg name="save" type="b" direction="in"/>
     </method>
     <!--
       Save the windows into state ("": the state the context is in) and stop
-      the context, as `koje down`; save false stops without saving. Fails
-      when windows stay open (a program asking to save). Returns at once.
+      the context, as `koje down`; save false stops without saving. Windows
+      that stay open (a program asking to save) fail it with
+      io.koje.Error.WindowsOpen and the context keeps running, unless force.
+      Returns at once.
     -->
     <method name="Down">
       <arg name="context" type="s" direction="in"/>
       <arg name="state" type="s" direction="in"/>
       <arg name="save" type="b" direction="in"/>
+      <arg name="force" type="b" direction="in"/>
     </method>
     <!-- Pause a context, as `koje sleep`. Returns at once. -->
     <method name="Sleep">
@@ -135,11 +144,21 @@
       <arg name="context" type="s"/>
       <arg name="operation" type="s"/>
     </signal>
-    <!-- It failed; error says why. -->
+    <!--
+      It failed: error is an error name (io.koje.Error.Failed,
+      io.koje.Error.WindowsOpen, …), message says why.
+    -->
     <signal name="OperationFailed">
       <arg name="context" type="s"/>
       <arg name="operation" type="s"/>
       <arg name="error" type="s"/>
+      <arg name="message" type="s"/>
+    </signal>
+    <!-- A line of what it does or noticed, as `koje` prints it. -->
+    <signal name="OperationProgress">
+      <arg name="context" type="s"/>
+      <arg name="operation" type="s"/>
+      <arg name="line" type="s"/>
     </signal>
 
     <!-- ===== States ===== -->
@@ -159,10 +178,15 @@
     <signal name="StatesChanged">
       <arg name="context" type="s"/>
     </signal>
-    <!-- Save the windows of a running context into state ("": the state it is in), as `koje save`. -->
+    <!--
+      Save the windows of a running context into state ("": the state it is
+      in), as `koje save`: the state written and how many windows.
+    -->
     <method name="Save">
       <arg name="context" type="s" direction="in"/>
       <arg name="state" type="s" direction="in"/>
+      <arg name="saved" type="s" direction="out"/>
+      <arg name="windows" type="u" direction="out"/>
     </method>
     <!-- Copy a state, as `koje state cp`. -->
     <method name="CopyState">
