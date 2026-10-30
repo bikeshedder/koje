@@ -4,6 +4,8 @@
 // (`LaunchApp`). The dash keeps GNOME's favorites; activating one prefers
 // its windows on the current workspace and, on a context's workspace,
 // starts the context's program with the same desktop file id if it has one.
+// koje Settings belongs to no context: started again, its window comes to
+// the workspace on screen instead of taking the user to its own.
 //
 // A context's program is a Shell.App made from an in-memory entry, with the
 // id `koje-<context>-<desktop file id>`; GNOME's window → app mapping never
@@ -21,6 +23,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 Gio._promisify(Gio.DBusConnection.prototype, 'call');
 
 const KOJED = ['io.koje.Daemon', '/io/koje/Daemon', 'io.koje.Daemon1'];
+const SETTINGS = 'io.koje.Settings';
 
 function kojed(method, params, replyType) {
     return Gio.DBus.session.call(...KOJED, method, params,
@@ -76,11 +79,16 @@ export class Apps {
 
         this._activeId = global.workspace_manager.connect('active-workspace-changed',
             () => this._load());
+        // A second start presents the window without an activation token
+        // (the menu's `koje settings`, a terminal): Mutter only marks it.
+        this._attentionId = global.display.connect('window-demands-attention',
+            (_d, w) => this._bringSettings(w));
         this._load();
     }
 
     destroy() {
         global.workspace_manager.disconnect(this._activeId);
+        global.display.disconnect(this._attentionId);
         const appSys = this._appSys;
         delete appSys.lookup_app;
         delete appSys.get_installed;
@@ -164,6 +172,12 @@ export class Apps {
     // program in several contexts is one app, L3); then the context's own
     // program of that id.
     _activateHere(app) {
+        if (app.get_id() === `${SETTINGS}.desktop`) {
+            const [w] = app.get_windows();
+            if (w)
+                this._bringSettings(w);
+            return Boolean(w);
+        }
         const workspace = global.workspace_manager.get_active_workspace();
         const here = app.get_windows().filter(w => w.get_workspace() === workspace);
         if (here.length > 0) {
@@ -171,6 +185,16 @@ export class Apps {
             return true;
         }
         return this._launchContexts(app);
+    }
+
+    /** koje Settings' window `w` onto the workspace on screen, focused. */
+    _bringSettings(w) {
+        if (w.get_wm_class() !== SETTINGS)
+            return;
+        const workspace = global.workspace_manager.get_active_workspace();
+        if (!w.is_on_all_workspaces() && w.get_workspace() !== workspace)
+            w.change_workspace(workspace);
+        Main.activateWindow(w);
     }
 
     /** Start the shown context's program with `app`'s id instead, if it has one. */
