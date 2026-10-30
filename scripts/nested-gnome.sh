@@ -24,13 +24,27 @@ for c in gnome-shell kojed koje podman dbus-run-session; do
   command -v "$c" >/dev/null || { echo "$c not found" >&2; exit 1; }
 done
 
+# Podman reaches systemd (cgroups of the containers) over the session bus:
+# it gets systemd's user bus, while kojed and koje talk on the nested one. Not
+# $DBUS_SESSION_BUS_ADDRESS: in a shell of an earlier nested session that is
+# a bus without systemd.
+user_bus=unix:path=$XDG_RUNTIME_DIR/bus
+DBUS_SESSION_BUS_ADDRESS=$user_bus gdbus introspect --session -d org.freedesktop.systemd1 \
+    -o /org/freedesktop/systemd1 >/dev/null 2>&1 || {
+  echo "no systemd on the user bus $user_bus – run this from your GNOME session" >&2
+  exit 1
+}
+if [[ "${DBUS_SESSION_BUS_ADDRESS:-}" != "$user_bus"* ]]; then
+  echo "note: this shell's session bus is not your desktop's (still inside an earlier dbus-run-session?)" >&2
+fi
+
 home=$XDG_RUNTIME_DIR/koje-nested
 mkdir -p "$home/bin"
-# Podman reaches systemd (cgroups of the containers) over the session bus:
-# it keeps the desktop's, while kojed and koje talk on the nested one.
+# The real podman, not this wrapper from an earlier run.
+podman=$(PATH=$(tr ':' '\n' <<<"$PATH" | grep -vxF "$home/bin" | paste -sd:) command -v podman)
 cat > "$home/bin/podman" <<EOF
 #!/bin/sh
-DBUS_SESSION_BUS_ADDRESS='${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}' exec $(command -v podman) "\$@"
+DBUS_SESSION_BUS_ADDRESS='$user_bus' exec $podman "\$@"
 EOF
 chmod +x "$home/bin/podman"
 export NESTED_CONTEXT=$context NESTED_HOME=$home
