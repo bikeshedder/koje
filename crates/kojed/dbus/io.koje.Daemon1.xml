@@ -1,0 +1,334 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<!--
+  io.koje.Daemon1 – kojed on the session bus (bus name io.koje.Daemon, path
+  /io/koje/Daemon). koje's only API (ADR 0027, 0060): the settings app, the
+  GNOME Shell extension, the koje CLI and scripts (busctl, gdbus) use it.
+
+  This file is the contract: kojed's test `serves_contexts_without_hyprland`
+  (crates/kojed/tests/api.rs) fails when what kojed serves differs from it,
+  and the UI's TypeScript types are generated from it (G.26).
+
+  Errors: io.koje.Error.NotFound (no such context or state), .InvalidArgs (a
+  name or value that cannot be used), .InvalidConfig (SetConfig refused; nothing
+  written), .Busy (another operation on the context is under way),
+  .RecoveryPending (Up found a recovery file), .Failed (everything else; the
+  message says why). Older members answer org.freedesktop.DBus.Error.*.
+
+  Strings for "none" are empty: "" context means the active one where a
+  member says so.
+-->
+<node>
+  <interface name="io.koje.Daemon1">
+
+    <!-- ===== Contexts ===== -->
+
+    <!--
+      Every context in name order: (name, label, icon, color, status,
+      windows). label is the context's label or its name; icon a theme icon
+      name; color "#RRGGBB"; status "running", "paused", "stopped", or
+      "invalid" when its context.toml cannot be read (then icon and color are
+      empty).
+    -->
+    <method name="Contexts">
+      <arg type="a(sssssu)" direction="out"/>
+    </method>
+    <!--
+      Something about the contexts changed: which run, their windows, their
+      config, the active one. Read Contexts again.
+    -->
+    <signal name="ContextsChanged">
+    </signal>
+    <!-- The context of the focused workspace or window; "" for none. -->
+    <method name="ActiveContext">
+      <arg type="s" direction="out"/>
+    </method>
+    <!-- Show a context's workspace. -->
+    <method name="Focus">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- Create a context as `koje new` does, with a color of its own; returns its name. -->
+    <method name="NewContext">
+      <arg name="name" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+
+    <!--
+      A context's settings:
+        name, prefix, label, icon, color, image  s   (label, icon "" when unset)
+        profile          s      "" for config.toml's profile
+        default_profile  s      config.toml's profile ("full" when unset)
+        access           a{sb}  the switches the context sets itself
+        effective        a{sb}  every switch as the context gets it
+        mounts           as     host folders as written in context.toml
+        memory_soft      t      bytes, 0 for none
+        memory_hard      t      bytes, 0 for none
+    -->
+    <method name="Config">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="a{sv}" direction="out"/>
+    </method>
+    <!--
+      Change a context's settings: prefix, label, icon, color, profile,
+      access, mounts, memory_soft, memory_hard, as in Config. Keys not given
+      stay; "" removes label, icon or profile; access replaces all of the
+      context's switches. Checked as `koje edit` checks the file
+      (io.koje.Error.InvalidConfig, nothing written otherwise); comments in
+      the file are kept. A running context follows mounts, dotfiles and
+      limits at once. Returns notes for the user, e.g. that a change applies
+      to a new container only (Recreate).
+    -->
+    <method name="SetConfig">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="settings" type="a{sv}" direction="in"/>
+      <arg type="as" direction="out"/>
+    </method>
+
+    <!-- ===== Lifecycle (ADR 0060) ===== -->
+
+    <!--
+      Start a context and restore a state ("": its default role), or switch
+      a running one to the state, as `koje up --no-focus`. recovery after a
+      crash (ADR 0006): "restore" or "discard" the recovery file; "" fails
+      with io.koje.Error.RecoveryPending when there is one. Returns at once;
+      OperationFinished or OperationFailed follow.
+    -->
+    <method name="Up">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="state" type="s" direction="in"/>
+      <arg name="recovery" type="s" direction="in"/>
+    </method>
+    <!--
+      Save the windows into state ("": the state the context is in) and stop
+      the context, as `koje down`; save false stops without saving. Fails
+      when windows stay open (a program asking to save). Returns at once.
+    -->
+    <method name="Down">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="state" type="s" direction="in"/>
+      <arg name="save" type="b" direction="in"/>
+    </method>
+    <!-- Pause a context, as `koje sleep`. Returns at once. -->
+    <method name="Sleep">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- Continue a paused context and show its windows, as `koje wake`. -->
+    <method name="Wake">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!--
+      A new container from the current config, as `koje recreate --yes`:
+      everything installed in the old one outside the home is lost; the
+      windows come back. Returns at once.
+    -->
+    <method name="Recreate">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- An operation ("up", "down", "sleep", "recreate") on a context began. -->
+    <signal name="OperationStarted">
+      <arg name="context" type="s"/>
+      <arg name="operation" type="s"/>
+    </signal>
+    <!-- It ended well. -->
+    <signal name="OperationFinished">
+      <arg name="context" type="s"/>
+      <arg name="operation" type="s"/>
+    </signal>
+    <!-- It failed; error says why. -->
+    <signal name="OperationFailed">
+      <arg name="context" type="s"/>
+      <arg name="operation" type="s"/>
+      <arg name="error" type="s"/>
+    </signal>
+
+    <!-- ===== States ===== -->
+
+    <!--
+      A context's states: (name, role, current, stored, windows, layouts,
+      modified, error). role "default", "fresh" or ""; current: the state a
+      running context is in; stored false for a role state never saved and
+      for "empty"; modified in seconds since the epoch, 0 when unknown; error
+      why a stored state cannot be read.
+    -->
+    <method name="States">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="a(ssbbuuxs)" direction="out"/>
+    </method>
+    <!-- A context's states changed (saved, copied, renamed, removed). -->
+    <signal name="StatesChanged">
+      <arg name="context" type="s"/>
+    </signal>
+    <!-- Save the windows of a running context into state ("": the state it is in), as `koje save`. -->
+    <method name="Save">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="state" type="s" direction="in"/>
+    </method>
+    <!-- Copy a state, as `koje state cp`. -->
+    <method name="CopyState">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="from" type="s" direction="in"/>
+      <arg name="to" type="s" direction="in"/>
+    </method>
+    <!-- Rename a state, as `koje state mv`; a role keeps naming the old name. -->
+    <method name="RenameState">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="from" type="s" direction="in"/>
+      <arg name="to" type="s" direction="in"/>
+    </method>
+    <!-- Delete a state, as `koje state rm` (the only way states are deleted). -->
+    <method name="RemoveState">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="state" type="s" direction="in"/>
+    </method>
+
+    <!-- ===== Windows and programs ===== -->
+
+    <!--
+      The windows of a running context's live state: (id, app id, command,
+      integration), "" when unknown.
+    -->
+    <method name="Windows">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="a(ssss)" direction="out"/>
+    </method>
+    <!--
+      A running context's programs: (desktop file id, name, icon, keywords),
+      sorted by name; icon a file below /proc/<pid>/root, else a theme name,
+      "" for none.
+    -->
+    <method name="Apps">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="a(sssas)" direction="out"/>
+    </method>
+    <!-- Start a running context's program by its desktop file id. -->
+    <method name="LaunchApp">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="id" type="s" direction="in"/>
+    </method>
+    <!--
+      The running context a process belongs to (same PID namespace as its
+      container); "" for the host.
+    -->
+    <method name="ContextOfPid">
+      <arg name="pid" type="u" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!-- A window of a context opened (address: the extension's window id). -->
+    <signal name="WindowAdded">
+      <arg name="address" type="s"/>
+      <arg name="context" type="s"/>
+    </signal>
+    <!-- It closed. -->
+    <signal name="WindowRemoved">
+      <arg name="address" type="s"/>
+      <arg name="context" type="s"/>
+    </signal>
+
+    <!-- ===== Memory (ADR 0035) ===== -->
+
+    <!--
+      The last reading of a context ("" = the active one): (context, used,
+      charged, soft, hard) in bytes; a limit of 0 is none. ("", 0, 0, 0, 0)
+      without an active context or before the first reading (every 5 s).
+    -->
+    <method name="Memory">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+      <arg type="t" direction="out"/>
+      <arg type="t" direction="out"/>
+      <arg type="t" direction="out"/>
+      <arg type="t" direction="out"/>
+    </method>
+    <!--
+      The working set of a running context ("" = the active one) over the
+      last minutes, oldest first, one reading every interval seconds:
+      (context, interval, readings); ("", 0, []) without an active context.
+    -->
+    <method name="MemoryHistory">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+      <arg type="u" direction="out"/>
+      <arg type="at" direction="out"/>
+    </method>
+    <!-- New readings were taken (every 5 s). -->
+    <signal name="MemoryChanged">
+    </signal>
+
+    <!--
+      ===== For koje's own commands (koje-runtime) =====
+      The steps of up, down, save, sleep and wake. Not for other clients:
+      they may change with koje.
+    -->
+
+    <!-- The context's Wayland socket (a link to Mutter's), created if needed; its directory is mounted into the context. -->
+    <method name="WaylandSocket">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!-- The context's sound directory with links to the host's sound sockets (ADR 0029). -->
+    <method name="SoundSockets">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!-- Remove the context's Wayland socket (down). -->
+    <method name="ReleaseWaylandSocket">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- The live state of a running context as TOML, the format of a state file (ADR 0030). -->
+    <method name="State">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!-- Start the windows of a state (TOML) in a context just started; the number of programs started. -->
+    <method name="Restore">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="state" type="s" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg type="u" direction="out"/>
+    </method>
+    <!-- End the context's programs in order and wait up to timeout seconds; the windows still open. -->
+    <method name="CloseWindows">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="timeout" type="u" direction="in"/>
+      <arg type="as" direction="out"/>
+    </method>
+    <!-- The context's container started. -->
+    <method name="Started">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- The context's container stopped. -->
+    <method name="Stopped">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- Before sleep: the sleep overlay on the context's windows. -->
+    <method name="Hide">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- After wake: the overlay off. -->
+    <method name="Show">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- The state a running context is in (ADR 0032); "" for empty or unknown. -->
+    <method name="CurrentState">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!-- Whether a running context lost its windows (the session crashed, the container survived). -->
+    <method name="WindowsLost">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="b" direction="out"/>
+    </method>
+    <!-- Switch a running context to another state (TOML): (windows kept, closed, programs started). -->
+    <method name="SwitchState">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="state" type="s" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg type="u" direction="out"/>
+      <arg type="u" direction="out"/>
+      <arg type="u" direction="out"/>
+    </method>
+    <!-- Read the contexts' config files again (after `koje new` and `koje edit`). -->
+    <method name="Reload">
+    </method>
+  </interface>
+</node>

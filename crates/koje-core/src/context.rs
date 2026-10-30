@@ -249,6 +249,28 @@ pub struct ContextSettings {
     pub memory_hard: Option<ByteSize>,
 }
 
+impl ContextSettings {
+    /// What `cfg` sets now.
+    pub fn of(cfg: &ContextConfig) -> Self {
+        let set = cfg.access.overrides();
+        Self {
+            prefix: cfg.prefix.clone(),
+            label: cfg.label.clone(),
+            icon: cfg.icon.clone(),
+            color: cfg.color,
+            profile: cfg.access.profile,
+            switches: crate::access::Access::ALL
+                .switches()
+                .into_iter()
+                .map(|(name, _)| (name, set.get(name).copied()))
+                .collect(),
+            mounts: cfg.mounts.iter().map(|m| m.path.to_string()).collect(),
+            memory_soft: cfg.limits.memory_soft,
+            memory_hard: cfg.limits.memory_hard,
+        }
+    }
+}
+
 /// `text` with the settings applied, comments and layout kept.
 pub fn with_settings(text: &str, s: &ContextSettings) -> Result<String> {
     let bad = |e: &dyn std::fmt::Display| Error::InvalidEdit(e.to_string());
@@ -430,6 +452,20 @@ mod tests {
     fn temp_paths(tmp: &tempfile::TempDir) -> Paths {
         let r = tmp.path();
         Paths::with_roots(r.join("c"), r.join("d"), r.join("s"))
+    }
+
+    #[test]
+    fn settings_of_a_config_round_trip() {
+        let text = "name = \"kp\"\nprefix = \"KP\"\ncolor = \"#2E7D5B\"\nmounts = [\"~/src\"]\n\n[access]\nsound = false\n\n[limits]\nmemory_soft = \"4G\"\n";
+        let cfg = ContextConfig::from_toml(text, std::path::Path::new("context.toml")).unwrap();
+        let s = ContextSettings::of(&cfg);
+        assert_eq!(s.prefix, "KP");
+        assert_eq!(s.mounts, ["~/src"]);
+        assert_eq!(s.memory_soft, Some(ByteSize(4 << 30)));
+        assert!(s.switches.contains(&("sound", Some(false))));
+        assert!(s.switches.contains(&("gpu", None)));
+        // Unchanged settings write the same file.
+        assert_eq!(with_settings(text, &s).unwrap(), text);
     }
 
     #[test]

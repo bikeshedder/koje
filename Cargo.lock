@@ -479,6 +479,8 @@ dependencies = [
  "koje-core",
  "koje-gnome",
  "koje-podman",
+ "koje-runtime",
+ "quick-xml",
  "serde",
  "tempfile",
  "thiserror",

@@ -2,7 +2,7 @@
 // indicator: the context of the workspace on screen in its color, a meter
 // of its memory against its limits (as the Hyprland bar's, M8.21), and a
 // menu with the numbers and koje Settings.
-// Colors and memory from kojed (`ListContexts`, `Memory`), refreshed on its
+// Colors and memory from kojed (`Contexts`, `Memory`), refreshed on its
 // `ContextsChanged` and `MemoryChanged` and when the workspace changes.
 
 import Gio from 'gi://Gio';
@@ -154,8 +154,8 @@ export class TopBar {
         let color = '#808080';
         let memory = null;
         try {
-            const [contexts] = await kojed('ListContexts', null, '(a(ssu))');
-            color = contexts.find(([name]) => name === context)?.[1] ?? color;
+            const [contexts] = await kojed('Contexts', null, '(a(sssssu))');
+            color = contexts.find(([name]) => name === context)?.[3] || color;
             if (context) {
                 const [measured, used, , soft, hard] = await kojed('Memory',
                     new GLib.Variant('(s)', [context]), '(stttt)');

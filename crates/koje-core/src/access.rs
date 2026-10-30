@@ -123,6 +123,18 @@ impl Profile {
 }
 
 impl AccessConfig {
+    /// The switches this config sets itself, by name.
+    pub fn overrides(&self) -> std::collections::BTreeMap<&'static str, bool> {
+        // Read back through serde: the struct is macro-made, unset switches
+        // are not serialized.
+        let set = toml::Table::try_from(self).unwrap_or_default();
+        Access::ALL
+            .switches()
+            .into_iter()
+            .filter_map(|(name, _)| set.get(name)?.as_bool().map(|on| (name, on)))
+            .collect()
+    }
+
     /// This config on its own: its profile (default `full`), then its switches.
     pub fn standalone(&self) -> Access {
         self.apply_switches(self.profile.unwrap_or_default().access())
@@ -143,6 +155,16 @@ pub fn resolve(global: &AccessConfig, context: &AccessConfig) -> Access {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overrides_are_the_switches_set() {
+        let cfg = parse("profile = \"desktop\"\nsound = false\nprint = true\n");
+        let set = cfg.overrides();
+        assert_eq!(set.len(), 2, "{set:?}");
+        assert_eq!(set.get("sound"), Some(&false));
+        assert_eq!(set.get("print"), Some(&true));
+        assert!(AccessConfig::default().overrides().is_empty());
+    }
 
     fn parse(text: &str) -> AccessConfig {
         toml::from_str(text).unwrap()

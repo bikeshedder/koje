@@ -14,6 +14,7 @@
 
 mod api;
 mod daemon;
+mod manage;
 mod procfs;
 mod sound;
 mod wayland;
@@ -46,7 +47,7 @@ async fn main() -> Result<()> {
         .context("connecting to the session bus")?;
     let sockets = wayland::Sockets::shared(runtime.clone(), wayland::display_from_env(&runtime));
     let mut events = gnome.events();
-    let mut daemon = daemon::Daemon::new(gnome, Podman::new(), paths);
+    let mut daemon = daemon::Daemon::new(gnome, Podman::new(), paths.clone());
     // The contexts before the first client asks (errors are logged; an
     // extension that is not up yet gets its rules on `Connected`).
     if let Err(e) = daemon.reload().await {
@@ -62,6 +63,8 @@ async fn main() -> Result<()> {
                 daemon: Arc::clone(&daemon),
                 sockets: sockets.clone(),
                 runtime: runtime.clone(),
+                paths,
+                busy: Arc::default(),
             },
         )?
         .build()

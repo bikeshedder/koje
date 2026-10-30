@@ -1,15 +1,20 @@
-//! `io.koje.Daemon1` on the session bus (ADR 0027): a thin layer over
-//! [`Daemon`]; names in `koje_core::api`.
+//! `io.koje.Daemon1` on the session bus (ADR 0027, 0060): a thin layer over
+//! [`Daemon`], [`crate::manage`] and `koje_runtime`; names in
+//! `koje_core::api`. The contract is `crates/kojed/dbus/io.koje.Daemon1.xml`
+//! (a test compares it with what is served).
 
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use koje_core::api::OBJECT_PATH;
 use koje_core::name::{ContextName, StateName};
+use koje_core::paths::Paths;
 use koje_gnome::Gnome;
 use koje_podman::Podman;
 use tokio::sync::Mutex;
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
+use zbus::zvariant::OwnedValue;
 
 use crate::daemon::{Change, Daemon};
 use crate::wayland::Sockets;
@@ -25,6 +30,55 @@ pub struct Api {
     pub sockets: Sockets,
     /// The host's `XDG_RUNTIME_DIR`.
     pub runtime: std::path::PathBuf,
+    pub paths: Paths,
+    /// Contexts with an operation (`Up`, `Down`, …) under way.
+    pub busy: Arc<std::sync::Mutex<BTreeSet<ContextName>>>,
+}
+
+/// kojed's own errors, `io.koje.Error.<Name>` on the bus.
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "io.koje.Error")]
+pub enum Error {
+    #[zbus(error)]
+    ZBus(zbus::Error),
+    /// No context of that name, or no such state.
+    NotFound(String),
+    /// A name or value that cannot be used.
+    InvalidArgs(String),
+    /// `SetConfig` refused a change; nothing was written.
+    InvalidConfig(String),
+    /// Another operation on the context is under way.
+    Busy(String),
+    /// `Up` found a recovery file (ADR 0006): call it again with
+    /// `restore` or `discard`.
+    RecoveryPending(String),
+    Failed(String),
+}
+
+impl From<anyhow::Error> for Error {
+    fn from(e: anyhow::Error) -> Self {
+        if let Some(invalid) = e.downcast_ref::<crate::manage::Invalid>() {
+            return Self::InvalidConfig(invalid.0.clone());
+        }
+        if let Some(koje_core::error::Error::UnknownContext(_)) = e.downcast_ref() {
+            return Self::NotFound(format!("{e:#}"));
+        }
+        Self::Failed(format!("{e:#}"))
+    }
+}
+
+fn context_name(context: &str) -> Result<ContextName, Error> {
+    ContextName::new(context).map_err(|e| Error::InvalidArgs(e.to_string()))
+}
+
+/// Run `f` on the blocking pool.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, Error> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| Error::Failed(e.to_string()))?
+        .map_err(Error::from)
 }
 
 /// `""` or `empty` → `None`.
@@ -46,23 +100,6 @@ fn failed(e: &anyhow::Error) -> fdo::Error {
 
 #[zbus::interface(name = "io.koje.Daemon1")]
 impl Api {
-    /// Contexts with color (`#RRGGBB`) and number of windows.
-    async fn list_contexts(&self) -> Vec<(String, String, u32)> {
-        self.daemon
-            .lock()
-            .await
-            .contexts()
-            .into_iter()
-            .map(|c| {
-                (
-                    c.name.to_string(),
-                    c.color.to_string(),
-                    u32::try_from(c.windows).unwrap_or(u32::MAX),
-                )
-            })
-            .collect()
-    }
-
     /// The context of the focused window; empty when it belongs to none.
     async fn active_context(&self) -> String {
         self.daemon
@@ -275,50 +312,293 @@ impl Api {
         .map_err(|e| failed(&e))
     }
 
-    /// Running contexts: `(name, color, windows, active)` – the bar (M5.15).
-    async fn running_contexts(&self) -> Vec<(String, String, u32, bool)> {
-        let mut d = self.daemon.lock().await;
-        let running = d.running().await;
-        let active = d.active_context().cloned();
-        d.contexts()
-            .into_iter()
-            .filter(|c| running.contains(&c.name))
-            .map(|c| {
-                let is_active = active.as_ref() == Some(&c.name);
-                (
-                    c.name.to_string(),
-                    c.color.to_string(),
-                    u32::try_from(c.windows).unwrap_or(u32::MAX),
-                    is_active,
-                )
-            })
-            .collect()
+    /// Every context in name order: `(name, label, icon, color, status,
+    /// windows)`. `status` is `running`, `paused`, `stopped`, or `invalid`
+    /// when its `context.toml` cannot be read.
+    async fn contexts(&self) -> Result<Vec<crate::manage::ContextRow>, Error> {
+        let live = {
+            let mut d = self.daemon.lock().await;
+            let running = d.running().await;
+            let paused = running.iter().filter(|c| d.is_paused(c)).cloned().collect();
+            let windows = d
+                .contexts()
+                .into_iter()
+                .map(|c| (c.name, c.windows))
+                .collect();
+            crate::manage::Live {
+                running,
+                paused,
+                windows,
+            }
+        };
+        let paths = self.paths.clone();
+        blocking(move || crate::manage::contexts(&paths, &live)).await
     }
 
-    /// Every context with its color and status – `running`, `paused` or
-    /// `stopped` – for the shell's koje menu (M8.56).
-    async fn contexts(&self) -> Vec<(String, String, String)> {
-        let mut d = self.daemon.lock().await;
-        let running = d.running().await;
-        d.contexts()
-            .into_iter()
-            .map(|c| {
-                let status = if !running.contains(&c.name) {
-                    "stopped"
-                } else if d.is_paused(&c.name) {
-                    "paused"
-                } else {
-                    "running"
-                };
-                (c.name.to_string(), c.color.to_string(), status.to_owned())
-            })
-            .collect()
-    }
-
-    /// Something the bar shows changed: running contexts, the active one,
-    /// window counts.
+    /// Something about the contexts changed: which run, their windows, their
+    /// config, the active one. Clients read `Contexts` again.
     #[zbus(signal)]
     async fn contexts_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    /// A context's states: `(name, role, current, stored, windows, layouts,
+    /// modified, error)` – role `default`, `fresh` or empty; `stored` false
+    /// for a role state never saved and for `empty`; `modified` in seconds
+    /// since the epoch, 0 when unknown; `error` why a stored state cannot be
+    /// read.
+    async fn states(&self, context: &str) -> Result<Vec<crate::manage::StateRow>, Error> {
+        let ctx = context_name(context)?;
+        let current = self.daemon.lock().await.current_state(&ctx).cloned();
+        let paths = self.paths.clone();
+        blocking(move || crate::manage::states(&paths, &ctx, current.as_ref())).await
+    }
+
+    /// The states of a context changed (saved, copied, renamed, removed).
+    #[zbus(signal)]
+    async fn states_changed(emitter: &SignalEmitter<'_>, context: &str) -> zbus::Result<()>;
+
+    /// Copy a state (`koje state cp`).
+    async fn copy_state(
+        &self,
+        context: &str,
+        from: &str,
+        to: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        self.state_op(context, from, Some(to), koje_core::states::copy, &emitter)
+            .await
+    }
+
+    /// Rename a state (`koje state mv`); a role keeps the old name.
+    async fn rename_state(
+        &self,
+        context: &str,
+        from: &str,
+        to: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        self.state_op(context, from, Some(to), koje_core::states::rename, &emitter)
+            .await
+    }
+
+    /// Delete a state (`koje state rm`, the only way states are deleted).
+    async fn remove_state(
+        &self,
+        context: &str,
+        state: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        self.state_op(
+            context,
+            state,
+            None,
+            |paths, ctx, name, _| koje_core::states::remove(paths, ctx, name),
+            &emitter,
+        )
+        .await
+    }
+
+    /// A context's settings (see `crate::manage::config` for the keys).
+    async fn config(&self, context: &str) -> Result<HashMap<String, OwnedValue>, Error> {
+        let ctx = context_name(context)?;
+        let paths = self.paths.clone();
+        blocking(move || crate::manage::config(&paths, &ctx)).await
+    }
+
+    /// Change a context's settings: the keys given, checked as `koje edit`
+    /// checks the file (`io.koje.Error.InvalidConfig`, nothing written
+    /// otherwise), followed live where the context can. Returns notes for
+    /// the user, e.g. that a change applies only to a new container.
+    async fn set_config(
+        &self,
+        context: &str,
+        settings: HashMap<String, OwnedValue>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<Vec<String>, Error> {
+        let ctx = context_name(context)?;
+        let paths = self.paths.clone();
+        let notes = blocking(move || crate::manage::set_config(&paths, &ctx, &settings)).await?;
+        let reloaded = self.daemon.lock().await.reload().await;
+        let _ = Self::contexts_changed(&emitter).await;
+        reloaded?;
+        Ok(notes)
+    }
+
+    /// Create a context as `koje new` does (a color of its own); returns its
+    /// name.
+    async fn new_context(
+        &self,
+        name: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<String, Error> {
+        let paths = self.paths.clone();
+        let name = name.to_owned();
+        let created = blocking(move || crate::manage::new_context(&paths, &name)).await?;
+        let reloaded = self.daemon.lock().await.reload().await;
+        let _ = Self::contexts_changed(&emitter).await;
+        reloaded?;
+        Ok(created)
+    }
+
+    /// The windows of a running context's live state: `(id, app id,
+    /// command, integration)`, empty strings when unknown.
+    async fn windows(&self, context: &str) -> Result<Vec<(String, String, String, String)>, Error> {
+        let ctx = context_name(context)?;
+        let state = self.daemon.lock().await.state(&ctx).await?;
+        Ok(state
+            .windows
+            .into_iter()
+            .map(|w| {
+                (
+                    w.id.to_string(),
+                    w.app_id.unwrap_or_default(),
+                    w.command.unwrap_or_default(),
+                    w.integration.unwrap_or_default(),
+                )
+            })
+            .collect())
+    }
+
+    /// Start a context and restore a state (`""`: its `default`), or switch
+    /// a running one to the state, as `koje up --no-focus` (ADR 0060).
+    /// `recovery` after a crash: `restore` or `discard` the recovery file;
+    /// `""` fails with `io.koje.Error.RecoveryPending` when there is one.
+    /// Returns at once; `OperationFinished` or `OperationFailed` follow.
+    async fn up(
+        &self,
+        context: &str,
+        state: &str,
+        recovery: &str,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> Result<(), Error> {
+        let ctx = context_name(context)?;
+        let (recover, no_recover) = match recovery {
+            "" => (false, false),
+            "restore" => (true, false),
+            "discard" => (false, true),
+            other => return Err(Error::InvalidArgs(format!("recovery: {other:?}"))),
+        };
+        let state = (!state.is_empty()).then(|| state.to_owned());
+        if recovery.is_empty() {
+            let (paths, c) = (self.paths.clone(), ctx.clone());
+            let pending = blocking(move || {
+                use koje_core::ports::ContainerRuntime as _;
+                let stopped =
+                    Podman::new().status(&c)? != koje_core::ports::ContainerStatus::Running;
+                Ok(stopped && koje_core::recovery::read(&paths, &c)?.is_some())
+            })
+            .await?;
+            if pending {
+                return Err(Error::RecoveryPending(format!(
+                    "{ctx} did not shut down cleanly: restore or discard its recovery file"
+                )));
+            }
+        }
+        self.operation(conn, ctx, "up", move |paths, ctx| {
+            koje_runtime::runtime::up(
+                paths,
+                ctx.as_str(),
+                state.as_deref(),
+                koje_runtime::runtime::UpOptions {
+                    no_save: false,
+                    recover,
+                    no_recover,
+                    focus: false,
+                },
+            )
+        })
+    }
+
+    /// Save the windows into `state` (`""`: the state the context is in) and
+    /// stop the context, as `koje down`; `save` false stops without saving.
+    /// Fails when windows stay open (a program asking to save). Returns at
+    /// once; `OperationFinished` or `OperationFailed` follow.
+    fn down(
+        &self,
+        context: &str,
+        state: &str,
+        save: bool,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> Result<(), Error> {
+        let ctx = context_name(context)?;
+        let state = (!state.is_empty()).then(|| state.to_owned());
+        self.operation(conn, ctx, "down", move |paths, ctx| {
+            koje_runtime::runtime::down(paths, ctx.as_str(), state.as_deref(), !save)
+        })
+    }
+
+    /// Save the windows of a running context into `state` (`""`: the state
+    /// it is in), as `koje save`.
+    async fn save(
+        &self,
+        context: &str,
+        state: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let ctx = context_name(context)?;
+        let (paths, state) = (self.paths.clone(), state.to_owned());
+        let c = ctx.clone();
+        blocking(move || {
+            koje_runtime::runtime::save(
+                &paths,
+                c.as_str(),
+                (!state.is_empty()).then_some(state.as_str()),
+            )
+        })
+        .await?;
+        let _ = Self::states_changed(&emitter, ctx.as_str()).await;
+        Ok(())
+    }
+
+    /// Pause a context, as `koje sleep`. Returns at once.
+    fn sleep(
+        &self,
+        context: &str,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> Result<(), Error> {
+        let ctx = context_name(context)?;
+        self.operation(conn, ctx, "sleep", |paths, ctx| {
+            koje_runtime::runtime::sleep(paths, ctx.as_str())
+        })
+    }
+
+    /// A new container from the current config, as `koje recreate --yes`:
+    /// everything installed in the old one outside the home is lost. Returns
+    /// at once.
+    fn recreate(
+        &self,
+        context: &str,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> Result<(), Error> {
+        let ctx = context_name(context)?;
+        self.operation(conn, ctx, "recreate", |paths, ctx| {
+            koje_runtime::runtime::recreate(paths, ctx.as_str(), true)
+        })
+    }
+
+    /// An operation (`up`, `down`, `sleep`, `recreate`) on a context began.
+    #[zbus(signal)]
+    async fn operation_started(
+        emitter: &SignalEmitter<'_>,
+        context: &str,
+        operation: &str,
+    ) -> zbus::Result<()>;
+
+    /// It ended well.
+    #[zbus(signal)]
+    async fn operation_finished(
+        emitter: &SignalEmitter<'_>,
+        context: &str,
+        operation: &str,
+    ) -> zbus::Result<()>;
+
+    /// It failed; `error` says why.
+    #[zbus(signal)]
+    async fn operation_failed(
+        emitter: &SignalEmitter<'_>,
+        context: &str,
+        operation: &str,
+        error: &str,
+    ) -> zbus::Result<()>;
 
     /// The last memory reading of a context (`""` = the active one) for the
     /// bar (M8.21): `(context, used, charged, soft, hard)` in bytes; a limit
@@ -487,6 +767,85 @@ impl Api {
         address: &str,
         context: &str,
     ) -> zbus::Result<()>;
+}
+
+impl Api {
+    /// Run `f` for `ctx` on the blocking pool, reported by the operation
+    /// signals; one operation per context at a time.
+    fn operation(
+        &self,
+        conn: &zbus::Connection,
+        ctx: ContextName,
+        operation: &'static str,
+        f: impl FnOnce(&Paths, &ContextName) -> anyhow::Result<()> + Send + 'static,
+    ) -> Result<(), Error> {
+        {
+            let mut busy = self.busy.lock().map_err(|e| Error::Failed(e.to_string()))?;
+            if !busy.insert(ctx.clone()) {
+                return Err(Error::Busy(format!("{ctx} is busy with another operation")));
+            }
+        }
+        let (conn, paths, busy) = (conn.clone(), self.paths.clone(), Arc::clone(&self.busy));
+        tokio::spawn(async move {
+            let emitter = match SignalEmitter::new(&conn, OBJECT_PATH) {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::warn!("signals for {operation} {ctx}: {e}");
+                    return;
+                }
+            };
+            let _ = Self::operation_started(&emitter, ctx.as_str(), operation).await;
+            let c = ctx.clone();
+            let result = blocking(move || f(&paths, &c)).await;
+            if let Ok(mut b) = busy.lock() {
+                b.remove(&ctx);
+            }
+            match result {
+                Ok(()) => {
+                    let _ = Self::operation_finished(&emitter, ctx.as_str(), operation).await;
+                }
+                Err(e) => {
+                    let error = match e {
+                        Error::Failed(m) | Error::NotFound(m) | Error::InvalidArgs(m) => m,
+                        other => other.to_string(),
+                    };
+                    tracing::warn!(context = %ctx, "{operation}: {error}");
+                    let _ = Self::operation_failed(&emitter, ctx.as_str(), operation, &error).await;
+                }
+            }
+            let _ = Self::contexts_changed(&emitter).await;
+            let _ = Self::states_changed(&emitter, ctx.as_str()).await;
+        });
+        Ok(())
+    }
+
+    /// A state operation `f(paths, ctx, from, to)`; `to` unused for removal.
+    async fn state_op(
+        &self,
+        context: &str,
+        from: &str,
+        to: Option<&str>,
+        f: fn(&Paths, &ContextName, &StateName, &StateName) -> koje_core::error::Result<()>,
+        emitter: &SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let ctx = context_name(context)?;
+        let from =
+            crate::manage::state_name(from).map_err(|e| Error::InvalidArgs(format!("{e:#}")))?;
+        let to = match to {
+            Some(t) => {
+                crate::manage::state_name(t).map_err(|e| Error::InvalidArgs(format!("{e:#}")))?
+            }
+            None => from.clone(),
+        };
+        let (paths, c) = (self.paths.clone(), ctx.clone());
+        blocking(move || {
+            koje_core::context::load(&paths, &c)?;
+            Ok(f(&paths, &c, &from, &to)?)
+        })
+        .await?;
+        let _ = Self::states_changed(emitter, ctx.as_str()).await;
+        Ok(())
+    }
 }
 
 /// Tell the bar that what it shows may have changed.

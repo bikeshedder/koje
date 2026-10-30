@@ -12,6 +12,7 @@ publish.workspace = true
 koje-core.workspace = true
 koje-gnome.workspace = true
 koje-podman.workspace = true
+koje-runtime.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -23,6 +24,7 @@ futures-util.workspace = true
 [dev-dependencies]
 tempfile = "3"
 serde.workspace = true
+quick-xml.workspace = true
 
 [lints]
 workspace = true
