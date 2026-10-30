@@ -10,6 +10,7 @@ mod doctor;
 mod kojed;
 mod setup;
 mod terminal;
+mod wayland;
 
 use std::process::ExitCode;
 

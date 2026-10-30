@@ -84,5 +84,8 @@ compositor process and may use Mutter's and the Shell's internals.
   compositor than through IPC.
 - Weaker Wayland isolation story until Mutter supports security contexts
   (L1). The apps of one program in several contexts group together (L3).
+  Update (G.33): `koje doctor` warns about any Mutter global spike G.2 did not
+  review. A proxy that hides such globals from contexts stays a deferred
+  option (it would hide the program's PID from Mutter, L2).
 - Layouts, the stash and overlays, which are koje features, are gone for now.
 - The extension depends on GNOME internals. Each GNOME release needs a check.

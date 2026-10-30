@@ -147,20 +147,34 @@ fn gnome_extension() -> Check {
     }
 }
 
-fn kojed() -> Vec<Check> {
+fn kojed() -> Check {
     match crate::kojed::call::<_, String>("ActiveContext", &()) {
-        Err(e) => vec![Check::fail(
-            format!("kojed: {e:#}"),
-            "systemctl --user start kojed",
-        )],
-        // GNOME has no security contexts: known and accepted (ADR 0059, L1).
-        Ok(_) => vec![
-            Check::ok("kojed"),
-            Check::warn(
-                "GNOME's Mutter has no security contexts: contexts share its Wayland socket (ADR 0059, L1)",
-                "",
+        Err(e) => Check::fail(format!("kojed: {e:#}"), "systemctl --user start kojed"),
+        Ok(_) => Check::ok("kojed"),
+    }
+}
+
+/// Contexts share Mutter's Wayland socket (ADR 0059, L1), which is fine only
+/// while every global it offers is one spike G.2 reviewed.
+fn wayland_globals() -> Check {
+    match crate::wayland::globals() {
+        Err(e) => Check::warn(
+            format!("Wayland globals: {e:#}"),
+            "run koje doctor in the GNOME session",
+        ),
+        Ok(globals) => match crate::wayland::unreviewed(&globals)[..] {
+            [] => Check::ok(format!(
+                "Wayland: all {} globals reviewed (contexts share Mutter's socket, ADR 0059 L1)",
+                globals.len()
+            )),
+            ref new => Check::warn(
+                format!(
+                    "Wayland: contexts can use globals nobody reviewed: {}",
+                    new.join(" ")
+                ),
+                "contexts share Mutter's socket (ADR 0059, L1); check what they allow, as in docs/spikes/G.2-mutter-wayland-globals.md",
             ),
-        ],
+        },
     }
 }
 
@@ -247,9 +261,17 @@ fn nvidia() -> Option<Check> {
 }
 
 pub fn run() -> Result<()> {
-    let mut checks = vec![package(), packages(), gnome_shell(), gnome_extension()];
-    checks.extend(kojed());
-    checks.extend([image(), forwarder(), subids()]);
+    let mut checks = vec![
+        package(),
+        packages(),
+        gnome_shell(),
+        gnome_extension(),
+        wayland_globals(),
+        kojed(),
+        image(),
+        forwarder(),
+        subids(),
+    ];
     checks.extend(nvidia());
     for c in &checks {
         println!("{c}");

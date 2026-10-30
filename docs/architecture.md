@@ -136,7 +136,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
 | `koje setup [--dry-run] [--yes]` | after the package (ADR 0045): enable koje's GNOME Shell extension, build the base image, restart an outdated kojed; plan first, asks once |
-| `koje doctor` | check the package, packages, GNOME Shell and the extension, kojed, image, forwarder, sub-ids, NVIDIA |
+| `koje doctor` | check the package, packages, GNOME Shell and the extension, Mutter's Wayland globals, kojed, image, forwarder, sub-ids, NVIDIA |
 
 Hyprland-only commands (`layout`, `stash`, `unstash`, `snap`, `overlay`,
 `pin`, `unpin`, `bar`, `media`, `screenshot`, `session`) are gone with ADR 0061.
