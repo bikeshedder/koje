@@ -1,15 +1,11 @@
-# Builds the koje package (ADR 0045) and its Hyprland plugin (ADR 0051) on
-# the distribution koje runs on: Ubuntu 26.04 – its GTK, libadwaita,
-# gtk4-layer-shell and Hyprland headers, so the package fits the host exactly.
+# Builds the koje package (ADR 0045) on the distribution koje runs on:
+# Ubuntu 26.04, so the package fits the host exactly.
 # scripts/build-deb.sh (`just deb`) builds the image once and runs it; it
 # works the same on the host and in the dev container.
 FROM docker.io/library/ubuntu:26.04
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates curl git build-essential pkg-config rustup musl-tools \
-        libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev \
-        hyprland-dev libpango1.0-dev libpixman-1-dev libdrm-dev libinput-dev \
-        libudev-dev libwayland-dev libxkbcommon-dev libgles-dev \
     && rm -rf /var/lib/apt/lists/*
 # The workspace's toolchain (rust-toolchain.toml), the static forwarder's
 # target and cargo-deb.

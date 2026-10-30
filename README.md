@@ -3,17 +3,17 @@
 **Every project in its own bunk – isolated, color-coded, there and gone at a keystroke.**
 
 koje (German for a ship's bunk) runs each project in its own isolated **context** on
-Linux with [Hyprland](https://hypr.land): a rootless Podman container holding all
+Linux with [GNOME](https://www.gnome.org): a rootless Podman container holding all
 programs for that work – editor, browser, terminal – plus its own nested Podman for
-dev containers. Every window carries its context's color, named layouts rearrange
-windows instantly, and a context can be paused, stopped and restored exactly as you
-left it. The programs themselves stay unchanged.
+dev containers. Each context has its own GNOME workspace and color; a window
+outside its context glows in that color. A context can be paused, stopped and
+restored as you left it. The programs themselves stay unchanged.
 
-> **Status:** early development. Contexts start and stop (`koje up -s empty`,
-> `down`, `shell`, `open`, `sleep`, `wake`), kojed colors their windows and keeps
-> them on their workspace (`koje focus`); states and layouts are next. Commands
-> that are not there yet name the milestone that delivers them. See
-> [the roadmap](docs/plan/roadmap.md).
+> **Status:** early development, in daily use on GNOME 50 (Ubuntu 26.04). Contexts
+> start, stop, sleep and restore their states; koje's GNOME Shell extension marks
+> their windows and workspaces. The settings app is being rebuilt
+> ([ADR 0060](docs/decisions/0060-ui-in-typescript-api-on-d-bus.md)). See
+> [the plan](docs/plan/G-gnome.md).
 
 ## Install (on the host)
 
@@ -32,26 +32,14 @@ koje setup                                          # asks once before changing 
 installs the newest package in `target/debian/` – again if the version is the
 same – and runs `koje setup`; `--yes` asks nothing.
 
-The package puts `koje`, `kojed` and `koje-shell` into `/usr/bin`, the static
-`koje-forward` and koje's helper scripts into `/usr/lib/koje/`, the systemd user
-units and the icon font into their system folders, and pulls in Podman and the
-libraries koje needs. `koje setup` does the per-user part: it shows its plan and
-asks once, installs koje's Hyprland snippet below `~/.local/share`, adds one
-`source` line to `~/.config/hypr/hyprland.conf` – or writes that file, with your
-system's keyboard layout, if you have no own config (the snippet is a complete
-session: bar, notifications, lock, Super+Return terminal in the active context,
-workspaces – [ADR 0037](docs/decisions/0037-koje-ships-the-session.md); put your
-monitor and keyboard settings below that line), installs koje's Waybar config
-only if you have none, builds the base image, removes what the old `install.sh`
-left in `~/.local`, and restarts kojed when it runs an old binary. Inside
-Hyprland it then reloads the config and starts the session's services (Waybar,
-mako, …) that do not run yet. Run it again after every upgrade; it updates
-koje's files and leaves yours alone. `koje doctor` checks the result and lists
-missing system packages. Details: [ADR 0021](docs/decisions/0021-installer.md).
-
-koje's bar lists the current workspace's windows; clicking one needs a Waybar
-newer than 0.15.0, which no release has yet. `scripts/build-waybar-deb.sh`
-builds one from upstream git as a `.deb` for your Debian/Ubuntu and installs it.
+The package puts `koje` and `kojed` into `/usr/bin`, the static `koje-forward`
+into `/usr/lib/koje/`, kojed's systemd user unit and koje's GNOME Shell extension
+into their system folders, and pulls in Podman and what koje needs. `koje setup`
+does the per-user part: it enables the extension (log out and in once if GNOME
+does not know it yet), builds the base image and restarts kojed when it runs an
+old binary. Run it again after every upgrade. `koje doctor` checks the result and
+lists missing system packages. Details: [ADR 0021](docs/decisions/0021-installer.md),
+[ADR 0061](docs/decisions/0061-remove-the-hyprland-path.md).
 
 ## Documentation
 
@@ -77,14 +65,16 @@ builds one from upstream git as a `.deb` for your Debian/Ubuntu and installs it.
    just koje list    # run the CLI
    claude            # sign in once; the login survives rebuilds
    ```
-4. In Claude Code, run `/next-task` to start on the first open task of milestone M1.
+4. In Claude Code, run `/next-task` to start on the next open task.
 
 ## Layout
 
 ```
-crates/koje-core   domain logic (no I/O to Hyprland/Podman)
+crates/koje-core   domain logic (no I/O to GNOME/Podman)
 crates/koje        CLI
 crates/kojed       background service
+crates/koje-gnome  kojed's adapter to koje's GNOME Shell extension
+gnome/             koje's GNOME Shell extension
 docs/              concept, plan, decisions, spikes
 ```
 

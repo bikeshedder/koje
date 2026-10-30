@@ -1,5 +1,4 @@
-//! Command handlers. Each unimplemented command names the milestone that
-//! delivers it, so `koje <cmd>` doubles as a progress indicator.
+//! Command handlers.
 
 use std::path::Path;
 
@@ -13,52 +12,12 @@ use koje_core::states::{self, Role, Summary};
 use crate::cli::{Command, Ctx, ImageCmd, StateCmd};
 use crate::prompt::confirm;
 
-/// What GNOME Shell does not have (ADR 0059): layouts and the stash,
-/// overlays, pinning and snapping.
-fn not_on_gnome(command: &Command) -> Option<&'static str> {
-    Some(match command {
-        Command::Layout { .. } => "layout",
-        Command::Stash { .. } => "stash",
-        Command::Unstash { .. } => "unstash",
-        Command::Overlay { .. } => "overlay",
-        Command::Pin => "pin",
-        Command::Unpin => "unpin",
-        Command::Snap { .. } => "snap",
-        _ => return None,
-    })
-}
-
-fn refuse_on_gnome(command: &Command) -> Result<()> {
-    if let Some(name) = not_on_gnome(command)
-        && koje_core::compositor::Kind::from_env().map_err(anyhow::Error::msg)?
-            == koje_core::compositor::Kind::Gnome
-    {
-        bail!("koje {name} is not available on GNOME (ADR 0059)");
-    }
-    Ok(())
-}
-
 pub fn run(command: &Command) -> Result<()> {
-    refuse_on_gnome(command)?;
     let paths = Paths::from_env()?;
     match command {
         Command::List { json } => list(&paths, *json),
-        Command::Setup { dry_run, yes } => crate::setup::run(&paths, *dry_run, *yes),
-        Command::Doctor => crate::doctor::run(&paths),
-        Command::Screenshot { what } => crate::screenshot::run((*what).into()),
-        Command::Media { action } => crate::media::run(*action),
-        Command::Bar {
-            names: false,
-            memory,
-        } => crate::bar::run(if *memory {
-            crate::bar::Kind::Memory
-        } else {
-            crate::bar::Kind::Contexts
-        }),
-        Command::Bar {
-            names: true,
-            memory,
-        } => crate::bar::names(&paths, *memory),
+        Command::Setup { dry_run, yes } => crate::setup::run(*dry_run, *yes),
+        Command::Doctor => crate::doctor::run(),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
 
         Command::Settings { context } => settings(&paths, context.as_deref()),
@@ -75,7 +34,6 @@ pub fn run(command: &Command) -> Result<()> {
 
         Command::State(cmd) => state(&paths, cmd),
         Command::Image(ImageCmd::Build { no_cache }) => image_build(*no_cache),
-        Command::Session(cmd) => crate::session::run(&paths, cmd),
 
         Command::Up {
             ctx,
@@ -113,12 +71,7 @@ pub fn run(command: &Command) -> Result<()> {
             command,
         } => crate::runtime::run(&paths, &ctx.context, command, !*no_focus, user.as_deref()),
 
-        Command::Apps {
-            ctx,
-            start,
-            menu,
-            json,
-        } => crate::apps::run(&paths, ctx, start.as_deref(), *menu, *json),
+        Command::Apps { ctx, start } => crate::apps::run(&paths, ctx, start.as_deref()),
         Command::Favorites { ctx, set, reset } => {
             crate::apps::favorites(&paths, ctx, set.as_deref(), *reset)
         }
@@ -133,26 +86,11 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Save { ctx, state } => {
             crate::runtime::save(&paths, &ctx.context, state.as_deref())
         }
-        Command::Layout { cmd, name, ctx } => {
-            crate::layout::run(cmd.as_ref(), name.as_deref(), ctx)
-        }
-        Command::Stash { show, ctx } => crate::layout::stash(*show, ctx),
-        Command::Unstash { window, to, ctx } => {
-            crate::layout::unstash(window.as_deref(), to.as_deref(), ctx)
-        }
-
         Command::Stats { context, json } => crate::memory::stats(&paths, context.as_deref(), *json),
         Command::Limit { ctx, soft, hard } => {
             crate::memory::limit(&paths, &ctx.context, soft.as_deref(), hard.as_deref())
         }
-
-        Command::Snap { zone } => crate::layout::snap(zone),
-        Command::Overlay { .. } | Command::Pin | Command::Unpin => todo_in("M7"),
     }
-}
-
-fn todo_in(milestone: &str) -> Result<()> {
-    bail!("not implemented yet – planned for milestone {milestone} (see docs/plan/)")
 }
 
 fn context_name(ctx: &Ctx) -> Result<ContextName> {
@@ -204,20 +142,20 @@ fn edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
-/// `koje settings`: the settings app (`koje-shell settings`), detached.
+/// `koje settings`: the settings app (`koje-settings`, ADR 0060), detached.
 fn settings(paths: &Paths, context: Option<&str>) -> Result<()> {
-    let mut args = vec!["settings".to_owned()];
+    let mut args = Vec::new();
     if let Some(c) = context {
         let name = ContextName::new(c)?;
         context::load(paths, &name)?;
         args.push(name.to_string());
     }
-    std::process::Command::new("koje-shell")
+    std::process::Command::new("koje-settings")
         .args(&args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .spawn()
-        .context("starting koje-shell (the settings app)")?;
+        .context("starting koje-settings (the settings app)")?;
     Ok(())
 }
 

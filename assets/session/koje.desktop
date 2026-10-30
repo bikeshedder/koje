@@ -1,7 +1,0 @@
-[Desktop Entry]
-Name=koje
-Comment=Isolated work contexts on Hyprland, in GNOME's look
-Exec=/usr/bin/koje session start
-TryExec=/usr/bin/koje
-Type=Application
-DesktopNames=koje;GNOME

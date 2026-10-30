@@ -6,7 +6,7 @@
 |---|---|
 | VS Code + Dev Containers extension | editing, dev container |
 | rootless Podman (≥ 4.3 for `keep-id:uid=`) | dev container, later the contexts themselves |
-| Hyprland | spikes (M2) and everything from M4 on – testing on the host |
+| GNOME 50 (Ubuntu 26.04) | testing on the host; `just nested-gnome` for extension work |
 
 VS Code user setting (once): `"dev.containers.dockerPath": "podman"`.
 
@@ -26,20 +26,12 @@ VS Code user setting (once): `"dev.containers.dockerPath": "podman"`.
 | Kind | Where | How |
 |---|---|---|
 | Unit tests, CLI tests | anywhere (dev container, CI) | `just check` |
-| Hyprland adapter against a real session | host, or dev container with the Hyprland mount | `just test -- --ignored hypr` |
+| GNOME adapter against the extension | dev container with the GNOME lab | `docs/spikes/setup/gnome-lab/lab.sh start`, then `just test-extension` |
 | Context containers, nested Podman | host; dev container without cgroups | host: `cargo test -p koje-podman -- --ignored`; dev container: add `--skip cgroups` |
-| koje-shell's surfaces (bar, menus, overview): screenshots, clicks, keys | dev container | `cargo build -p koje-shell`, then `scripts/smoke/run.sh <out dir> '<steps>'` – a headless sway with fake Hyprland and kojed; steps and helpers in the script's header |
-| Full end-to-end (windows from contexts, colors, layouts) | host only | `just deb`, install the package, `koje setup` |
+| The extension's code | dev container | `just lint-extension`; a headless GNOME Shell (spike G.4) |
+| Full end-to-end (windows from contexts, colors, states) | host only | `just deb`, install the package, `koje setup` |
 
 Tests needing real systems are `#[ignore]`d so `just check` stays hermetic.
-
-### Talking to the host's Hyprland from the dev container (optional)
-
-Uncomment the Hyprland mount and the two env variables in
-`.devcontainer/devcontainer.json`, then rebuild. The host's
-`$XDG_RUNTIME_DIR/hypr` appears at `/run/host-hypr`; the Hyprland adapter should
-look for the socket in `$KOJE_HYPR_DIR/$HYPRLAND_INSTANCE_SIGNATURE/`. Hyprland must
-be running on the host when the container starts, otherwise the bind mount fails.
 
 ### Nested Podman in the dev container
 

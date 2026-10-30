@@ -3,7 +3,6 @@
 //! - `~/.config/koje/config.toml` → [`GlobalConfig`]
 //! - `~/.config/koje/contexts/<context>/context.toml` → [`ContextConfig`]
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use crate::access::{self, Access, AccessConfig};
 use crate::color::Color;
 use crate::error::{Error, Result};
-use crate::layout::Rect;
 use crate::mount::{self, HostDirs, Mount};
 use crate::name::{ContextName, PresetName, StateName};
 use crate::size::ByteSize;
@@ -170,74 +168,24 @@ pub struct GlobalConfig {
     /// Default host resources for all contexts (ADR 0017).
     #[serde(default)]
     pub access: AccessConfig,
-    /// Snap zones per monitor connector name (e.g. `DP-1`), then per zone name.
-    #[serde(default)]
-    pub zones: BTreeMap<String, BTreeMap<String, Rect>>,
-    /// Overlays (Hyprland special workspaces) for cross-context apps; unset:
-    /// koje's `mail` and `chat` ([`crate::overlay::overlays`]).
-    #[serde(default)]
-    pub overlay: Option<BTreeMap<String, Overlay>>,
-    /// Host workspaces' labels and icons by number (`[workspace.1]`, ADR 0055).
-    #[serde(default)]
-    pub workspace: BTreeMap<String, crate::look::HostWorkspace>,
-    /// koje's bar (ADR 0047).
-    #[serde(default)]
-    pub bar: BarConfig,
-    /// The windows' look, overlays and the overview's animation (ADR 0056).
-    #[serde(default)]
-    pub desktop: crate::desktop::DesktopConfig,
 }
 
-/// `[bar]` in `config.toml` (ADR 0047).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BarConfig {
-    #[serde(default)]
-    pub workspaces: WorkspaceStyle,
-}
-
-/// How the bar shows workspaces.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum WorkspaceStyle {
-    /// Each workspace's icon and label, a context's in its color; overlays
-    /// by their icon (ADR 0055).
-    #[default]
-    Labels,
-    /// GNOME's workspace indicator, a context's dot in its color.
-    ColoredDots,
-    /// GNOME's workspace indicator unchanged.
-    Dots,
-    /// Panel buttons with the workspace names.
-    Names,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Overlay {
-    /// Hyprland key combination, e.g. `SUPER+M`.
-    pub key: String,
-    /// The name shown in the bar; the overlay's own name when unset.
-    #[serde(default)]
-    pub label: Option<String>,
-    /// An icon name from the icon theme; the bar shows overlays by it.
-    #[serde(default)]
-    pub icon: Option<String>,
-    /// Integrations or launch commands started in the `global` context.
-    #[serde(default)]
-    pub apps: Vec<String>,
-}
+/// Tables of `config.toml` that only the Hyprland path read (ADR 0061):
+/// accepted and ignored, so an old file still loads.
+const RETIRED: [&str; 5] = ["zones", "overlay", "workspace", "bar", "desktop"];
 
 impl GlobalConfig {
     pub fn from_toml(text: &str, path: &Path) -> Result<Self> {
-        let cfg: Self = toml::from_str(text).map_err(|e| Error::Parse {
+        let parse = |e: toml::de::Error| Error::Parse {
             path: path.to_owned(),
             source: Box::new(e),
-        })?;
+        };
+        let mut table: toml::Table = toml::from_str(text).map_err(parse)?;
+        for key in RETIRED {
+            table.remove(key);
+        }
+        let cfg: Self = table.try_into().map_err(parse)?;
         cfg.default_limits.validate()?;
-        crate::overlay::overlays(&cfg)?;
-        crate::look::host_workspaces(&cfg)?;
-        cfg.desktop.check()?;
         Ok(cfg)
     }
 
@@ -289,19 +237,6 @@ fresh   = "fresh"
             home: "/home/mj".into(),
             protected: vec!["/home/mj/.config/koje".into()],
         }
-    }
-
-    #[test]
-    fn bar_workspace_styles() {
-        let p = Path::new("config.toml");
-        assert_eq!(
-            GlobalConfig::from_toml("", p).unwrap().bar.workspaces,
-            WorkspaceStyle::Labels
-        );
-        let names = GlobalConfig::from_toml("[bar]\nworkspaces = \"names\"\n", p).unwrap();
-        assert_eq!(names.bar.workspaces, WorkspaceStyle::Names);
-        assert!(GlobalConfig::from_toml("[bar]\nworkspaces = \"stars\"\n", p).is_err());
-        assert!(GlobalConfig::from_toml("[bar]\nstyle = \"dots\"\n", p).is_err());
     }
 
     #[test]
@@ -416,17 +351,39 @@ fresh   = "fresh"
 [default_limits]
 memory_soft = "4G"
 memory_hard = "6G"
+"#;
+        let cfg = GlobalConfig::from_toml(text, Path::new("config.toml")).unwrap();
+        assert_eq!(cfg.default_limits.memory_soft, Some(ByteSize(4 << 30)));
+    }
 
+    /// ADR 0061: what only the Hyprland path read is ignored, not refused.
+    #[test]
+    fn retired_tables_are_ignored() {
+        let text = r#"
 [zones.DP-1]
 links = { x = 0, y = 0, w = 1700, h = 2160 }
 
 [overlay.mail]
 key  = "SUPER+M"
-apps = ["mail", "calendar"]
+
+[workspace.1]
+label = "Web"
+
+[bar]
+workspaces = "dots"
+
+[desktop]
+gaps = 4
 "#;
         let cfg = GlobalConfig::from_toml(text, Path::new("config.toml")).unwrap();
-        assert_eq!(cfg.zones["DP-1"]["links"].w, 1700);
-        assert_eq!(cfg.overlay.unwrap()["mail"].apps, ["mail", "calendar"]);
+        assert_eq!(cfg, GlobalConfig::default());
+        let unknown = format!(
+            "{text}
+[unknown]
+x = 1
+"
+        );
+        assert!(GlobalConfig::from_toml(&unknown, Path::new("config.toml")).is_err());
     }
 
     #[test]

@@ -5,7 +5,7 @@
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "koje", version, about = "Isolated work contexts on Hyprland", long_about = None)]
+#[command(name = "koje", version, about = "Isolated work contexts on GNOME", long_about = None)]
 pub struct Cli {
     /// More output (-v info, -vv debug, -vvv trace). Also respects `RUST_LOG`.
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
@@ -78,49 +78,8 @@ pub enum Command {
     /// Manage states.
     #[command(subcommand)]
     State(StateCmd),
-    /// Switch layout (`koje layout <name>`) or manage layouts.
-    #[command(args_conflicts_with_subcommands = true)]
-    Layout {
-        #[command(subcommand)]
-        cmd: Option<LayoutCmd>,
-        /// Layout to switch to.
-        name: Option<String>,
-        #[command(flatten)]
-        ctx: ActiveCtx,
-    },
-    /// Move the focused window to the stash (remove it from the active layout).
-    Stash {
-        /// Instead: show or hide the context's stash.
-        #[arg(long)]
-        show: bool,
-        #[command(flatten)]
-        ctx: ActiveCtx,
-    },
-    /// Bring a stashed window into the active (or given) layout.
-    Unstash {
-        /// Window id or Hyprland address (default: the focused window, e.g. picked
-        /// in the shown stash).
-        window: Option<String>,
-        #[arg(long)]
-        to: Option<String>,
-        #[command(flatten)]
-        ctx: ActiveCtx,
-    },
     /// Switch to a context.
     Focus(Ctx),
-    /// Put the focused window into a zone: the left or right half of its
-    /// monitor below the bar, all of it (`maximize`), or back where it was
-    /// (`restore`) – GNOME's Super+arrows.
-    Snap {
-        /// left, right, maximize or restore
-        zone: String,
-    },
-    /// Toggle an overlay (e.g. `mail`, `chat`).
-    Overlay { name: String },
-    /// Pin the focused overlay window onto the current workspace.
-    Pin,
-    /// Send a pinned window back to its overlay.
-    Unpin,
     /// Pause a context (freeze all processes, keep memory).
     Sleep(Ctx),
     /// Resume a paused context.
@@ -170,22 +129,14 @@ pub enum Command {
         )]
         command: Vec<String>,
     },
-    /// List the programs of the active context, or start one (koje's
-    /// application menu, Super+D).
+    /// List the programs of the active context, or start one.
     Apps {
         #[command(flatten)]
         ctx: ActiveCtx,
         /// Start the program with this name (as listed) or desktop file id
         /// (`firefox.desktop`) instead.
-        #[arg(long, value_name = "NAME", conflicts_with = "menu")]
+        #[arg(long, value_name = "NAME")]
         start: Option<String>,
-        /// For the menu: first a line with the context and its memory.
-        #[arg(long)]
-        menu: bool,
-        /// As JSON (name, id, icon, keywords, terminal, window class, program) for
-        /// koje-shell.
-        #[arg(long, conflicts_with_all = ["menu", "start"])]
-        json: bool,
     },
     /// The dash's favorites in a context (ADR 0053): list them, or set them.
     /// Unset, GNOME's favorites apply as far as the context has them.
@@ -277,9 +228,6 @@ pub enum Command {
     /// Manage koje's base image `koje/base`.
     #[command(subcommand)]
     Image(ImageCmd),
-    /// The koje session (ADR 0048): started from the login screen.
-    #[command(subcommand)]
-    Session(SessionCmd),
     /// List contexts.
     List {
         /// Machine-readable output (JSON array).
@@ -297,44 +245,8 @@ pub enum Command {
         #[arg(long, short)]
         yes: bool,
     },
-    /// Volume, microphone, brightness and media keys (ADR 0041): change the
-    /// level and show it, or control the most recently active player.
-    Media {
-        #[arg(value_enum)]
-        action: MediaAction,
-    },
-    /// Take a screenshot as GNOME does: into Pictures/Screenshots and onto the
-    /// clipboard (Print: an area, Shift+Print: the screen, Alt+Print: the
-    /// window).
-    Screenshot {
-        #[arg(value_enum, default_value = "area")]
-        what: ScreenshotKind,
-    },
     /// Check what koje needs on this host and how to fix what is missing.
     Doctor,
-    /// Waybar module: the running contexts, updated as they change (JSON lines).
-    Bar {
-        /// Print the running contexts' names once instead (for pickers).
-        #[arg(long)]
-        names: bool,
-        /// The active context's memory as a meter instead (a second module);
-        /// with `--names`: each name followed by its memory use and limit.
-        #[arg(long)]
-        memory: bool,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum MediaAction {
-    VolumeUp,
-    VolumeDown,
-    Mute,
-    MicMute,
-    BrightnessUp,
-    BrightnessDown,
-    PlayPause,
-    Next,
-    Previous,
 }
 
 #[derive(Debug, Subcommand)]
@@ -345,53 +257,6 @@ pub enum ImageCmd {
         #[arg(long)]
         no_cache: bool,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum ScreenshotKind {
-    /// Choose an area with the mouse (Escape cancels).
-    Area,
-    /// The screen with the focus.
-    Screen,
-    /// The window with the focus.
-    Window,
-}
-
-impl From<ScreenshotKind> for koje_core::screenshot::Kind {
-    fn from(k: ScreenshotKind) -> Self {
-        match k {
-            ScreenshotKind::Area => Self::Area,
-            ScreenshotKind::Screen => Self::Screen,
-            ScreenshotKind::Window => Self::Window,
-        }
-    }
-}
-
-#[derive(Debug, Subcommand)]
-pub enum SessionCmd {
-    /// Start the session: Hyprland with koje's config; when it exits, stop
-    /// koje's services. The login screen's "koje" entry runs this.
-    Start,
-    /// Hand the session's environment to systemd and start koje's services
-    /// (from Hyprland's `exec-once`).
-    #[command(hide = true)]
-    Ready,
-    /// Restart koje's services (kojed, the shell, …) and load koje's
-    /// Hyprland plugin again; the session and its windows go on.
-    Restart,
-    /// Log out, restart or power off – the shell asks first, with GNOME's
-    /// 60-second countdown (Super+Shift+E logs out).
-    End {
-        #[arg(value_enum)]
-        what: EndKind,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum EndKind {
-    LogOut,
-    Restart,
-    PowerOff,
 }
 
 #[derive(Debug, Subcommand)]
@@ -414,47 +279,6 @@ pub enum StateCmd {
     Rm { context: String, state: String },
 }
 
-#[derive(Debug, Subcommand)]
-pub enum LayoutCmd {
-    /// Switch to the next layout.
-    Next(ActiveCtx),
-    /// Switch to the previous layout.
-    Prev(ActiveCtx),
-    /// Create a layout (empty, or a copy of the active one).
-    New {
-        name: String,
-        #[arg(long)]
-        copy: bool,
-        #[command(flatten)]
-        ctx: ActiveCtx,
-    },
-    /// Write the current arrangement into the active layout.
-    Save(ActiveCtx),
-    /// Turn automatic saving of a layout on or off.
-    Autosave {
-        name: String,
-        #[arg(value_parser = ["on", "off"])]
-        value: String,
-        #[command(flatten)]
-        ctx: ActiveCtx,
-    },
-    /// List layouts of the active state.
-    List(ActiveCtx),
-    /// Rename a layout.
-    Mv {
-        from: String,
-        to: String,
-        #[command(flatten)]
-        ctx: ActiveCtx,
-    },
-    /// Delete a layout.
-    Rm {
-        name: String,
-        #[command(flatten)]
-        ctx: ActiveCtx,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,25 +286,6 @@ mod tests {
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once("koje").chain(args.iter().copied()))
-    }
-
-    #[test]
-    fn session_commands() {
-        assert!(matches!(
-            parse(&["session", "start"]).unwrap().command,
-            Command::Session(SessionCmd::Start)
-        ));
-        assert!(matches!(
-            parse(&["session", "ready"]).unwrap().command,
-            Command::Session(SessionCmd::Ready)
-        ));
-        assert!(matches!(
-            parse(&["session", "end", "log-out"]).unwrap().command,
-            Command::Session(SessionCmd::End {
-                what: EndKind::LogOut
-            })
-        ));
-        assert!(parse(&["session"]).is_err());
     }
 
     #[test]
@@ -513,19 +318,7 @@ mod tests {
     fn apps_lists_or_starts() {
         assert!(matches!(
             parse(&["apps"]).unwrap().command,
-            Command::Apps {
-                start: None,
-                menu: false,
-                ..
-            }
-        ));
-        assert!(parse(&["apps", "--menu", "--start", "Files"]).is_err());
-        assert!(matches!(
-            parse(&["bar", "--memory"]).unwrap().command,
-            Command::Bar {
-                names: false,
-                memory: true
-            }
+            Command::Apps { start: None, .. }
         ));
         assert!(matches!(
             parse(&["apps", "-c", "kp", "--start", "Files"]).unwrap().command,
@@ -543,23 +336,6 @@ mod tests {
             parse(&["dotfiles", "-c", "kp"]).unwrap().command,
             Command::Dotfiles { context: Some(c) } if c == "kp"
         ));
-    }
-
-    #[test]
-    fn media_actions() {
-        assert!(matches!(
-            parse(&["media", "volume-up"]).unwrap().command,
-            Command::Media {
-                action: MediaAction::VolumeUp
-            }
-        ));
-        assert!(matches!(
-            parse(&["media", "play-pause"]).unwrap().command,
-            Command::Media {
-                action: MediaAction::PlayPause
-            }
-        ));
-        assert!(parse(&["media", "louder"]).is_err());
     }
 
     #[test]
@@ -628,21 +404,6 @@ mod tests {
     }
 
     #[test]
-    fn layout_name_or_subcommand() {
-        assert!(matches!(
-            parse(&["layout", "review"]).unwrap().command,
-            Command::Layout { name: Some(n), cmd: None, .. } if n == "review"
-        ));
-        assert!(matches!(
-            parse(&["layout", "next"]).unwrap().command,
-            Command::Layout {
-                cmd: Some(LayoutCmd::Next(_)),
-                ..
-            }
-        ));
-    }
-
-    #[test]
     fn shell_dev_takes_an_optional_name() {
         let dev = |args: &[&str]| match parse(args).unwrap().command {
             Command::Shell { dev, .. } => dev,
@@ -692,11 +453,5 @@ mod tests {
             parse(&["list", "--json"]).unwrap().command,
             Command::List { json: true }
         ));
-    }
-
-    #[test]
-    fn autosave_only_on_or_off() {
-        assert!(parse(&["layout", "autosave", "review", "off"]).is_ok());
-        assert!(parse(&["layout", "autosave", "review", "maybe"]).is_err());
     }
 }

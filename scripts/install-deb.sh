@@ -7,17 +7,15 @@
 #   scripts/install-deb.sh --yes    do not ask (apt and koje setup)
 #
 # Reinstalls when the version is the same (another build of the same commit).
-# In the koje session koje setup then reloads Hyprland's config, loads koje's
-# Hyprland plugin again and restarts all session services with their new
-# unit files (koje session restart);
-# elsewhere it restarts kojed and koje-shell. sudo is used for apt.
+# koje setup then restarts kojed; GNOME Shell loads a changed extension at the
+# next login. sudo is used for apt.
 set -euo pipefail
 
 yes=0
 for arg in "$@"; do
   case "$arg" in
     --yes | -y) yes=1 ;;
-    -h | --help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -45,9 +43,9 @@ setup_args=()
 echo
 /usr/bin/koje setup "${setup_args[@]}"
 
-# koje setup restarted the units; a koje-shell or kojed started by hand still
-# runs the binary the package replaced.
-for name in koje-shell kojed; do
+# koje setup restarted the unit; a kojed started by hand still runs the
+# binary the package replaced.
+for name in kojed; do
   for pid in $(pgrep -x "$name" || true); do
     if [[ $(readlink "/proc/$pid/exe" 2>/dev/null) == *" (deleted)" ]]; then
       echo

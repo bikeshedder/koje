@@ -1,26 +1,19 @@
 //! `koje` – command line client.
 //!
-//! The binary is a thin layer: parse arguments, call into `koje-core` (and,
-//! from milestone M3 on, talk to `kojed`). Unimplemented commands fail with a
-//! pointer to the milestone that delivers them (`docs/plan/`).
+//! The binary is a thin layer: parse arguments, call into `koje-core` and
+//! talk to `kojed`.
 
 mod apps;
-mod bar;
 mod cli;
 mod commands;
 mod doctor;
 mod dotfiles;
 mod hostbus;
 mod kojed;
-mod layout;
-mod media;
 mod memory;
 mod mounts;
 mod prompt;
 mod runtime;
-mod screens;
-mod screenshot;
-mod session;
 mod setup;
 mod terminal;
 

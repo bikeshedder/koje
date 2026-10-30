@@ -4,33 +4,27 @@
 use std::sync::Arc;
 
 use koje_core::api::OBJECT_PATH;
-use koje_core::media::PlayerAction;
-use koje_core::name::{ContextName, LayoutName, StateName};
+use koje_core::name::{ContextName, StateName};
+use koje_gnome::Gnome;
 use koje_podman::Podman;
 use tokio::sync::Mutex;
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
-use crate::compositor::Desktop;
 use crate::daemon::{Change, Daemon};
-use crate::players::Players;
 use crate::wayland::Sockets;
 
 /// How long restored windows may take to appear.
 const RESTORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-pub type Shared = Arc<Mutex<Daemon<Desktop, Podman>>>;
+pub type Shared = Arc<Mutex<Daemon<Gnome, Podman>>>;
 
 #[derive(Debug)]
 pub struct Api {
     pub daemon: Shared,
     pub sockets: Sockets,
-    pub players: Players,
     /// The host's `XDG_RUNTIME_DIR`.
     pub runtime: std::path::PathBuf,
-    /// The screens (Mutter's API for GNOME Settings, ADR 0046); on GNOME
-    /// Mutter's own.
-    pub displays: Option<std::sync::Arc<crate::displays::Displays>>,
 }
 
 /// `""` or `empty` → `None`.
@@ -40,10 +34,6 @@ fn state_name_arg(name: &str) -> fdo::Result<Option<StateName>> {
     }
     let n = StateName::new(name).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?;
     Ok((!n.is_empty_state()).then_some(n))
-}
-
-fn layout_arg(name: &str) -> fdo::Result<LayoutName> {
-    LayoutName::new(name).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))
 }
 
 fn context_arg(context: &str) -> fdo::Result<ContextName> {
@@ -101,7 +91,7 @@ impl Api {
         if !self.daemon.lock().await.knows(&ctx) {
             return Err(fdo::Error::InvalidArgs(format!("no context named {ctx}")));
         }
-        let path = self.sockets.ensure(&ctx).await.map_err(|e| failed(&e))?;
+        let path = self.sockets.ensure(&ctx).map_err(|e| failed(&e))?;
         Ok(path.display().to_string())
     }
 
@@ -115,15 +105,6 @@ impl Api {
         crate::sound::ensure(&self.runtime, &ctx)
             .map(|d| d.display().to_string())
             .map_err(|e| fdo::Error::Failed(format!("sound links for {ctx}: {e}")))
-    }
-
-    /// Empty when the compositor offers security contexts (ADR 0022), else
-    /// why not (`koje doctor`).
-    async fn wayland_status(&self) -> String {
-        match self.sockets.probe().await {
-            Ok(()) => String::new(),
-            Err(e) => format!("{e:#}"),
-        }
     }
 
     /// Stop serving the context's Wayland socket (`koje down`).
@@ -221,17 +202,6 @@ impl Api {
         self.daemon.lock().await.stopped(&ctx).await;
         let _ = Self::contexts_changed(&emitter).await;
         Ok(())
-    }
-
-    /// A media key (`PlayPause`, `Next`, `Previous`) for the most recently
-    /// active player on the host or in a running context (ADR 0041): which
-    /// player got it (`"firefox in kp"`), `""` without players.
-    async fn media_player(&self, action: &str) -> fdo::Result<String> {
-        let action = PlayerAction::from_method(action)
-            .ok_or_else(|| fdo::Error::InvalidArgs(format!("unknown media key {action:?}")))?;
-        let running = self.daemon.lock().await.running().await;
-        self.players.sync(&running).await;
-        Ok(self.players.control(action).await.unwrap_or_default())
     }
 
     /// The running context a process belongs to (same PID namespace as the
@@ -394,142 +364,9 @@ impl Api {
         Ok((ctx.to_string(), interval, d.memory_history(&ctx)))
     }
 
-    /// Keep the display change GNOME Settings made (the shell's "Keep
-    /// Changes", M8.53); whether one was waiting.
-    async fn keep_display_change(&self) -> bool {
-        match &self.displays {
-            Some(d) => d.keep().await,
-            None => false,
-        }
-    }
-
-    /// Undo it now (the shell's "Revert"); whether one was waiting.
-    async fn revert_display_change(&self) -> bool {
-        match &self.displays {
-            Some(d) => d.revert().await,
-            None => false,
-        }
-    }
-
-    /// GNOME Settings changed the screens: the shell asks whether to keep
-    /// them; without an answer within `seconds` kojed reverts.
-    #[zbus(signal)]
-    async fn display_change_pending(emitter: &SignalEmitter<'_>, seconds: u32) -> zbus::Result<()>;
-
     /// New memory readings were taken (every tick).
     #[zbus(signal)]
     async fn memory_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
-
-    /// Switch the layout of a running context (`""` = the active one); `name`
-    /// may be `+next` or `+prev` (layout names start with a letter). Returns
-    /// the layout now active (M5.5).
-    async fn switch_layout(&self, context: &str, name: &str) -> fdo::Result<String> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        let result = match name {
-            "+next" => d.cycle_layout(&ctx, 1).await,
-            "+prev" => d.cycle_layout(&ctx, -1).await,
-            other => {
-                let layout = layout_arg(other)?;
-                d.switch_layout(&ctx, &layout).await.map(|()| layout)
-            }
-        };
-        result.map(|l| l.to_string()).map_err(|e| failed(&e))
-    }
-
-    /// `layout new <name> [--copy]`.
-    async fn new_layout(&self, context: &str, name: &str, copy: bool) -> fdo::Result<()> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        d.new_layout(&ctx, layout_arg(name)?, copy)
-            .await
-            .map_err(|e| failed(&e))
-    }
-
-    /// `layout save`: the current arrangement into the active layout.
-    async fn save_layout(&self, context: &str) -> fdo::Result<()> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        d.save_layout(&ctx).await.map_err(|e| failed(&e))
-    }
-
-    /// `layout autosave <name> on|off`.
-    async fn set_layout_autosave(&self, context: &str, name: &str, on: bool) -> fdo::Result<()> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        let state = d.live_state_mut(&ctx).map_err(|e| failed(&e))?;
-        koje_core::layouts::set_autosave(state, &layout_arg(name)?, on)
-            .map_err(|e| fdo::Error::Failed(e.to_string()))
-    }
-
-    /// `layout mv <from> <to>`.
-    async fn rename_layout(&self, context: &str, from: &str, to: &str) -> fdo::Result<()> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        let state = d.live_state_mut(&ctx).map_err(|e| failed(&e))?;
-        koje_core::layouts::rename(state, &layout_arg(from)?, layout_arg(to)?)
-            .map_err(|e| fdo::Error::Failed(e.to_string()))
-    }
-
-    /// `layout rm <name>` (not the active one).
-    async fn remove_layout(&self, context: &str, name: &str) -> fdo::Result<()> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        let state = d.live_state_mut(&ctx).map_err(|e| failed(&e))?;
-        koje_core::layouts::remove(state, &layout_arg(name)?)
-            .map_err(|e| fdo::Error::Failed(e.to_string()))
-    }
-
-    /// `layout list`: `(name, active, autosave, windows)` in cycle order, and
-    /// the context it is about.
-    async fn layouts(
-        &self,
-        context: &str,
-    ) -> fdo::Result<(String, Vec<(String, bool, bool, u32)>)> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        let list = d
-            .layouts(&ctx)
-            .map_err(|e| failed(&e))?
-            .into_iter()
-            .map(|l| {
-                (
-                    l.name.to_string(),
-                    l.active,
-                    l.autosave,
-                    u32::try_from(l.windows).unwrap_or(u32::MAX),
-                )
-            })
-            .collect();
-        Ok((ctx.to_string(), list))
-    }
-
-    /// `stash`: the focused window to its context's stash (M5.6); returns
-    /// `(context, window id)`.
-    async fn stash(&self) -> fdo::Result<(String, String)> {
-        let (ctx, id) = self
-            .daemon
-            .lock()
-            .await
-            .stash_focused()
-            .await
-            .map_err(|e| failed(&e))?;
-        Ok((ctx.to_string(), id))
-    }
-
-    /// `unstash [<window>] [--to <layout>]`: the window by its id or its
-    /// Hyprland address; `""` for the focused window and the active layout.
-    /// Returns the window id.
-    async fn unstash(&self, context: &str, window: &str, to: &str) -> fdo::Result<String> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        let window = (!window.is_empty()).then_some(window);
-        let to = (!to.is_empty()).then(|| layout_arg(to)).transpose()?;
-        d.unstash(&ctx, window, to)
-            .await
-            .map(|id| id.to_string())
-            .map_err(|e| failed(&e))
-    }
 
     /// Before `koje sleep` (M7.4): every window of the context into its stash.
     async fn hide(
@@ -576,27 +413,6 @@ impl Api {
         .map_err(|e| fdo::Error::Failed(e.to_string()))?
         .map_err(|e| failed(&e))?;
         self.show(context, emitter).await
-    }
-
-    /// `snap <zone>`: the focused window to `left`, `right`, `maximize` or
-    /// back (`restore`), below the bar (M8.41).
-    async fn snap(&self, zone: &str) -> fdo::Result<()> {
-        let zone = zone
-            .parse::<koje_core::snap::Zone>()
-            .map_err(fdo::Error::InvalidArgs)?;
-        self.daemon
-            .lock()
-            .await
-            .snap(zone)
-            .await
-            .map_err(|e| failed(&e))
-    }
-
-    /// `stash --show`: show or hide the context's stash.
-    async fn toggle_stash(&self, context: &str) -> fdo::Result<()> {
-        let mut d = self.daemon.lock().await;
-        let ctx = d.context_or_active(context).map_err(|e| failed(&e))?;
-        d.toggle_stash(&ctx).await.map_err(|e| failed(&e))
     }
 
     /// The state a running context is in (ADR 0032); `""` for `empty` or

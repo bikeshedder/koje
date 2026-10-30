@@ -7,29 +7,31 @@ the ADRs in `docs/decisions/`. This file summarizes both for day-to-day work.
 
 | Goal | How |
 |---|---|
-| Windows of a project belong together and are recognizable | one context = one container, one Hyprland workspace, one border color |
+| Windows of a project belong together and are recognizable | one context = one container, one GNOME workspace, one color |
 | Links and files open in the right context | each container has its own default apps; what opens inside stays inside |
 | Projects are isolated from each other | own namespaces (PID, net, IPC, mounts); own nested Podman per context |
 | Inactive projects cost nothing | stop or pause contexts as a unit; memory limits per context |
-| The work environment can be restored | states and layouts; continuous crash recovery |
+| The work environment can be restored | states; continuous crash recovery |
 | Programs are not modified | programs run as on a normal system; optional integrations |
 
 ## Big picture
 
 ```
-Host: Hyprland · kojed · rootless Podman
-├── context "kundenportal" (container)        border color green
+Host: GNOME Shell + koje's extension · kojed · rootless Podman
+├── context "kundenportal" (container)        color green
 │   ├── editor, browser, terminal, …          (Wayland socket passed in)
 │   └── nested Podman → dev container, compose services
-├── context "shop" (container)                border color blue
-│   └── nested Podman → … (same compose names do not collide)
-└── context "global" (not isolated)           overlays: mail, calendar, chat
+└── context "shop" (container)                color blue
+    └── nested Podman → … (same compose names do not collide)
 shared base image: read-only layers used by all contexts
 ```
 
-Graphical programs talk directly to Hyprland through the Wayland socket that koje
-binds into the container. Everything else – colors, placement, layouts – koje does
-from outside through Hyprland's command and event sockets.
+GNOME provides the desktop: top bar, overview, dash, settings, displays,
+notifications, lock screen and the session (ADR 0059, 0061). Graphical programs
+talk directly to GNOME's Mutter through the Wayland socket koje binds into the
+container. koje's GNOME Shell extension (`gnome/extension/koje@koje.io`) adds
+what is koje's own and serves `io.koje.Extension1`; kojed drives it through the
+`koje-gnome` adapter (windows, workspaces, placement, events).
 
 ## Context containers
 
@@ -47,8 +49,9 @@ store volume. Common images can come from a shared read-only store
 (`additionalimagestores`). Needs sub-UIDs/GIDs inside, `/dev/fuse`.
 
 **Wayland security:** clients cannot read each other's input or content, except via
-privileged protocols (screen capture). Hyprland's permission system should deny
-screen capture to context programs.
+privileged protocols. Mutter offers no screen capture or input injection to
+Wayland clients (capture goes through D-Bus, which contexts do not see), but it
+has no security contexts either: contexts share its socket (ADR 0059, L1).
 
 ## Memory
 
@@ -64,39 +67,23 @@ browser profile per project. Put common programs into the base image.
 | hard | orderly shutdown, saving to `default` | kojed, like `koje down` |
 | safety net | kernel OOM inside this context only | cgroup `memory.max` slightly above hard |
 
-## Desktop (Hyprland)
+## Desktop (GNOME)
 
-- All windows floating (`windowrule = float, class:.*`); Super+LMB move, Super+MMB resize.
-- koje's Hyprland snippet is a complete session (ADR 0037): Waybar, mako,
-  hypridle/hyprlock, basic bindings, workspaces 1–9 for host windows, look.
-  Super+Return opens a terminal in the active context (`koje terminal`).
-  Super+F1 lists all keyboard shortcuts (`hyprctl binds` in fuzzel).
-- **Look and feel follow GNOME** (ADR 0043): libadwaita, Adwaita themes and
-  symbolic icons, a bar laid out like GNOME's top bar, no gaps; Super alone
-  opens the overview with the dash (ADR 0049), Super+arrows maximize, restore and tile halves (M8.41).
-  The context color is the deliberate difference.
-- **System settings are GNOME's** (ADR 0044): GNOME Settings edits them,
-  kojed applies GNOME's gsettings to Hyprland (input, keyboard layouts, idle and
-  power, night light, background); koje's settings app is only about koje.
-- **Context color** per window: kojed sees each new window on the event socket,
-  maps PID → context, tags it and sets the context's border colors. Borders are
-  off by default – windows look as GNOME's; koje's plugin makes a window on
-  another context's or a host workspace glow in its context's color and gives
-  it a badge with the context's name (ADR 0057). The bar
-  (a clone of GNOME's top bar, ADR 0047) shows each workspace's icon and
-  label, a context's in its color (ADR 0055).
-- **Icons and labels** (ADR 0055): host workspaces (`[workspace.<n>]` in
-  `config.toml`), contexts (`context.toml`) and overlays each have an icon and
-  a label for the bar and the settings app.
-- **Workspaces:** one per context per monitor. Several work areas inside a context
-  are **layouts**, not workspaces.
-- **Snapping:** Hyprland edge snapping (built in); zones per monitor via
-  `koje snap <zone>`; drag-into-zone preview would need a plugin (later).
-- **Overlays:** special workspaces toggled by a key, configured as
-  `[overlay.<name>]` in `config.toml` (`key`, `label`, `icon`, `apps`; without any, `mail`
-  on Super+M and `chat` on Super+C); kojed binds the keys, the bar shows them
-  after the workspaces. Apps run in the non-isolated context `global`. `koje pin` puts an overlay window onto the
-  current workspace and keeps it visible; `koje unpin` sends it back.
+- **GNOME as it is**, extended by koje's extension (ADR 0059): one GNOME
+  workspace per context; kojed keeps a running context's workspace alive.
+- **Context color:** kojed maps each new window's PID to its context and tells
+  the extension. A window outside its context's workspace glows in the
+  context's color and carries a badge naming it (ADR 0057). GNOME's workspace
+  switchers show context workspaces in their color with their name (G.21).
+- **Top-bar indicator:** the current context, its memory against its limits,
+  "koje Settings…" (G.12, G.18).
+- **Context apps** appear in GNOME's app grid, search and dash on the
+  context's workspace and start inside the context (G.10). The same program in
+  several contexts is one app in the dash and Alt+Tab (ADR 0059, L3).
+- **Sleep:** sleeping windows get the overlay "<context> is asleep – Wake up"
+  and receive no input (ADR 0024, 0059 L8).
+- **Icons and labels** (ADR 0055): a context has an icon and a label
+  (`context.toml`).
 - **Files between contexts:** clipboard text/images always work. Drag & drop of
   files passes paths, so koje mounts folders at the same path as on the host. A
   shared exchange folder (e.g. `~/Austausch`) is a deliberate hole. Context A →
@@ -104,37 +91,15 @@ browser profile per project. Put common programs into the base image.
   koje's own files or host sockets, or replace system folders are refused unless
   marked `unsafe` (ADR 0009). Mounts are folders below the home (ADR 0034) and
   follow `context.toml` while the context runs (ADR 0033).
-- **Wayland:** each context gets its own socket created by kojed through
-  `security-context-v1`; its programs get normal windows but cannot capture the
-  screen directly – screen sharing goes through the portal (ADR 0022).
 - **Access profiles:** each context gets GPU, sound, Wayland, nested containers and
   network according to its access profile (`full`, `desktop`, `headless`, `isolated`
   plus overrides; default from `config.toml`, ADR 0017).
 
 ## Layouts
 
-A layout is a named arrangement of a context's windows (`code`, `review`, `docs`).
-A window may be in several layouts with different geometry. Running windows not in
-the active layout sit in the **stash** (hidden special workspace) and appear as
-icons in the bar.
-
-| Term | Defines | Switch cost |
-|---|---|---|
-| context | container, color, windows | instant |
-| state | *which* programs run, plus their layouts | expensive, rare |
-| layout | *how* running windows are arranged, which are visible | milliseconds |
-| stash | running windows missing from the active layout | – |
-
-Switching: windows not in the target go to the stash; target windows get their
-geometry (unstashing as needed); focus goes to the last active window of the
-target. Nothing starts or stops. Pure logic: `koje_core::layout::plan_switch`.
-
-Editing: **autosave** per layout (default on) writes moves/resizes back immediately;
-with autosave off a layout is a template, updated with `koje layout save`. New
-windows join the active layout; closed windows leave all layouts.
-
-Layouts are **part of a state** (they reference concrete windows). Day to day there
-is only the `default` state, so layouts feel like they belong to the context.
+Layouts stay part of a state's file format (ADR 0004). On GNOME a state restores
+one geometry per window; switching layouts, the stash and overlays are not
+available (ADR 0061) until they are designed for GNOME.
 
 ## Integrations
 
@@ -155,38 +120,26 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje down <context> --no-save` | shut down without saving; all states unchanged |
 | `koje save <context> [-s <state>]` | save without shutting down |
 | `koje state list \| cp \| mv \| rm` | manage states (`rm` is the only way to delete) |
-| `koje layout <name> \| next \| prev` | switch layout |
-| `koje layout new \| save \| autosave \| list \| mv \| rm` | manage layouts |
-| `koje stash [--show]` / `koje unstash [<window>] [--to <layout>]` | stash the focused window / show the stash / bring a window back – by id or Hyprland address (default: the focused one); `-c <context>`, default the active one |
 | `koje focus <context>` | switch to a context |
-| `koje snap <left\|right\|maximize\|restore>` | the focused window to a half of its monitor below the bar, all of it, or back where it was (Super+arrows, M8.41); zones from `config.toml` later (M7.3) |
-| `koje overlay <name>` / `pin` / `unpin` | overlays |
 | `koje sleep \| wake <context>` | pause / resume (CPU 0, memory kept) |
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
 | `koje run <context> [--no-focus] [-u <user>] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted); `-u root` runs it as the context's root (your user on the host: contexts are rootless) |
-| `koje apps [-c <context>] [--start <name>] [--menu \| --json]` | list the programs of the active context (its `.desktop` entries), or start one there by name or desktop file id – koje's application menu (Super+D); `--menu` puts the context and its memory first; `--json` with icons, keywords, window class and program for the shell |
+| `koje apps [-c <context>] [--start <name>]` | list the programs of the active context (its `.desktop` entries), or start one there by name or desktop file id |
 | `koje favorites [-c <context>] [--set <id>… \| --reset]` | the dash's favorites in a context (ADR 0053): desktop file ids of its programs in `context.toml`, pinned from the dash; unset, GNOME's favorites as far as the context has them |
 | `koje dotfiles [-c <context>]` | link the dotfiles presets again now in every running context (or one) and list the presets (ADR 0038) |
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]] [-u <user>]` | shell in the context, or in its (only / named) dev container; `-u root` logs in as root there |
-| `koje settings [<context>]` | open the settings app (`koje-shell settings`), on a context if given |
+| `koje settings [<context>]` | open the settings app (`koje-settings`, ADR 0060; not built yet, G.27), on a context if given |
 | `koje config [--stdin]` | edit `config.toml` in $EDITOR; `--stdin` takes the new file from stdin (the settings app) |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
-| `koje setup [--dry-run] [--yes]` | install koje's per-user files after the package (ADR 0045), remove the old `install.sh` layout: plan, warnings, one question (ADR 0021) |
-| `koje bar [--memory] [--names]` | Waybar module: running contexts in their colors, the active one marked; `--memory`: the active context's memory as a meter against its limits; `--names`: list the running contexts once (with `--memory`: with use and limit) |
-| `koje media <action>` | volume, microphone, brightness and media keys (ADR 0041): `volume-up`, `volume-down`, `mute`, `mic-mute`, `brightness-up`, `brightness-down` with an OSD; `play-pause`, `next`, `previous` for the most recently active player on the host or in any context |
-| `koje screenshot [area\|screen\|window]` | a screenshot as GNOME takes it: into Pictures/Screenshots, onto the clipboard, with a notification (Print, Shift+Print, Alt+Print) |
-| `koje doctor` | check packages, Hyprland, installed files, kojed, security contexts, image, sub-ids, NVIDIA |
-| `koje session start \| restart \| end <log-out\|restart\|power-off>` | the koje session (ADR 0048): `start` runs Hyprland with koje's config (the login screen's "koje" entry) and stops koje's services when it exits; `restart` restarts koje's services with their current unit files (Waybar and mako stop: the shell is the bar and the notification server) and loads koje's Hyprland plugin again from its file, the session goes on – `koje setup` does it after a package update; `end` asks through the shell (GNOME's 60-second countdown) |
+| `koje setup [--dry-run] [--yes]` | after the package (ADR 0045): enable koje's GNOME Shell extension, build the base image, restart an outdated kojed; plan first, asks once |
+| `koje doctor` | check the package, packages, GNOME Shell and the extension, kojed, image, forwarder, sub-ids, NVIDIA |
 
-**On GNOME** (branch `gnome`, ADR 0059): `koje layout`, `stash`, `unstash`,
-`snap`, `overlay`, `pin` and `unpin` answer "not available on GNOME"; `koje
-setup` enables koje's GNOME Shell extension; `koje doctor` checks GNOME Shell
-and the extension instead of Hyprland. GNOME is chosen as kojed chooses
-(`KOJE_COMPOSITOR`, else `XDG_CURRENT_DESKTOP`).
+Hyprland-only commands (`layout`, `stash`, `unstash`, `snap`, `overlay`,
+`pin`, `unpin`, `bar`, `media`, `screenshot`, `session`) are gone with ADR 0061.
 
 **States:** `default` (read by a plain `up`), `fresh`
 (curated start), `empty` (reserved, virtual, read-only), any other name. Missing
@@ -201,14 +154,14 @@ the rest, starts the missing ones; it saves into the current state first unless
 atomic rename) to the recovery file. A clean `down` deletes it. If `up` finds one,
 it asks whether to restore.
 
-**Pausing:** `koje sleep` freezes the whole context incl. dev containers; windows go
-to the stash first. Memory stays allocated (can be swapped out).
+**Pausing:** `koje sleep` freezes the whole context incl. dev containers; its
+windows get the sleep overlay. Memory stays allocated (can be swapped out).
 
 ## Files
 
 | Path | Content |
 |---|---|
-| `~/.config/koje/config.toml` | global: zones, overlays, default limits, the bar's workspace style (`[bar]`), the windows' and overlays' look (`[desktop]`, ADR 0056) |
+| `~/.config/koje/config.toml` | global: default limits, default access; older Hyprland tables (`zones`, `overlay`, `workspace`, `bar`, `desktop`) are ignored (ADR 0061) |
 | `~/.config/koje/contexts/<context>/context.toml` | hand-written: name, prefix, color, image, mounts, limits, state roles |
 | `~/.config/koje/integrations/*.toml` | user integrations |
 | `~/.local/share/koje/<context>/states/<state>.toml` | states incl. layouts |
@@ -218,26 +171,17 @@ to the stash first. Memory stays allocated (can be swapped out).
 
 | Crate | Role |
 |---|---|
-| `koje-core` | domain types and pure logic; ports (traits) for Hyprland and Podman |
+| `koje-core` | domain types and pure logic; ports (traits) for the compositor and Podman |
 | `koje-podman` | adapter: rootless Podman (`ContainerRuntime`), base image |
-| `koje-hyprland` | adapter: Hyprland command and event sockets (`Compositor`) |
+| `koje-gnome` | adapter: koje's GNOME Shell extension over D-Bus (`Compositor`, ADR 0059) |
 | `koje-forward` | static D-Bus forwarder that runs inside every context (ADR 0025) |
-| `kojed` | service: Hyprland events, colors, layouts, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027) |
+| `kojed` | service: windows and their contexts, colors, states, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027, 0060) |
 | `koje` | CLI, client of core and kojed |
-| `koje-shell` | koje's GTK4 UI with libadwaita, one binary: the shell (bar, overview, OSD, notifications, background; later window overlays) and the settings app in its own process (ADR 0036, 0042, 0043); client of kojed and Hyprland, both on a tokio thread |
 
-UI (ADR 0036, 0042; the bar is Waybar until koje's own bar replaces it, M8.32):
-
-| Part | What | Built with |
-|---|---|---|
-| Launcher | application menu (Super+D), contexts and actions, window picker, keyboard shortcuts (Super+F1) | fuzzel |
-| Bar | workspaces and the current workspace's windows (context color as accent), the active context's memory; later layouts, stash | Waybar: hyprland/workspaces, custom module `koje bar --memory` (`koje bar` lists running contexts for own configs) |
-| Settings app | contexts, states, layouts, windows, memory – everything viewed and changed | GTK4 with libadwaita, normal window |
-| Window overlays | "asleep – Wake up", "not responding – Wait / Quit" on windows (ADR 0024) | GTK4, layer-shell |
-| Beacon window | keeps an empty context workspace alive (ADR 0028); may be dropped | GTK4, normal window |
+UI (ADR 0060): TypeScript on GJS in `gnome/` – the Shell extension (now plain
+JS, G.26) and the settings app (G.27).
 
 ## Outlook (not planned now)
 
 Real hibernation via CRIU checkpoints (root-only today; breaks with Wayland
-connections), fly-into-bar animation, drag-into-zone preview, colored title bars
-(all need Hyprland plugins).
+connections); layouts, the stash and overlays on GNOME.

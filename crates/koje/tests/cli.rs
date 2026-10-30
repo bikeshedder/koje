@@ -251,12 +251,17 @@ fn edit_from_stdin_checks_like_the_editor() {
 fn config_from_stdin_is_checked() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config/koje/config.toml");
-    let good = "[workspace.1]\nlabel = \"Web\"\nicon = \"web-browser-symbolic\"\n";
+    let good = "[default_limits]\nmemory_soft = \"4G\"\n";
     let out = koje_with(tmp.path(), &["config", "--stdin"], &[], good);
     assert!(stdout(&out).contains("saved"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), good);
     // Invalid: refused, the file stays.
-    let bad = koje_with(tmp.path(), &["config", "--stdin"], &[], "[workspace.web]\n");
+    let bad = koje_with(
+        tmp.path(),
+        &["config", "--stdin"],
+        &[],
+        "[default_limits]\nmemory_soft = \"lots\"\n",
+    );
     assert!(!bad.status.success());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), good);
 }
@@ -785,14 +790,6 @@ fn up_falls_back_to_empty_and_restores_through_kojed() {
 }
 
 #[test]
-fn unimplemented_commands_name_their_milestone() {
-    let tmp = tempfile::tempdir().unwrap();
-    let out = koje(tmp.path(), &["pin"]);
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("milestone M7"));
-}
-
-#[test]
 fn up_with_wayland_needs_kojed() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
@@ -868,15 +865,32 @@ fn setup_cmd(tmp: &Path, path: &str, args: &[&str]) -> Output {
 
 /// [`setup_cmd`] with a fake `systemctl` that logs its calls to
 /// `systemctl.log` and reports `kojed_pid` as kojed's main process (0: not
-/// running) – never the real user services.
+/// running), and fake `gnome-extensions` and `gsettings` that remember the
+/// enabled extension in `extension.on` – never the real user services or
+/// GNOME settings.
 fn setup_with_kojed(tmp: &Path, path: &str, args: &[&str], kojed_pid: u32) -> Output {
     let log = tmp.join("systemctl.log");
+    let bin = tmp.join("bin");
     write_tool(
-        &tmp.join("bin"),
+        &bin,
         "systemctl",
         &format!(
             "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\ncase \"$*\" in *MainPID*) echo {kojed_pid} ;; esac\n",
             log.display()
+        ),
+    );
+    let on = tmp.join("extension.on");
+    write_tool(
+        &bin,
+        "gnome-extensions",
+        &format!("#!/bin/sh\n[ \"$1\" = enable ] && touch {}\n", on.display()),
+    );
+    write_tool(
+        &bin,
+        "gsettings",
+        &format!(
+            "#!/bin/sh\nif [ -f {0} ]; then echo \"['koje@koje.io']\"; else echo '@as []'; fi\n",
+            on.display()
         ),
     );
     let mut all = vec!["setup"];
@@ -884,8 +898,6 @@ fn setup_with_kojed(tmp: &Path, path: &str, args: &[&str], kojed_pid: u32) -> Ou
     command(tmp, &all)
         .env("HOME", tmp)
         .env("PATH", path)
-        // Never the real session: no reloads, no services started.
-        .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
         .stdin(Stdio::null())
         .output()
         .unwrap()
@@ -898,86 +910,20 @@ fn setup_installs_then_has_nothing_to_do() {
     let path = fake_podman(t);
 
     let out = stdout(&setup_cmd(t, &path, &["--dry-run"]));
-    assert!(out.contains("+ Hyprland snippet"), "{out}");
+    assert!(
+        out.contains("+ GNOME Shell extension koje@koje.io: enable"),
+        "{out}"
+    );
+    assert!(out.contains("= base image: koje/base"), "{out}");
     assert!(out.contains("dry run – nothing changed"), "{out}");
-    assert!(!t.join("data/koje/hyprland/koje.conf").exists());
+    assert!(!t.join("extension.on").exists());
 
     let out = stdout(&setup_cmd(t, &path, &["--yes"]));
-    assert!(out.contains("done: Hyprland snippet"), "{out}");
-    let snippet = std::fs::read_to_string(t.join("data/koje/hyprland/koje.conf")).unwrap();
-    assert!(snippet.contains("exec-once = systemctl --user start kojed"));
-    // koje replaces Hyprland's default config, which bound these keys.
-    for key in [
-        "XF86AudioRaiseVolume",
-        "XF86AudioMute",
-        "XF86MonBrightnessUp",
-    ] {
-        assert!(snippet.contains(&format!(", {key},")), "{key}");
-    }
-    // The package installs these (ADR 0045).
-    assert!(!t.join("data/fonts/koje").exists());
-    assert!(!t.join("config/systemd/user/kojed.service").exists());
-    assert!(!t.join(".local/lib/koje").exists());
-    let conf = std::fs::read_to_string(t.join("config/hypr/hyprland.conf")).unwrap();
-    assert!(
-        conf.contains(&format!(
-            "source = {}",
-            t.join("data/koje/hyprland/koje.conf").display()
-        )),
-        "{conf}"
-    );
-    assert!(t.join("config/waybar/config.jsonc").exists());
+    assert!(out.contains("done: GNOME Shell extension"), "{out}");
+    assert!(t.join("extension.on").exists());
 
     let out = stdout(&setup_cmd(t, &path, &["--yes"]));
     assert!(out.contains("nothing to do"), "{out}");
-}
-
-#[test]
-fn setup_removes_what_install_sh_left() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = fake_podman(t);
-    let put = |rel: &str, contents: &str| {
-        let p = t.join(rel);
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, contents).unwrap();
-    };
-    put(".local/bin/kojed", "old binary");
-    put(".local/bin/other", "not koje's");
-    put(".local/lib/koje/koje-forward", "old forwarder");
-    put(".local/lib/koje/hyprbars.so", "built per user");
-    put("data/fonts/koje/lucide.ttf", "old font");
-    put(
-        "config/systemd/user/kojed.service",
-        "[Service]\nExecStart=%h/.local/bin/kojed\n",
-    );
-
-    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
-    assert!(out.contains("x old kojed: ~/.local/bin/kojed"), "{out}");
-    assert!(!t.join(".local/bin/kojed").exists());
-    assert!(!t.join(".local/lib/koje/koje-forward").exists());
-    assert!(!t.join("data/fonts/koje").exists(), "empty folder removed");
-    assert!(!t.join("config/systemd/user/kojed.service").exists());
-    assert!(t.join(".local/bin/other").exists());
-    assert!(t.join(".local/lib/koje/hyprbars.so").exists());
-    let log = std::fs::read_to_string(t.join("systemctl.log")).unwrap();
-    assert!(log.contains("--user daemon-reload"), "{log}");
-}
-
-#[test]
-fn setup_keeps_an_own_kojed_unit() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = fake_podman(t);
-    let unit = t.join("config/systemd/user/kojed.service");
-    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
-    std::fs::write(&unit, "[Service]\nExecStart=/opt/kojed\n").unwrap();
-    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
-    assert!(
-        out.contains("your own – it hides the package's unit"),
-        "{out}"
-    );
-    assert!(unit.exists());
 }
 
 #[test]
@@ -997,34 +943,6 @@ fn setup_restarts_a_kojed_with_an_old_binary() {
 }
 
 #[test]
-fn setup_leaves_an_own_waybar_and_appends_once() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = fake_podman(t);
-    std::fs::create_dir_all(t.join("config/waybar")).unwrap();
-    std::fs::write(t.join("config/waybar/config"), "{ \"layer\": \"top\" }").unwrap();
-    std::fs::create_dir_all(t.join("config/hypr")).unwrap();
-    std::fs::write(
-        t.join("config/hypr/hyprland.conf"),
-        "monitor = ,preferred,auto,1\n",
-    )
-    .unwrap();
-
-    let out = stdout(&setup_cmd(t, &path, &["--yes"]));
-    assert!(out.contains("- Waybar: your own config"), "{out}");
-    assert!(out.contains("~ Hyprland config"), "{out}");
-    assert!(!t.join("config/waybar/config.jsonc").exists());
-    let conf = std::fs::read_to_string(t.join("config/hypr/hyprland.conf")).unwrap();
-    assert!(
-        conf.starts_with("monitor = ,preferred,auto,1\n"),
-        "never rewritten: {conf}"
-    );
-    stdout(&setup_cmd(t, &path, &["--yes"]));
-    let again = std::fs::read_to_string(t.join("config/hypr/hyprland.conf")).unwrap();
-    assert_eq!(again.matches("source = ").count(), 1, "{again}");
-}
-
-#[test]
 fn setup_asks_and_stdin_closed_means_no() {
     let tmp = tempfile::tempdir().unwrap();
     let t = tmp.path();
@@ -1032,7 +950,7 @@ fn setup_asks_and_stdin_closed_means_no() {
     let out = setup_cmd(t, &path, &[]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("nothing changed"));
-    assert!(!t.join("data/koje/hyprland/koje.conf").exists());
+    assert!(!t.join("extension.on").exists());
 }
 
 #[test]
@@ -1242,288 +1160,4 @@ fn stats_and_limit() {
         &["limit", "kp", "--hard", "none"],
     ));
     assert!(out.contains("soft 6G, hard none"), "{out}");
-}
-
-/// Fakes for the session's programs (Hyprland, systemctl,
-/// dbus-update-activation-environment) that log what they get; `PATH` with
-/// them first, the real one after (sh, kill).
-fn session_fakes(tmp: &Path, hyprland_exit: u8) -> String {
-    let bin = tmp.join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let log = tmp.join("session.log");
-    write_tool(
-        &bin,
-        "Hyprland",
-        &format!(
-            "#!/bin/sh\necho \"Hyprland $* desktop=$XDG_CURRENT_DESKTOP session=$XDG_SESSION_DESKTOP\" >> {log}\n\
-             test -f {env} && grep -q custom_picker_binary {conf} && touch {log}.xdph\n\
-             exit {hyprland_exit}\n",
-            log = log.display(),
-            env = tmp.join("run/koje/xdph.env").display(),
-            conf = tmp.join("run/koje/xdph/hypr/xdph.conf").display()
-        ),
-    );
-    for tool in ["systemctl", "dbus-update-activation-environment"] {
-        write_tool(
-            &bin,
-            tool,
-            &format!("#!/bin/sh\necho \"{tool} $*\" >> {}\n", log.display()),
-        );
-    }
-    format!(
-        "{}:{}",
-        bin.display(),
-        std::env::var("PATH").unwrap_or_default()
-    )
-}
-
-#[test]
-fn session_start_runs_hyprland_with_kojes_config_and_cleans_up() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = session_fakes(t, 0);
-    let out = command(t, &["session", "start"])
-        .env("PATH", &path)
-        .env_remove("XDG_CURRENT_DESKTOP")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let log = std::fs::read_to_string(t.join("session.log")).unwrap();
-    let lines: Vec<&str> = log.lines().collect();
-    let conf = t.join("run/koje/session.conf");
-    assert_eq!(
-        lines[0],
-        format!(
-            "Hyprland --config {} desktop=koje:GNOME session=koje",
-            conf.display()
-        )
-    );
-    assert_eq!(lines[1], "systemctl --user stop koje-session.target");
-    assert!(lines[2].starts_with("systemctl --user unset-environment WAYLAND_DISPLAY"));
-    // xdph's config for the session is gone with it (ADR 0050).
-    assert!(t.join("session.log.xdph").exists());
-    assert!(!t.join("run/koje/xdph.env").exists());
-    assert!(!t.join("run/koje/xdph").exists());
-    // No file of the user's is needed – or created.
-    let user = t.join("config/koje/hyprland.conf");
-    assert!(!user.exists());
-    let text = std::fs::read_to_string(&conf).unwrap();
-    assert!(
-        text.contains("source = /usr/share/koje/hyprland/koje.conf"),
-        "{text}"
-    );
-    assert!(
-        !text.contains(&format!("source = {}", user.display())),
-        "{text}"
-    );
-    // Once there, it is sourced last.
-    std::fs::create_dir_all(user.parent().unwrap()).unwrap();
-    std::fs::write(&user, "monitor = DP-1, 5120x2160@120, 0x0, 1\n").unwrap();
-    command(t, &["session", "start"])
-        .env("PATH", &path)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    let text = std::fs::read_to_string(&conf).unwrap();
-    assert!(
-        text.contains(&format!("source = {}", user.display())),
-        "{text}"
-    );
-}
-
-#[test]
-fn session_start_cleans_up_after_a_crash_too() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = session_fakes(t, 3);
-    let out = command(t, &["session", "start"])
-        .env("PATH", &path)
-        .env("XDG_CURRENT_DESKTOP", "koje:GNOME")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("Hyprland exited"));
-    let log = std::fs::read_to_string(t.join("session.log")).unwrap();
-    assert!(
-        log.contains("systemctl --user stop koje-session.target"),
-        "{log}"
-    );
-}
-
-#[test]
-fn session_ready_hands_over_the_environment_then_starts_the_services() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = session_fakes(t, 0);
-    let out = command(t, &["session", "ready"])
-        .env("PATH", &path)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let log = std::fs::read_to_string(t.join("session.log")).unwrap();
-    let lines: Vec<&str> = log.lines().collect();
-    assert!(lines[0].starts_with("dbus-update-activation-environment --systemd WAYLAND_DISPLAY"));
-    assert!(lines[0].contains("HYPRLAND_INSTANCE_SIGNATURE"));
-    assert_eq!(
-        lines[1],
-        "systemctl --user start --no-block koje-session.target"
-    );
-}
-
-#[test]
-fn ending_the_session_reaches_hyprland() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = session_fakes(t, 0);
-    let log = t.join("session.log");
-    // A Hyprland that runs until it gets SIGTERM.
-    write_tool(
-        &t.join("bin"),
-        "Hyprland",
-        &format!(
-            "#!/bin/sh\ntrap 'echo \"Hyprland got TERM\" >> {log}; exit 0' TERM\necho started >> {log}\nwhile :; do sleep 0.05; done\n",
-            log = log.display()
-        ),
-    );
-    let mut child = command(t, &["session", "start"])
-        .env("PATH", &path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let started = || std::fs::read_to_string(&log).is_ok_and(|l| l.contains("started"));
-    for _ in 0..100 {
-        if started() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    assert!(started(), "the fake Hyprland did not start");
-    // As a display manager ending the session does.
-    Command::new("kill")
-        .args(["-TERM", &child.id().to_string()])
-        .status()
-        .unwrap();
-    let status = child.wait().unwrap();
-    assert!(status.success());
-    let log = std::fs::read_to_string(&log).unwrap();
-    assert!(log.contains("Hyprland got TERM"), "{log}");
-    assert!(
-        log.contains("systemctl --user stop koje-session.target"),
-        "{log}"
-    );
-}
-
-/// Fakes for grim, slurp (`slurp_exit`), wl-copy and date that log what
-/// they get.
-fn screenshot_fakes(tmp: &Path, slurp_exit: u8) -> String {
-    let bin = tmp.join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let log = tmp.join("shot.log");
-    let tool = |name: &str, body: &str| {
-        write_tool(
-            &bin,
-            name,
-            &format!(
-                "#!/bin/sh\necho \"{name} $*\" >> {}\n{body}\n",
-                log.display()
-            ),
-        );
-    };
-    tool("slurp", &format!("echo '10,20 300x200'\nexit {slurp_exit}"));
-    // grim writes the picture to its last argument.
-    tool("grim", "for f; do :; done; echo png > \"$f\"");
-    tool("wl-copy", "cat > /dev/null");
-    tool("date", "echo '2026-10-26 15-40-12'");
-    format!(
-        "{}:{}",
-        bin.display(),
-        std::env::var("PATH").unwrap_or_default()
-    )
-}
-
-#[test]
-fn screenshot_of_an_area_goes_into_pictures_and_onto_the_clipboard() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = screenshot_fakes(t, 0);
-    std::fs::create_dir_all(t.join("config")).unwrap();
-    std::fs::write(
-        t.join("config/user-dirs.dirs"),
-        "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n",
-    )
-    .unwrap();
-    let out = command(t, &["screenshot", "area"])
-        .env("PATH", &path)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let file = t.join("Bilder/Screenshots/Screenshot From 2026-10-26 15-40-12.png");
-    assert!(file.is_file());
-    let log = std::fs::read_to_string(t.join("shot.log")).unwrap();
-    assert!(
-        log.contains(&format!("grim -g 10,20 300x200 {}", file.display())),
-        "{log}"
-    );
-    assert!(log.contains("wl-copy --type image/png"), "{log}");
-}
-
-#[test]
-fn a_cancelled_area_takes_no_screenshot() {
-    let tmp = tempfile::tempdir().unwrap();
-    let t = tmp.path();
-    let path = screenshot_fakes(t, 1);
-    let out = command(t, &["screenshot"])
-        .env("PATH", &path)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert!(out.status.success());
-    let log = std::fs::read_to_string(t.join("shot.log")).unwrap();
-    assert!(!log.contains("grim"), "{log}");
-}
-
-/// ADR 0059: what GNOME Shell does not have is refused with a reason.
-#[test]
-fn gnome_refuses_layouts_stash_overlays_pin_and_snap() {
-    let tmp = tempfile::tempdir().unwrap();
-    for args in [
-        &["layout", "main"][..],
-        &["stash"],
-        &["unstash"],
-        &["overlay", "mail"],
-        &["pin"],
-        &["unpin"],
-        &["snap", "left"],
-    ] {
-        for env in [
-            ("KOJE_COMPOSITOR", "gnome"),
-            ("XDG_CURRENT_DESKTOP", "ubuntu:GNOME"),
-        ] {
-            let out = koje_with(tmp.path(), args, &[env], "");
-            let err = String::from_utf8_lossy(&out.stderr);
-            assert!(!out.status.success(), "{args:?} {env:?}");
-            assert!(
-                err.contains(&format!("koje {} is not available on GNOME", args[0])),
-                "{args:?} {env:?}: {err}"
-            );
-        }
-    }
 }

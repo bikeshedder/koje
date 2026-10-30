@@ -1,17 +1,12 @@
-//! `koje doctor` (ADR 0021, 0022): check what koje needs on this host and say
+//! `koje doctor` (ADR 0021): check what koje needs on this host and say
 //! how to fix what is missing. Exits with an error when a check fails.
 
 use std::fmt;
 
 use anyhow::{Result, bail};
-use koje_core::paths::Paths;
-use koje_core::setup::{Action, Mark};
 use koje_core::spec::{NVIDIA_CDI_GENERATE, NvidiaCdi};
 
 use crate::setup;
-
-/// Hyprland versions before this use another rule syntax (M2.2).
-const MIN_HYPRLAND: (u32, u32) = (0, 53);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -69,14 +64,6 @@ impl fmt::Display for Check {
     }
 }
 
-/// `v0.53.3` → whether it is at least `min`; `None` if unreadable.
-pub fn version_at_least(tag: &str, min: (u32, u32)) -> Option<bool> {
-    let mut parts = tag.trim().trim_start_matches('v').split('.');
-    let major = parts.next()?.parse::<u32>().ok()?;
-    let minor = parts.next()?.parse::<u32>().ok()?;
-    Some((major, minor) >= min)
-}
-
 fn packages() -> Check {
     let missing = setup::missing_packages();
     if missing.is_empty() {
@@ -87,314 +74,6 @@ fn packages() -> Check {
             setup::install_hint(&missing),
         )
     }
-}
-
-fn hyprland() -> Check {
-    let reply = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(anyhow::Error::from)
-        .and_then(|rt| {
-            rt.block_on(koje_hyprland::Hyprland::from_env().request("j/version"))
-                .map_err(anyhow::Error::from)
-        });
-    let reply = match reply {
-        Ok(r) => r,
-        Err(e) => {
-            return Check::warn(
-                format!("Hyprland: not reachable ({e})"),
-                "run koje doctor inside your Hyprland session",
-            );
-        }
-    };
-    let tag = serde_json::from_str::<serde_json::Value>(&reply)
-        .ok()
-        .and_then(|v| v["tag"].as_str().map(str::to_owned))
-        .unwrap_or_default();
-    match version_at_least(&tag, MIN_HYPRLAND) {
-        Some(true) => Check::ok(format!("Hyprland {tag}")),
-        Some(false) => Check::fail(
-            format!("Hyprland {tag}: too old"),
-            format!(
-                "koje needs Hyprland {}.{} or newer",
-                MIN_HYPRLAND.0, MIN_HYPRLAND.1
-            ),
-        ),
-        None => Check::warn(format!("Hyprland: unknown version {tag:?}"), ""),
-    }
-}
-
-/// One entry of `hyprctl -j binds`.
-#[derive(Debug, serde::Deserialize)]
-struct Bind {
-    #[serde(default)]
-    modmask: u32,
-    #[serde(default)]
-    submap: String,
-    #[serde(default)]
-    key: String,
-    #[serde(default)]
-    keycode: i64,
-    #[serde(default)]
-    mouse: bool,
-    #[serde(default)]
-    release: bool,
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    dispatcher: String,
-    #[serde(default)]
-    arg: String,
-}
-
-/// `Super+Shift+Return` from Hyprland's modifier mask.
-fn combo(modmask: u32, key: &str) -> String {
-    const MODS: [(u32, &str); 4] = [(64, "Super"), (4, "Ctrl"), (8, "Alt"), (1, "Shift")];
-    let mut parts: Vec<&str> = MODS
-        .iter()
-        .filter(|(bit, _)| modmask & bit != 0)
-        .map(|(_, name)| *name)
-        .collect();
-    parts.push(key);
-    parts.join("+")
-}
-
-/// A key combination bound more than once – each press runs all of its
-/// bindings, e.g. koje's Super+Return and an own one open two terminals.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Duplicate {
-    /// `Super+Return`.
-    pub combo: String,
-    /// What each binding does: its description, else its command.
-    pub what: Vec<String>,
-}
-
-pub fn duplicate_bindings(json: &str) -> Vec<Duplicate> {
-    let Ok(binds) = serde_json::from_str::<Vec<Bind>>(json) else {
-        return Vec::new();
-    };
-    let mut groups: std::collections::BTreeMap<_, Vec<&Bind>> = std::collections::BTreeMap::new();
-    for b in &binds {
-        let key = (&b.submap, b.modmask, &b.key, b.keycode, b.mouse, b.release);
-        groups.entry(key).or_default().push(b);
-    }
-    groups
-        .into_values()
-        .filter(|g| clashes(g))
-        .map(|g| Duplicate {
-            combo: combo(g[0].modmask, &g[0].key),
-            what: g
-                .iter()
-                .map(|b| {
-                    if b.description.is_empty() {
-                        format!("{} {}", b.dispatcher, b.arg).trim().to_owned()
-                    } else {
-                        b.description.clone()
-                    }
-                })
-                .collect(),
-        })
-        .collect()
-}
-
-/// One key's bindings clash unless they are one binding in several lines:
-/// koje's Alt+Tab runs `cyclenext` and `alterzorder` under one description.
-/// The same line twice – a snippet sourced twice – clashes.
-fn clashes(binds: &[&Bind]) -> bool {
-    let mut seen = std::collections::BTreeSet::new();
-    let repeated = binds
-        .iter()
-        .any(|b| !seen.insert((&b.description, &b.dispatcher, &b.arg)));
-    let one = !binds[0].description.is_empty()
-        && binds.iter().all(|b| b.description == binds[0].description);
-    binds.len() > 1 && (repeated || !one)
-}
-
-/// The doctor line: what each binding does while that stays short, else
-/// only the combinations.
-fn duplicates_line(dups: &[Duplicate]) -> String {
-    if dups.len() <= 3 {
-        let each: Vec<String> = dups
-            .iter()
-            .map(|d| format!("{} ({})", d.combo, d.what.join("; ")))
-            .collect();
-        format!("key bindings bound twice: {}", each.join(", "))
-    } else {
-        let combos: Vec<&str> = dups.iter().map(|d| d.combo.as_str()).collect();
-        format!(
-            "{} key combinations bound twice: {}",
-            dups.len(),
-            combos.join(", ")
-        )
-    }
-}
-
-/// Whether `hyprctl plugin list` (JSON) has koje's plugin.
-pub fn plugin_listed(json: &str) -> bool {
-    #[derive(serde::Deserialize)]
-    struct Plugin {
-        name: String,
-    }
-    serde_json::from_str::<Vec<Plugin>>(json).is_ok_and(|ps| ps.iter().any(|p| p.name == "koje"))
-}
-
-/// In the koje session: koje's plugin draws the overview's windows (ADR 0051).
-fn plugin() -> Option<Check> {
-    if std::env::var("XDG_SESSION_DESKTOP").as_deref() != Ok("koje") {
-        return None;
-    }
-    let reply = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .ok()?
-        .block_on(koje_hyprland::Hyprland::from_env().request("j/plugin list"))
-        .ok()?;
-    Some(if plugin_listed(&reply) {
-        Check::ok("plugin: koje's Hyprland plugin is loaded")
-    } else if std::path::Path::new(koje_core::session::PLUGIN).is_file() {
-        Check::warn(
-            "plugin: koje's Hyprland plugin is not loaded – the overview shows icons",
-            "it loads at login (koje session start); after a Hyprland update rebuild koje (just deb) – \
-             Hyprland shows why it refused it",
-        )
-    } else {
-        Check::warn(
-            format!("plugin: {} is missing", koje_core::session::PLUGIN),
-            "reinstall the koje package",
-        )
-    })
-}
-
-/// Key combinations the running Hyprland binds twice.
-fn bindings() -> Option<Check> {
-    let reply = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .ok()?
-        .block_on(koje_hyprland::Hyprland::from_env().request("j/binds"))
-        .ok()?;
-    let dups = duplicate_bindings(&reply);
-    Some(if dups.is_empty() {
-        Check::ok("key bindings: none bound twice")
-    } else {
-        Check::warn(duplicates_line(&dups), duplicates_hint(&dups))
-    })
-}
-
-/// What to do: the same binding twice comes from a kojed that restarted
-/// while Hyprland ran (before kojed unbound a key before binding it, M7.1);
-/// different ones from `hyprland.conf`.
-fn duplicates_hint(dups: &[Duplicate]) -> &'static str {
-    let same = dups.iter().all(|d| d.what.windows(2).all(|w| w[0] == w[1]));
-    if same {
-        "the same binding twice – an older kojed bound the overlays' keys again after it \
-         restarted; hyprctl reload clears it"
-    } else {
-        "your hyprland.conf binds keys koje's snippet binds too – remove yours, or move \
-         the file away and run koje setup for a fresh one (hyprctl binds shows all)"
-    }
-}
-
-/// The connected screens as GNOME knows them, and whether monitors.xml has
-/// their settings (ADR 0046).
-fn screens(paths: &Paths) -> Vec<Check> {
-    use crate::screens::Source;
-    let connected = crate::screens::connected();
-    let mut checks: Vec<Check> = connected
-        .iter()
-        .map(|s| {
-            Check::ok(format!(
-                "screen {}: {} {} {}",
-                s.connector, s.id.vendor, s.id.product, s.id.serial
-            ))
-        })
-        .collect();
-    if connected.is_empty() {
-        return checks;
-    }
-    let (_, source) = crate::screens::lines(paths, &connected);
-    checks.push(match source {
-        Source::Exact => Check::ok("screens: settings from monitors.xml"),
-        Source::PerScreen => Check::ok("screens: each screen's last settings from monitors.xml"),
-        Source::None(why) => Check::warn(
-            format!("screens: Hyprland's defaults ({why})"),
-            "set them in GNOME Settings' Displays (ADR 0046), or a monitor line in ~/.config/koje/hyprland.conf",
-        ),
-    });
-    checks
-}
-
-/// In the koje session: its target and services run (ADR 0048).
-fn session_units() -> Vec<Check> {
-    if std::env::var("XDG_SESSION_DESKTOP").as_deref() != Ok("koje") {
-        return Vec::new();
-    }
-    let active = |unit: &str| {
-        std::process::Command::new("systemctl")
-            .args(["--user", "is-active", "--quiet", unit])
-            .status()
-            .is_ok_and(|s| s.success())
-    };
-    [
-        "koje-session.target",
-        "kojed.service",
-        "koje-shell.service",
-        "koje-idle.service",
-        "koje-polkit-agent.service",
-    ]
-    .iter()
-    .map(|unit| {
-        if active(unit) {
-            Check::ok(format!("session: {unit}"))
-        } else {
-            Check::warn(
-                format!("session: {unit} is not running"),
-                format!("systemctl --user status {unit}; koje session restart starts them again"),
-            )
-        }
-    })
-    .collect()
-}
-
-/// The files `koje setup` installs.
-fn installed(paths: &Paths) -> Vec<Check> {
-    let steps = match setup::plan(paths) {
-        Ok(s) => s,
-        Err(e) => return vec![Check::fail(format!("setup plan: {e:#}"), "")],
-    };
-    steps
-        .iter()
-        .filter(|s| !s.what.starts_with("base image"))
-        .map(|s| {
-            let label = s.what.split(':').next().unwrap_or_default();
-            let what = setup::tilde(&match &s.action {
-                Action::Write { path, .. } => format!("{label}: {}", path.display()),
-                Action::SourceLine { path, .. } | Action::HyprlandConf { path, .. } => {
-                    format!("{} sources koje's snippet", path.display())
-                }
-                _ => s.what.clone(),
-            });
-            match (s.mark, &s.action) {
-                (Mark::Unchanged | Mark::Skipped, _) => Check::ok(setup::tilde(&s.what)),
-                (_, Action::SourceLine { .. }) => Check::fail(format!("{what}: no"), "koje setup"),
-                // Present but nothing of the user's in it: setup writes koje's.
-                (Mark::Overwrite, Action::HyprlandConf { .. }) => {
-                    Check::warn(format!("{what}: not your own yet"), "koje setup")
-                }
-                (Mark::New | Mark::Append, _) => {
-                    Check::fail(format!("{what}: not installed"), "koje setup")
-                }
-                (Mark::Overwrite, _) => Check::warn(
-                    format!("{what}: differs from this koje version"),
-                    "koje setup",
-                ),
-                (Mark::Remove, _) => Check::warn(
-                    format!("{what}: left by install.sh, the package replaces it"),
-                    "koje setup",
-                ),
-            }
-        })
-        .collect()
 }
 
 /// The GNOME Shell koje's extension is for (ADR 0059).
@@ -468,23 +147,18 @@ fn gnome_extension() -> Check {
     }
 }
 
-fn kojed(gnome: bool) -> Vec<Check> {
-    match crate::kojed::call::<_, String>("WaylandStatus", &()) {
+fn kojed() -> Vec<Check> {
+    match crate::kojed::call::<_, String>("ActiveContext", &()) {
         Err(e) => vec![Check::fail(
             format!("kojed: {e:#}"),
             "systemctl --user start kojed",
         )],
-        Ok(status) if status.is_empty() => vec![
-            Check::ok("kojed"),
-            Check::ok("Wayland security contexts (ADR 0022)"),
-        ],
         // GNOME has no security contexts: known and accepted (ADR 0059, L1).
-        Ok(status) if gnome => vec![Check::ok("kojed"), Check::warn(status, "")],
-        Ok(status) => vec![
+        Ok(_) => vec![
             Check::ok("kojed"),
-            Check::fail(
-                format!("Wayland security contexts: {status}"),
-                "contexts need a compositor with security-context-v1 (Hyprland 0.53+)",
+            Check::warn(
+                "GNOME's Mutter has no security contexts: contexts share its Wayland socket (ADR 0059, L1)",
+                "",
             ),
         ],
     }
@@ -572,21 +246,9 @@ fn nvidia() -> Option<Check> {
     })
 }
 
-pub fn run(paths: &Paths) -> Result<()> {
-    let gnome = koje_core::compositor::Kind::from_env().map_err(anyhow::Error::msg)?
-        == koje_core::compositor::Kind::Gnome;
-    let mut checks = vec![package(), packages()];
-    if gnome {
-        checks.extend([gnome_shell(), gnome_extension()]);
-    } else {
-        checks.push(hyprland());
-        checks.extend(bindings());
-        checks.extend(plugin());
-        checks.extend(screens(paths));
-        checks.extend(session_units());
-        checks.extend(installed(paths));
-    }
-    checks.extend(kojed(gnome));
+pub fn run() -> Result<()> {
+    let mut checks = vec![package(), packages(), gnome_shell(), gnome_extension()];
+    checks.extend(kojed());
     checks.extend([image(), forwarder(), subids()]);
     checks.extend(nvidia());
     for c in &checks {
@@ -609,107 +271,6 @@ mod tests {
         assert_eq!(gnome_major("GNOME Shell 49.4"), Some(49));
         assert_eq!(gnome_major(""), None);
         assert_eq!(gnome_major("Hyprland"), None);
-    }
-
-    #[test]
-    fn versions() {
-        assert_eq!(version_at_least("v0.53.3", (0, 53)), Some(true));
-        assert_eq!(version_at_least("v0.54.0", (0, 53)), Some(true));
-        assert_eq!(version_at_least("v1.0.0", (0, 53)), Some(true));
-        assert_eq!(version_at_least("v0.52.9", (0, 53)), Some(false));
-        assert_eq!(version_at_least("", (0, 53)), None);
-        assert_eq!(version_at_least("git-abc", (0, 53)), None);
-    }
-
-    #[test]
-    fn bindings_bound_twice() {
-        let json = r#"[
-            {"modmask": 64, "submap": "", "key": "Return", "keycode": 0, "mouse": false, "release": false,
-             "description": "Terminal in the context", "dispatcher": "exec", "arg": "koje terminal"},
-            {"modmask": 64, "submap": "", "key": "Return", "keycode": 0, "mouse": false, "release": false,
-             "description": "", "dispatcher": "exec", "arg": "foot"},
-            {"modmask": 65, "submap": "", "key": "Return", "keycode": 0, "mouse": false, "release": false,
-             "description": "", "dispatcher": "exec", "arg": "kitty"},
-            {"modmask": 64, "submap": "", "key": "Super_L", "keycode": 0, "mouse": false, "release": true,
-             "description": "Launcher", "dispatcher": "exec", "arg": "menu"},
-            {"modmask": 64, "submap": "", "key": "Super_L", "keycode": 0, "mouse": false, "release": false,
-             "description": "", "dispatcher": "exec", "arg": "other"}
-        ]"#;
-        let dups = duplicate_bindings(json);
-        assert_eq!(
-            dups,
-            [Duplicate {
-                combo: "Super+Return".into(),
-                what: vec!["Terminal in the context".into(), "exec foot".into()]
-            }]
-        );
-        assert_eq!(
-            duplicates_line(&dups),
-            "key bindings bound twice: Super+Return (Terminal in the context; exec foot)"
-        );
-        assert_eq!(duplicate_bindings("not json"), []);
-    }
-
-    #[test]
-    fn one_binding_in_several_lines_is_not_bound_twice() {
-        let bind = |dispatcher: &str, arg: &str| {
-            format!(
-                r#"{{"modmask": 8, "submap": "", "key": "Tab", "keycode": 0, "mouse": false, "release": false,
-                    "description": "Next window on the workspace", "dispatcher": "{dispatcher}", "arg": "{arg}"}}"#
-            )
-        };
-        let koje = format!(
-            "[{}, {}]",
-            bind("cyclenext", ""),
-            bind("alterzorder", "top")
-        );
-        assert_eq!(duplicate_bindings(&koje), []);
-        // koje's snippet sourced twice.
-        let twice = format!(
-            "[{}, {}, {}, {}]",
-            bind("cyclenext", ""),
-            bind("alterzorder", "top"),
-            bind("cyclenext", ""),
-            bind("alterzorder", "top")
-        );
-        assert_eq!(duplicate_bindings(&twice).len(), 1);
-    }
-
-    #[test]
-    fn the_plugin_in_hyprlands_list() {
-        assert!(plugin_listed(
-            r#"[{"name": "koje", "author": "koje", "handle": "7f01", "version": "1", "description": ""}]"#
-        ));
-        assert!(!plugin_listed(r#"[{"name": "hyprbars"}]"#));
-        assert!(!plugin_listed("no plugins loaded"));
-    }
-
-    #[test]
-    fn the_hint_tells_kojeds_repeats_from_the_users_bindings() {
-        let dup = |what: &[&str]| Duplicate {
-            combo: "Super+M".into(),
-            what: what.iter().map(|w| (*w).to_owned()).collect(),
-        };
-        let same = [dup(&["Show or hide the Mail overlay"; 2])];
-        assert!(duplicates_hint(&same).contains("hyprctl reload"));
-        let mixed = [
-            dup(&["Show or hide the Mail overlay"; 2]),
-            dup(&["Show or hide the Mail overlay", "exec thunderbird"]),
-        ];
-        assert!(duplicates_hint(&mixed).contains("your hyprland.conf"));
-    }
-
-    #[test]
-    fn many_duplicates_list_only_the_combinations() {
-        let dup = |combo: &str| Duplicate {
-            combo: combo.into(),
-            what: vec!["a".into(), "b".into()],
-        };
-        let dups = [dup("Super+1"), dup("Super+2"), dup("Super+Q"), dup("Print")];
-        assert_eq!(
-            duplicates_line(&dups),
-            "4 key combinations bound twice: Super+1, Super+2, Super+Q, Print"
-        );
     }
 
     #[test]

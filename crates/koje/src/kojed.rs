@@ -57,3 +57,18 @@ pub fn reload() {
         tracing::debug!("not reloading kojed: {e:#}");
     }
 }
+
+/// `-c <context>`, else kojed's active context (the focused workspace's, or
+/// the focused window's).
+pub fn context_or_active(c: &crate::cli::ActiveCtx) -> Result<String> {
+    if let Some(given) = &c.context {
+        return Ok(given.clone());
+    }
+    let active: String = call("ActiveContext", &())?;
+    if active.is_empty() {
+        anyhow::bail!(
+            "no active context (not on a context's workspace) – name one with -c <context>"
+        );
+    }
+    Ok(active)
+}

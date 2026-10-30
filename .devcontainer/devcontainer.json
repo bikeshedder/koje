@@ -48,19 +48,12 @@
     // Nested Podman's images and containers survive rebuilds; on a volume, not
     // the container's overlayfs, its storage can use native overlay.
     "source=koje-dev-podman-${devcontainerId},target=/home/vscode/.local/share/containers,type=volume"
-
-    // Talk to the host's Hyprland from inside the container (milestone M2+).
-    // Requires Hyprland to be running on the host when the container starts:
-    // ,"source=${localEnv:XDG_RUNTIME_DIR}/hypr,target=/run/host-hypr,type=bind"
   ],
 
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
     "CARGO_TERM_COLOR": "always",
     "RUST_BACKTRACE": "1"
-    // With the Hyprland mount above, also set:
-    // ,"KOJE_HYPR_DIR": "/run/host-hypr"
-    // ,"HYPRLAND_INSTANCE_SIGNATURE": "${localEnv:HYPRLAND_INSTANCE_SIGNATURE}"
   },
 
   "postCreateCommand": "cargo fetch && just --list",

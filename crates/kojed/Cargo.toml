@@ -10,15 +10,12 @@ publish.workspace = true
 
 [dependencies]
 koje-core.workspace = true
-koje-hyprland.workspace = true
 koje-gnome.workspace = true
 koje-podman.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 zbus.workspace = true
-wayland-client.workspace = true
-wayland-protocols.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 futures-util.workspace = true

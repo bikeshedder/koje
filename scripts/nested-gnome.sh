@@ -7,8 +7,8 @@
 #   scripts/nested-gnome.sh [context]     # default context: nested-test
 #
 # While it runs, `. $XDG_RUNTIME_DIR/koje-nested/env` in another terminal
-# makes koje, koje-shell and programs there use the nested session (its bus,
-# config, state and window), e.g. `koje-shell settings`.
+# makes koje and programs there use the nested session (its bus,
+# config, state and window), e.g. `koje settings`.
 #
 # The nested koje has its own config and state (in $XDG_RUNTIME_DIR/koje-nested,
 # gone at the next boot); states still go to ~/.local/share/koje/<context>
@@ -111,6 +111,6 @@ exec dbus-run-session -- bash -euo pipefail -c '
   say
   say "Nested GNOME Shell on $socket with context $NESTED_CONTEXT."
   say "Logs: $log/shell.log, $log/kojed.log. Close its window to end it."
-  say "In another terminal: . $log/env – then koje, koje-shell settings, … use it."
+  say "In another terminal: . $log/env – then koje, koje settings, … use it."
   wait "$shell" || true
 ' 2>"$home/session.log"

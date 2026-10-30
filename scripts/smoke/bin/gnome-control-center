@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# A fake GNOME Settings for koje-shell smoke tests: logs how it was started
-# (its panel and XDG_CURRENT_DESKTOP) to $KOJE_LOG.
-echo "gnome-control-center $* (XDG_CURRENT_DESKTOP=$XDG_CURRENT_DESKTOP)" >>"${KOJE_LOG:-/dev/null}"

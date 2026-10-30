@@ -1,12 +1,9 @@
 # koje's background service (M4.7, ADR 0026/0027). Installed by the koje
-# package to /usr/lib/systemd/user/ (ADR 0045); part of the koje session
-# (koje-session.target, ADR 0048); a plain Hyprland session starts it through
-# koje's legacy services.
+# package to /usr/lib/systemd/user/ (ADR 0045); koje's GNOME Shell extension
+# starts it (ADR 0059).
 [Unit]
 Description=koje background service (window colors, contexts)
 Documentation=https://github.com/bikeshedder/koje
-PartOf=koje-session.target
-After=koje-session.target
 
 [Service]
 Type=dbus
