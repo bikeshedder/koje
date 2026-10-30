@@ -41,7 +41,8 @@ compositor process and may use Mutter's and the Shell's internals.
   keeping host workspaces in front was tried and reverted).
 - **No** custom launcher, overview, bar, OSD, notification server, share picker,
   screenshot UI, session or settings bridge on GNOME: GNOME's own are used.
-  The koje settings app (`koje-shell settings`) stays. It is about koje only.
+  The koje settings app stays. It is about koje only. It is rebuilt in
+  TypeScript on GJS, like the extension (ADR 0060).
 - **Deferred:** layouts and stash, overlays, pin and unpin, snap zones. A state keeps
   one geometry per window. The commands report "not available on GNOME".
 - **The same program in several contexts is one app** in GNOME's dash and

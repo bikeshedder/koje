@@ -15,7 +15,8 @@ koje switches named **layouts**, stashes unused windows, saves and restores
 **Branch `gnome`** is an experiment (ADR 0059, `docs/plan/G-gnome.md`): koje
 inside a stock GNOME session through a GNOME Shell extension instead of
 rebuilding GNOME on Hyprland. There, work on the `G.n` tasks; leave the
-Hyprland path alone.
+Hyprland path alone. On that path all UI (extension, settings app) is
+TypeScript on GJS, and kojed's API is D-Bus `io.koje.Daemon1` (ADR 0060).
 
 The full concept (German) is `docs/concept/koje-konzept.pdf` (source: `.typ`).
 An English summary is `docs/architecture.md`. Settled decisions are in
@@ -45,7 +46,7 @@ crates/koje-core   pure domain logic: names, config, states, layouts, limits, pa
 crates/koje        CLI (clap). Thin: parse → call core / talk to kojed
 crates/kojed       background service (Hyprland events, colors, memory watch)
 crates/koje-gnome  GNOME adapter (branch gnome, ADR 0059): Compositor port over koje's GNOME Shell extension
-gnome              koje's GNOME Shell extension (gnome/extension/koje@koje.io) and its ESLint setup
+gnome              koje's GNOME Shell extension (gnome/extension/koje@koje.io) and its ESLint setup; the settings app and the TS toolchain will join it (ADR 0060)
 crates/koje-shell  koje's GTK4 UI (ADR 0042): bar, overview, OSD, notifications, background, the settings app; later window overlays
 build             the Ubuntu 26.04 image `just deb` builds the package in (ADR 0045)
 plugin            koje's Hyprland plugin (C++, ADR 0051): the overview's windows, new windows as in GNOME (ADR 0052); built with the package in its Ubuntu container (build/, scripts/build-deb.sh)
