@@ -9,6 +9,7 @@ import GLib from 'gi://GLib';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {Apps} from './apps.js';
+import {Dash} from './dash.js';
 import {Foreign} from './foreign.js';
 import {Service} from './service.js';
 import {Sleep} from './sleep.js';
@@ -37,6 +38,7 @@ interface Parts {
     sleep: Sleep;
     switcher: Switcher;
     apps: Apps;
+    dash: Dash;
     topBar: TopBar;
 }
 
@@ -52,19 +54,23 @@ export default class KojeExtension extends Extension {
         const foreign = new Foreign(service, workspaces);
         const sleep = new Sleep(service);
         service.sleep = sleep;
-        // Foreign and sleeping windows change with kojed's commands (tags,
-        // colors, moves, sleep) and when the user moves a window.
         const switcher = new Switcher(service, workspaces);
+        const apps = new Apps(workspaces);
+        const dash = new Dash(service, workspaces, apps, windows);
+        apps.loaded = context => dash.programsLoaded(context);
+        // Foreign and sleeping windows and the dash change with kojed's
+        // commands (tags, colors, moves, sleep) and when windows open, close
+        // or move.
         const update = () => {
             foreign.update();
             sleep.update();
             switcher.update();
+            dash.update();
         };
         service.changed = update;
         windows.changed = update;
         this.#parts = {
-            workspaces, service, windows, foreign, sleep, switcher,
-            apps: new Apps(workspaces),
+            workspaces, service, windows, foreign, sleep, switcher, apps, dash,
             topBar: new TopBar(workspaces),
         };
     }
@@ -75,6 +81,7 @@ export default class KojeExtension extends Extension {
         if (!p)
             return;
         p.topBar.destroy();
+        p.dash.destroy();
         p.apps.destroy();
         p.switcher.destroy();
         p.sleep.destroy();

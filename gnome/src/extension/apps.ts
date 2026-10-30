@@ -21,16 +21,16 @@ import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {Kojed} from '../api/kojed.js';
+import type * as Match from './match.js';
 import {isHost, type Workspaces} from './workspaces.js';
 
 const SETTINGS = 'io.koje.Settings';
 
 /** A context's program: its Shell.App and what the grid and search see. */
-interface Program {
+export interface Program extends Match.Program {
     app: Shell.App;
     listed: Listed;
-    id: string;
-    name: string;
+    context: string;
     keywords: string[];
 }
 
@@ -54,6 +54,9 @@ interface Patched {
 }
 
 export class Apps {
+    /** Called when a context's programs were loaded. */
+    loaded: (context: string) => void = () => {};
+
     #workspaces: Workspaces;
     #kojed = new Kojed();
     /** context → koje id → program */
@@ -124,6 +127,16 @@ export class Apps {
         this.#appSys.emit('installed-changed');
     }
 
+    /** A context's programs as last loaded, by koje id; empty before. */
+    programs(context: string): Map<string, Program> {
+        return this.#contexts.get(context) ?? new Map();
+    }
+
+    /** Start a context's program by its desktop file id. */
+    launch(context: string, id: string): void {
+        this.#launch(context, id);
+    }
+
     /** The programs of the context whose workspace is shown, or null. */
     #current(): Map<string, Program> | null {
         const name = this.#workspaces.activeName();
@@ -147,7 +160,7 @@ export class Apps {
             this.#appSys.emit('installed-changed');
             return;
         }
-        let list: [string, string, string, string[]][];
+        let list: [string, string, string, string[], string, string][];
         try {
             [list] = await this.#kojed.call('Apps', context);
         } catch (e) {
@@ -155,13 +168,17 @@ export class Apps {
             list = [];
         }
         const programs = new Map<string, Program>();
-        for (const [id, name, icon, keywords] of list)
-            programs.set(`koje-${context}-${id}`, this.#program(context, id, name, icon, keywords));
+        for (const [id, name, icon, keywords, wmClass, program] of list) {
+            programs.set(`koje-${context}-${id}`,
+                this.#program(context, {id, name, wmClass, program}, icon, keywords));
+        }
         this.#contexts.set(context, programs);
         this.#appSys.emit('installed-changed');
+        this.loaded(context);
     }
 
-    #program(context: string, id: string, name: string, icon: string, keywords: string[]): Program {
+    #program(context: string, match: Match.Program, icon: string, keywords: string[]): Program {
+        const {id, name} = match;
         const kojeId = `koje-${context}-${id}`;
         const entry = new GLib.KeyFile();
         const group = 'Desktop Entry';
@@ -183,7 +200,7 @@ export class Apps {
         // its id, whether to show it and its categories (app folders); GJS
         // keeps no JS `get_id` on the C object.
         const listed = {get_id: () => kojeId, should_show: () => true, get_categories: () => null};
-        return {app, listed, id, name, keywords};
+        return {...match, app, listed, context, keywords};
     }
 
     #launch(context: string, id: string): void {

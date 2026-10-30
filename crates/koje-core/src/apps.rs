@@ -26,7 +26,7 @@ exit 0"#;
 const DESKTOPS: [&str; 2] = ["koje", "GNOME"];
 
 /// A program in the menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct App {
     /// What the menu shows; unique (the id is added to equal names).
     pub name: String,
@@ -222,6 +222,22 @@ pub fn launch_line(app: &App) -> String {
     format!("exec {}", crate::capture::shell_join(&command))
 }
 
+/// The program an app runs, by its file name (`firefox` for
+/// `/usr/bin/firefox %u`, `env FOO=1 code` → `code`): how a window whose app
+/// id is that name is matched to the app (ADR 0062). `None` for none.
+pub fn program(app: &App) -> Option<String> {
+    let mut words = app.command.iter().map(String::as_str);
+    let mut first = words.next()?;
+    if first.rsplit('/').next() == Some("env") {
+        first = words.find(|w| !w.contains('=') && !w.starts_with('-'))?;
+    }
+    first
+        .rsplit('/')
+        .next()
+        .filter(|p| !p.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 /// An app's icon for the host: its first candidate file below the context's
 /// root (`/proc/<pid>/root`) that `is_file`, else the name for the host's
 /// theme.
@@ -275,6 +291,27 @@ pub fn parse_listing(out: &str) -> Vec<App> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn program_is_the_command_s_file_name() {
+        let app = |command: &[&str]| super::App {
+            command: command.iter().map(|&s| s.to_owned()).collect(),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::program(&app(&["/usr/bin/firefox"])).as_deref(),
+            Some("firefox")
+        );
+        assert_eq!(
+            super::program(&app(&["foot", "-e", "htop"])).as_deref(),
+            Some("foot")
+        );
+        assert_eq!(
+            super::program(&app(&["/usr/bin/env", "GDK_BACKEND=wayland", "code"])).as_deref(),
+            Some("code")
+        );
+        assert_eq!(super::program(&app(&[])), None);
+    }
+
     use super::*;
 
     #[test]

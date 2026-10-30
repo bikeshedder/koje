@@ -237,13 +237,14 @@
       <arg type="a(ssss)" direction="out"/>
     </method>
     <!--
-      A running context's programs: (desktop file id, name, icon, keywords),
-      sorted by name; icon a file below /proc/<pid>/root, else a theme name,
-      "" for none.
+      A running context's programs: (desktop file id, name, icon, keywords,
+      StartupWMClass, program), sorted by name; icon a file below
+      /proc/<pid>/root, else a theme name; program the command's file name
+      (windows are matched to programs by it, ADR 0062); "" for none.
     -->
     <method name="Apps">
       <arg name="context" type="s" direction="in"/>
-      <arg type="a(sssas)" direction="out"/>
+      <arg type="a(sssasss)" direction="out"/>
     </method>
     <!-- Start a running context's program by its desktop file id. -->
     <method name="LaunchApp">

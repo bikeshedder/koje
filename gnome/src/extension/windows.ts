@@ -19,7 +19,7 @@ function interesting(w: Meta.Window): boolean {
 }
 
 export class Windows {
-    /** Called when a window changed its workspace. */
+    /** Called when a window opened, closed or changed its workspace. */
     changed: () => void = () => {};
 
     #workspaces: Workspaces;
@@ -109,6 +109,7 @@ export class Windows {
                 this.#service.emit('WindowOpened', '(tsss)', [
                     w.get_id(), this.#workspaceName(w), w.get_wm_class() ?? '', w.get_title() ?? '',
                 ]);
+                this.changed();
             }
             return GLib.SOURCE_REMOVE;
         });
@@ -123,6 +124,7 @@ export class Windows {
                 this.#tracked.delete(id);
                 this.#service.forget(id);
                 this.#service.emit('WindowClosed', '(t)', [id]);
+                this.changed();
             }),
             w.connect('notify::title', () =>
                 this.#service.emit('WindowTitle', '(ts)', [id, w.get_title() ?? ''])),

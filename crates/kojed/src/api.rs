@@ -33,6 +33,9 @@ pub struct Api {
     pub busy: Arc<std::sync::Mutex<BTreeSet<ContextName>>>,
 }
 
+/// A row of `Apps`.
+type AppRow = (String, String, String, Vec<String>, String, String);
+
 /// kojed's own errors, `io.koje.Error.<Name>` on the bus.
 #[derive(Debug, zbus::DBusError)]
 #[zbus(prefix = "io.koje.Error")]
@@ -139,9 +142,10 @@ impl Api {
     }
 
     /// A running context's programs for GNOME's app grid and search (ADR
-    /// 0059): `(desktop file id, name, icon, keywords)`, sorted by name; the
-    /// icon a file below `/proc/<pid>/root`, else a theme name, `""` for none.
-    async fn apps(&self, context: &str) -> fdo::Result<Vec<(String, String, String, Vec<String>)>> {
+    /// 0059) and dash (ADR 0062): `(desktop file id, name, icon, keywords,
+    /// StartupWMClass, program)`, sorted by name; the icon a file below
+    /// `/proc/<pid>/root`, else a theme name; `""` for none.
+    async fn apps(&self, context: &str) -> fdo::Result<Vec<AppRow>> {
         let ctx = context_arg(context)?;
         let (apps, pid) = tokio::task::spawn_blocking(move || {
             let podman = Podman::new();
@@ -161,7 +165,15 @@ impl Api {
                     }),
                     (icon, _) => icon.clone().unwrap_or_default(),
                 };
-                (a.id, a.name, icon, a.keywords)
+                let program = koje_core::apps::program(&a).unwrap_or_default();
+                (
+                    a.id,
+                    a.name,
+                    icon,
+                    a.keywords,
+                    a.wm_class.unwrap_or_default(),
+                    program,
+                )
             })
             .collect())
     }

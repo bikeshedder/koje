@@ -46,6 +46,12 @@ context's dash and context windows in the host's.
   as running apps; favorites the context does not have are left out. A pinned
   id the context no longer has is left out too, and kept in the file.
 
+- **Only the dash** (added 2026-10-30, user): Alt+Tab and the overview keep
+  GNOME's apps; Alt+Tab's "current workspace only" setting already does what
+  is right there. A host app's window on a context's workspace is left out of
+  that dash. A context's dash icon is the context's instance: its menu's "New
+  Window", window list and "Quit" act in that context only.
+
 ## Consequences
 
 + A click in a context's dash starts or shows what is in that context.

@@ -28,7 +28,7 @@ export interface Methods {
     RenameState: {in: [string, string, string]; out: []};
     RemoveState: {in: [string, string]; out: []};
     Windows: {in: [string]; out: [[string, string, string, string][]]};
-    Apps: {in: [string]; out: [[string, string, string, string[]][]]};
+    Apps: {in: [string]; out: [[string, string, string, string[], string, string][]]};
     LaunchApp: {in: [string, string]; out: []};
     ContextOfPid: {in: [number]; out: [string]};
     Memory: {in: [string]; out: [string, number, number, number, number]};
@@ -57,7 +57,7 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     RenameState: ['(sss)', '()'],
     RemoveState: ['(ss)', '()'],
     Windows: ['(s)', '(a(ssss))'],
-    Apps: ['(s)', '(a(sssas))'],
+    Apps: ['(s)', '(a(sssasss))'],
     LaunchApp: ['(ss)', '()'],
     ContextOfPid: ['(u)', '(s)'],
     Memory: ['(s)', '(stttt)'],
