@@ -14,8 +14,9 @@
 // Favorites: on a context's workspace `AppFavorites` answers with the
 // context's list (kojed's `Favorites`; unset, GNOME's favorites it has) and
 // pinning, unpinning and moving go to kojed (`SetFavorites`); on the host
-// it is GNOME's. Internals: the `AppFavorites` singleton's methods, `Dash`'s
-// `_redisplay` (its `_appSystem.get_running()`), and `state`, `get_windows`,
+// it is GNOME's. Internals: the `AppFavorites` singleton's methods, the
+// dash's `_appSystem` (its redisplay, bound when the dash was made, reads
+// only `get_running()` from it), and `state`, `get_windows`,
 // `activate`, `open_new_window` and `request_quit` of the Shell.Apps the dash
 // gets, as JS calls them (docs/upstream/gnome-apis.md).
 
@@ -25,7 +26,6 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 
 import * as AppFavorites from 'resource:///org/gnome/shell/ui/appFavorites.js';
-import * as DashModule from 'resource:///org/gnome/shell/ui/dash.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {Kojed} from '../api/kojed.js';
@@ -49,7 +49,8 @@ interface Favorites {
 const PATCHED = ['getFavoriteMap', 'getFavorites', 'isFavorite', 'addFavorite',
     'addFavoriteAtPos', 'removeFavorite', 'moveFavoriteToPos'] as const;
 
-type DashProto = {_redisplay(this: {_appSystem: unknown}): void};
+/** GNOME's dash: what this module replaces on it. */
+type ShellDash = {_appSystem: Shell.AppSystem; _queueRedisplay(): void};
 
 /** A dash icon's app with the windows it stands for. */
 interface Instance {
@@ -89,25 +90,26 @@ export class Dash {
         const self = this;
         const favorites = AppFavorites.getAppFavorites() as unknown as Favorites;
         this.#favorites = favorites;
-        const proto = DashModule.Dash.prototype as unknown as DashProto;
+        const dash = Main.overview.dash as unknown as ShellDash;
         const orig = {
-            redisplay: proto._redisplay,
+            appSystem: dash._appSystem,
             favorites: Object.fromEntries(PATCHED.map(m => [m, favorites[m].bind(favorites)])) as
                 Pick<Favorites, typeof PATCHED[number]>,
         };
         this.#orig = orig;
 
-        // The dash's running apps are its owner's (only `_redisplay` reads
-        // `_appSystem.get_running()`).
-        proto._redisplay = function () {
-            const real = this._appSystem;
-            this._appSystem = {get_running: () => self.#running()};
-            try {
-                orig.redisplay.call(this);
-            } finally {
-                this._appSystem = real;
-            }
-        };
+        // The dash's running apps are its owner's. Its redisplay was bound
+        // when it was made (a patched prototype method is never called);
+        // after that it reads only `get_running()` from `_appSystem`.
+        const real = orig.appSystem;
+        dash._appSystem = new Proxy(real, {
+            get(target, key) {
+                if (key === 'get_running')
+                    return () => self.#running();
+                const value = Reflect.get(target, key) as unknown;
+                return typeof value === 'function' ? value.bind(target) : value;
+            },
+        });
         favorites.getFavoriteMap = () => self.#favoriteMap();
         favorites.getFavorites = () => Object.values(self.#favoriteMap());
         favorites.isFavorite = id => {
@@ -130,7 +132,7 @@ export class Dash {
     destroy(): void {
         this.#ids.forEach(([o, id]) => o.disconnect(id));
         this.#kojed.disconnect(this.#signalId);
-        (DashModule.Dash.prototype as unknown as DashProto)._redisplay = this.#orig.redisplay;
+        (Main.overview.dash as unknown as ShellDash)._appSystem = this.#orig.appSystem;
         for (const m of PATCHED)
             delete (this.#favorites as Partial<Favorites>)[m];
         this.#instances.clear();
@@ -394,6 +396,6 @@ export class Dash {
     }
 
     #redisplay(): void {
-        (Main.overview.dash as unknown as {_queueRedisplay(): void})._queueRedisplay();
+        (Main.overview.dash as unknown as ShellDash)._queueRedisplay();
     }
 }
