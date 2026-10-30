@@ -1,6 +1,6 @@
 # 0053. The dash and the workspace shortcuts follow the context
 
-- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md); the dash rules return for GNOME in [0062](0062-dash-per-context-on-gnome.md)
 - Date: 2026-10-26
 - Source: host test of the overview (M8.69); M8.75, M8.76
 

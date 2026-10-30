@@ -66,3 +66,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0059 | [Experiment: koje as a customization of GNOME Shell](0059-experiment-koje-on-gnome-shell.md) | Accepted (0061; UI and API: 0060) |
 | 0060 | [koje's UI in TypeScript on GJS; kojed's API is D-Bus](0060-ui-in-typescript-api-on-d-bus.md) | Accepted |
 | 0061 | [koje runs on GNOME only; the Hyprland path is removed](0061-remove-the-hyprland-path.md) | Accepted |
+| 0062 | [GNOME's dash shows the current context only](0062-dash-per-context-on-gnome.md) | Accepted |

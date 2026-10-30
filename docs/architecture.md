@@ -77,9 +77,13 @@ browser profile per project. Put common programs into the base image.
   switchers show context workspaces in their color with their name (G.21).
 - **Top-bar indicator:** the current context, its memory against its limits,
   "koje Settings…" (G.12, G.18).
-- **Context apps** appear in GNOME's app grid, search and dash on the
-  context's workspace and start inside the context (G.10). The same program in
-  several contexts is one app in the dash and Alt+Tab (ADR 0059, L3).
+- **Context apps** appear in GNOME's app grid and search on the context's
+  workspace and start inside the context (G.10). The same program in several
+  contexts is one app in Alt+Tab (ADR 0059, L3).
+- **A dash per context** (planned, ADR 0062, G.32): on a context's workspace the dash
+  shows only that context's favorites and running apps, on a host workspace
+  only the host's. `favorites` in `context.toml`; unset, GNOME's favorites the
+  context has installed.
 - **Sleep:** sleeping windows get the overlay "<context> is asleep – Wake up"
   and receive no input (ADR 0024, 0059 L8).
 - **Icons and labels** (ADR 0055): a context has an icon and a label
@@ -126,7 +130,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje open <context> <url\|file>` | open inside a context |
 | `koje run <context> [--no-focus] [-u <user>] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted); `-u root` runs it as the context's root (your user on the host: contexts are rootless) |
 | `koje apps [-c <context>] [--start <name>]` | list the programs of the active context (its `.desktop` entries), or start one there by name or desktop file id |
-| `koje favorites [-c <context>] [--set <id>… \| --reset]` | the dash's favorites in a context (ADR 0053): desktop file ids of its programs in `context.toml`, pinned from the dash; unset, GNOME's favorites as far as the context has them |
+| `koje favorites [-c <context>] [--set <id>… \| --reset]` | the dash's favorites in a context (ADR 0053, 0062): desktop file ids of its programs in `context.toml`, pinned from the dash; unset, GNOME's favorites as far as the context has them |
 | `koje dotfiles [-c <context>]` | link the dotfiles presets again now in every running context (or one) and list the presets (ADR 0038) |
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]] [-u <user>]` | shell in the context, or in its (only / named) dev container; `-u root` logs in as root there |
