@@ -101,14 +101,17 @@ pub fn run(command: &Command) -> Result<()> {
             no_save,
         } => crate::runtime::down(&paths, &ctx.context, state.as_deref(), *no_save),
 
-        Command::Shell { ctx, dev } => crate::runtime::shell(&paths, &ctx.context, dev.as_deref()),
+        Command::Shell { ctx, dev, user } => {
+            crate::runtime::shell(&paths, &ctx.context, dev.as_deref(), user.as_deref())
+        }
 
         Command::Open { ctx, target } => crate::runtime::open(&paths, &ctx.context, target),
         Command::Run {
             ctx,
             no_focus,
+            user,
             command,
-        } => crate::runtime::run(&paths, &ctx.context, command, !*no_focus),
+        } => crate::runtime::run(&paths, &ctx.context, command, !*no_focus, user.as_deref()),
 
         Command::Apps {
             ctx,

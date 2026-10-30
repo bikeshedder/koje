@@ -588,7 +588,7 @@ fn close_programs(name: &ContextName) -> Result<()> {
 
 /// `koje shell <context> [--dev [name]]`: an interactive shell in the running
 /// context, or in one of its dev containers.
-pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
+pub fn shell(paths: &Paths, context: &str, dev: Option<&str>, user: Option<&str>) -> Result<()> {
     use std::io::IsTerminal as _;
     let name = ContextName::new(context)?;
     context::load(paths, &name)?;
@@ -598,7 +598,7 @@ pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
     // Prefer a login bash, fall back to sh (dev containers may lack bash).
     let login = "command -v bash >/dev/null && exec bash -l || exec sh -l";
     match dev {
-        None => podman.exec_attached(&name, &["sh", "-c", login], tty)?,
+        None => podman.exec_attached(&name, user, &["sh", "-c", login], tty)?,
         Some(requested) => {
             let running = podman.dev_containers(&name)?;
             let requested = (!requested.is_empty()).then_some(requested);
@@ -607,8 +607,11 @@ pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
             if tty {
                 inner.push("-t");
             }
+            if let Some(u) = user {
+                inner.extend(["--user", u]);
+            }
             inner.extend([dev.as_str(), "sh", "-c", login]);
-            podman.exec_attached(&name, &inner, tty)?
+            podman.exec_attached(&name, None, &inner, tty)?
         }
     };
     // The shell's own exit status (last command in it) is not an error of koje.
@@ -621,7 +624,13 @@ pub fn shell(paths: &Paths, context: &str, dev: Option<&str>) -> Result<()> {
 /// `koje run <context> <program> [args…]`: start a program in the running
 /// context, detached; in the current directory if the context mounts it, else
 /// in the home directory.
-pub fn run(paths: &Paths, context: &str, command: &[String], focus: bool) -> Result<()> {
+pub fn run(
+    paths: &Paths,
+    context: &str,
+    command: &[String],
+    focus: bool,
+    user: Option<&str>,
+) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let podman = Podman::new();
@@ -636,7 +645,7 @@ pub fn run(paths: &Paths, context: &str, command: &[String], focus: bool) -> Res
     }
     // `exec` so the program replaces the shell that starts it.
     let line = format!("exec {}", koje_core::capture::shell_join(command));
-    podman.launch(&name, &line, workdir.as_deref())?;
+    podman.launch_as(&name, user, &line, workdir.as_deref())?;
     println!("started {} in {name}", command.join(" "));
     Ok(())
 }

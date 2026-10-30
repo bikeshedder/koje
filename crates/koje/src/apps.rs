@@ -52,7 +52,7 @@ pub fn run(
         command.insert(0, crate::terminal::TERMINAL.to_owned());
     }
     // The active context's workspace is in view already.
-    crate::runtime::run(paths, name.as_str(), &command, ctx.context.is_some())
+    crate::runtime::run(paths, name.as_str(), &command, ctx.context.is_some(), None)
 }
 
 /// The programs for the shell: name, desktop file id, icon – a file of the

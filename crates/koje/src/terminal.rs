@@ -36,9 +36,13 @@ pub fn run(paths: &Paths, ctx: &ActiveCtx) -> Result<()> {
     match place {
         // The active context's workspace is in view already; a named one is
         // switched to, like `koje run`.
-        Place::Context(name) => {
-            crate::runtime::run(paths, &name, &[TERMINAL.to_owned()], ctx.context.is_some())
-        }
+        Place::Context(name) => crate::runtime::run(
+            paths,
+            &name,
+            &[TERMINAL.to_owned()],
+            ctx.context.is_some(),
+            None,
+        ),
         Place::Host => {
             use std::os::unix::process::CommandExt as _;
             std::process::Command::new(TERMINAL)

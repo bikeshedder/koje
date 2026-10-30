@@ -164,12 +164,12 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje sleep \| wake <context>` | pause / resume (CPU 0, memory kept) |
 | `koje stats` / `koje limit <context>` | memory per context / change limits |
 | `koje open <context> <url\|file>` | open inside a context |
-| `koje run <context> [--no-focus] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted) |
+| `koje run <context> [--no-focus] [-u <user>] <program> [args…]` | switch to the context's workspace (unless `--no-focus`) and start a program there, detached (in the current directory if mounted); `-u root` runs it as the context's root (your user on the host: contexts are rootless) |
 | `koje apps [-c <context>] [--start <name>] [--menu \| --json]` | list the programs of the active context (its `.desktop` entries), or start one there by name or desktop file id – koje's application menu (Super+D); `--menu` puts the context and its memory first; `--json` with icons, keywords, window class and program for the shell |
 | `koje favorites [-c <context>] [--set <id>… \| --reset]` | the dash's favorites in a context (ADR 0053): desktop file ids of its programs in `context.toml`, pinned from the dash; unset, GNOME's favorites as far as the context has them |
 | `koje dotfiles [-c <context>]` | link the dotfiles presets again now in every running context (or one) and list the presets (ADR 0038) |
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
-| `koje shell <context> [--dev [<container>]]` | shell in the context, or in its (only / named) dev container |
+| `koje shell <context> [--dev [<container>]] [-u <user>]` | shell in the context, or in its (only / named) dev container; `-u root` logs in as root there |
 | `koje settings [<context>]` | open the settings app (`koje-shell settings`), on a context if given |
 | `koje config [--stdin]` | edit `config.toml` in $EDITOR; `--stdin` takes the new file from stdin (the settings app) |
 | `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |

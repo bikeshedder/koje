@@ -155,16 +155,47 @@ fn read(path: &Path) -> Result<String> {
 
 impl<R: Runner> Podman<R> {
     /// Run a command in the context container with the terminal attached
-    /// (`podman exec -i [-t]`); returns whether it succeeded.
-    pub fn exec_attached(&self, ctx: &ContextName, command: &[&str], tty: bool) -> Result<bool> {
+    /// (`podman exec -i [-t]`), as `user` if given (else the context's
+    /// user); returns whether it succeeded.
+    pub fn exec_attached(
+        &self,
+        ctx: &ContextName,
+        user: Option<&str>,
+        command: &[&str],
+        tty: bool,
+    ) -> Result<bool> {
         let name = container_name(ctx);
         let mut args = vec!["exec", "-i"];
         if tty {
             args.push("-t");
         }
+        if let Some(u) = user {
+            args.extend(["--user", u]);
+        }
         args.push(&name);
         args.extend_from_slice(command);
         self.runner.run_attached(&args).map_err(Error::Spawn)
+    }
+
+    /// [`ContainerRuntime::launch`] as `user` (`koje run --user`), else as
+    /// the context's user.
+    pub fn launch_as(
+        &self,
+        ctx: &ContextName,
+        user: Option<&str>,
+        command: &str,
+        workdir: Option<&str>,
+    ) -> Result<()> {
+        let name = container_name(ctx);
+        let mut args = vec!["exec", "-d"];
+        if let Some(w) = workdir {
+            args.extend(["--workdir", w]);
+        }
+        if let Some(u) = user {
+            args.extend(["--user", u]);
+        }
+        args.extend([name.as_str(), "sh", "-c", command]);
+        self.podman(&args).map(drop)
     }
 
     /// Run a command in the context container and return its output (`podman exec`).
@@ -455,13 +486,7 @@ impl<R: Runner> ContainerRuntime for Podman<R> {
     }
 
     fn launch(&self, ctx: &ContextName, command: &str, workdir: Option<&str>) -> Result<()> {
-        let name = container_name(ctx);
-        let mut args = vec!["exec", "-d"];
-        if let Some(w) = workdir {
-            args.extend(["--workdir", w]);
-        }
-        args.extend([name.as_str(), "sh", "-c", command]);
-        self.podman(&args).map(drop)
+        self.launch_as(ctx, None, command, workdir)
     }
 
     fn query(&self, ctx: &ContextName, argv: &[&str]) -> Result<String> {
@@ -825,9 +850,13 @@ pub(crate) mod tests {
         let podman = Podman::with_runner(&fake, "/x", "/x");
         podman.launch(&kp(), "foot", Some("/tmp")).unwrap();
         podman.launch(&kp(), "evince 'a b.pdf'", None).unwrap();
+        podman
+            .launch_as(&kp(), Some("root"), "dnf -y upgrade", None)
+            .unwrap();
         let calls = fake.calls.borrow();
         assert_eq!(calls[0], "exec -d --workdir /tmp koje-kp sh -c foot");
         assert_eq!(calls[1], "exec -d koje-kp sh -c evince 'a b.pdf'");
+        assert_eq!(calls[2], "exec -d --user root koje-kp sh -c dnf -y upgrade");
     }
 
     #[test]
@@ -835,9 +864,19 @@ pub(crate) mod tests {
         let fake = Fake::default()
             .answer(true, "", "")
             .answer(true, "", "")
+            .answer(true, "", "")
             .answer(true, "web\ndb\n", "");
         let podman = Podman::with_runner(&fake, "/x", "/x");
-        assert!(podman.exec_attached(&kp(), &["bash", "-l"], true).unwrap());
+        assert!(
+            podman
+                .exec_attached(&kp(), None, &["bash", "-l"], true)
+                .unwrap()
+        );
+        assert!(
+            podman
+                .exec_attached(&kp(), Some("root"), &["sh"], false)
+                .unwrap()
+        );
         podman
             .exec_detached(&kp(), &["xdg-open", "https://example.org"])
             .unwrap();
@@ -846,6 +885,7 @@ pub(crate) mod tests {
             *fake.calls.borrow(),
             [
                 "exec -i -t koje-kp bash -l",
+                "exec -i --user root koje-kp sh",
                 "exec -d koje-kp xdg-open https://example.org",
                 "exec koje-kp podman ps --format {{.Names}}"
             ]

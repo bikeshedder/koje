@@ -158,6 +158,9 @@ pub enum Command {
         /// first, so the window opens where you look).
         #[arg(long)]
         no_focus: bool,
+        /// Run it as this user in the context (e.g. `root`; default: yours).
+        #[arg(short, long)]
+        user: Option<String>,
         /// The program and its arguments, passed as they are (no shell).
         #[arg(
             required = true,
@@ -214,6 +217,10 @@ pub enum Command {
         /// Enter a dev container instead: the only running one, or the named one.
         #[arg(long, value_name = "CONTAINER", num_args = 0..=1, default_missing_value = "")]
         dev: Option<String>,
+        /// Log in as this user (e.g. `root`; default: yours). The context is
+        /// rootless: its root is your user on the host.
+        #[arg(short, long)]
+        user: Option<String>,
     },
     /// Create a new context.
     New {
@@ -644,6 +651,31 @@ mod tests {
         assert_eq!(dev(&["shell", "kp"]), None);
         assert_eq!(dev(&["shell", "kp", "--dev"]), Some(String::new()));
         assert_eq!(dev(&["shell", "kp", "--dev", "web"]), Some("web".into()));
+    }
+
+    #[test]
+    fn shell_and_run_take_a_user() {
+        assert!(matches!(
+            parse(&["shell", "kp", "-u", "root"]).unwrap().command,
+            Command::Shell { user: Some(u), .. } if u == "root"
+        ));
+        let Command::Run { user, command, .. } =
+            parse(&["run", "kp", "--user", "root", "dnf", "-y", "upgrade"])
+                .unwrap()
+                .command
+        else {
+            unreachable!()
+        };
+        assert_eq!(user.as_deref(), Some("root"));
+        assert_eq!(command, ["dnf", "-y", "upgrade"]);
+        // After the program, `-u` is the program's.
+        let Command::Run { user, command, .. } =
+            parse(&["run", "kp", "sort", "-u"]).unwrap().command
+        else {
+            unreachable!()
+        };
+        assert_eq!(user, None);
+        assert_eq!(command, ["sort", "-u"]);
     }
 
     #[test]
