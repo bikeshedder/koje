@@ -44,13 +44,21 @@ fi
 
 home=$XDG_RUNTIME_DIR/koje-nested
 mkdir -p "$home/bin"
-# The real podman, not this wrapper from an earlier run.
-podman=$(PATH=$(tr ':' '\n' <<<"$PATH" | grep -vxF "$home/bin" | paste -sd:) command -v podman)
+# The real programs, not the wrappers from an earlier run.
+real() { PATH=$(tr ':' '\n' <<<"$PATH" | grep -vxF "$home/bin" | paste -sd:) command -v "$1"; }
 cat > "$home/bin/podman" <<EOF
 #!/bin/sh
-DBUS_SESSION_BUS_ADDRESS='$user_bus' exec $podman "\$@"
+DBUS_SESSION_BUS_ADDRESS='$user_bus' exec $(real podman) "\$@"
 EOF
-chmod +x "$home/bin/podman"
+# koje with the nested config and state, also where the nested Shell starts
+# it ("koje Settings…" in its top bar) and in terminals inside it. The Shell
+# itself keeps the user's config (GNOME's settings, enabled extensions).
+cat > "$home/bin/koje" <<EOF
+#!/bin/sh
+export XDG_CONFIG_HOME='$home/config' XDG_STATE_HOME='$home/state' KOJE_COMPOSITOR=gnome
+exec $(real koje) "\$@"
+EOF
+chmod +x "$home/bin/podman" "$home/bin/koje"
 export NESTED_CONTEXT=$context NESTED_HOME=$home
 echo "Starting a nested GNOME Shell (its session's messages: $home/session.log)"
 
@@ -61,7 +69,7 @@ exec dbus-run-session -- bash -euo pipefail -c '
   say() { echo "$@" >&3; }
   log=$NESTED_HOME
   before=$(ls "$XDG_RUNTIME_DIR" | grep -E "^wayland-[0-9]+$" || true)
-  gnome-shell --devkit --wayland > "$log/shell.log" 2>&1 &
+  PATH=$NESTED_HOME/bin:$PATH gnome-shell --devkit --wayland > "$log/shell.log" 2>&1 &
   shell=$!
   # The nested Shell'\''s Wayland socket: the one that was not there before.
   socket=
