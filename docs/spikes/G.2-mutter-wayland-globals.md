@@ -83,6 +83,21 @@ demand. Contexts get no `DISPLAY`, no `/tmp/.X11-unix`, and always their own
 network namespace (`--network none` or their own), so Xwayland's abstract
 socket is out of reach too.
 
+### On the host (2026-10-30)
+
+Run by the user in a context of an installed koje (Ubuntu 26.04, GNOME Shell
+50, NVIDIA GPU) **with Xwayland running**: 43 globals. Compared with the lab:
+
+| New on the host | What it gives a client | For a context |
+|---|---|---|
+| `wl_drm` v2, `wl_eglstream_display` v1 | older GPU buffer paths (Mesa, NVIDIA EGLStreams) | own surfaces only |
+| `wp_linux_drm_syncobj_manager_v1` | explicit sync of its own GPU buffers | own surfaces only |
+| `zwp_linux_dmabuf_v1` v5 (lab v3) | the same, newer | own surfaces only |
+| `wp_drm_lease_device_v1` (2×, one per GPU) | lease a non-desktop output (VR headset) for direct display | a context could take a headset; desktop monitors are never offered |
+
+Nothing comes from Xwayland: `xwayland_shell_v1` is not offered to other
+clients. Screen sharing from a context works through the portal (user).
+
 ## Conclusion
 
 - **The shared socket is acceptable for the experiment (L1).** A context
@@ -96,4 +111,6 @@ socket is out of reach too.
 - For G.8: on GNOME, kojed binds Mutter's socket into each context (no
   per-context socket; the per-context directory of ADR 0022 can stay, holding a
   bind of `wayland-0`).
-- Recheck on the host once: same list with Xwayland running.
+- Rechecked on the host with Xwayland running: nothing that captures,
+  injects input or reads the clipboard; the additions are GPU paths and DRM
+  leases of non-desktop outputs (see above).

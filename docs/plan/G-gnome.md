@@ -16,7 +16,7 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
   - ADR 0059 (Proposed), this file, `docs/upstream/gnome-apis.md`, roadmap entry.
 - [x] **G.2 Wayland globals for a context client on Mutter** *(host; ran in the lab)*
   - Done when: [report](../spikes/G.2-mutter-wayland-globals.md) lists every global a context client sees, and screen capture without the portal fails. Decides L1.
-  - Result: the same 38 globals as a host client; no capture, input injection, window list or background clipboard protocol; `grim`/`wf-recorder` fail. The shared socket is acceptable. Host 2026-10-30: screen sharing from a context works (through the portal). Left: the list with Xwayland running.
+  - Result: the same 38 globals as a host client; no capture, input injection, window list or background clipboard protocol; `grim`/`wf-recorder` fail. The shared socket is acceptable. Host 2026-10-30: screen sharing from a context works (through the portal). With Xwayland running on the host: only GPU paths and DRM leases of non-desktop outputs added; nothing that captures, injects input or reads the clipboard.
 - [x] **G.3 Freezing a context under Mutter** *(host; ran in the lab)*
   - Done when: [report](../spikes/G.3-mutter-freeze.md) says whether windows survive 1/10/30 min frozen with input going on, and what GNOME shows. Decides L8; if windows are lost, sleep needs another design before G.11.
   - Result: untouched frozen windows survive 30 min with no dialog. Focusing them triggers "not responding" within 10 s. Heavy input (focus, resize, typing) fills Mutter's 1 MiB per-client queue within minutes, and the program is disconnected at the thaw, losing every window. G.11 must keep input away from sleeping windows.
