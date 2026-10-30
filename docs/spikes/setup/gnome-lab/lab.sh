@@ -4,6 +4,8 @@
 #
 #   lab.sh build                 build the image localhost/koje-gnome-lab
 #   lab.sh start                 start GNOME Shell; its window opens on your desktop
+#   lab.sh start --headless      … without a window (a virtual monitor): for eval and
+#                                tests from a shell without VS Code's Wayland
 #   lab.sh stop                  stop it and its contexts
 #   lab.sh eval '<js>'           run JavaScript in the shell (unsafe mode, lab only),
 #                                e.g. lab.sh eval 'global.get_window_actors().map(a => a.meta_window.get_wm_class()).join()'
@@ -18,8 +20,8 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-# koje's extension from the repository, enabled in the lab (G.7).
-extension=$(cd "$here/../../../../gnome/extension/koje@koje.io" && pwd)
+# koje's extension as `just ui` builds it, enabled in the lab (G.7, G.30).
+extension=$(cd "$here/../../../../gnome/build/extension/koje@koje.io" && pwd)
 image=localhost/koje-gnome-lab
 lab=koje-gnome-lab
 run=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR not set}/koje-gnome-lab/run
@@ -58,8 +60,14 @@ case ${1:-} in
   start)
     # VS Code forwards the desktop's Wayland into the dev container; the
     # devkit window of the nested shell opens there.
-    parent=$(readlink -f "$run/../../${WAYLAND_DISPLAY:?no WAYLAND_DISPLAY: start from a VS Code terminal}")
-    [[ -S "$parent" ]] || { echo "no Wayland socket $parent" >&2; exit 1; }
+    display=()
+    if [[ ${2:-} == --headless ]]; then
+      display=(-e LAB_HEADLESS=1)
+    else
+      parent=$(readlink -f "$run/../../${WAYLAND_DISPLAY:?no WAYLAND_DISPLAY: start from a VS Code terminal, or --headless}")
+      [[ -S "$parent" ]] || { echo "no Wayland socket $parent" >&2; exit 1; }
+      display=(-v "$parent:/run/host-wayland/wayland-0" -e WAYLAND_DISPLAY=/run/host-wayland/wayland-0)
+    fi
     kill_lab
     podman rm -f "$lab" >/dev/null 2>&1 || true
     rm -rf "$run" && mkdir -p "$run" && chmod 700 "$run"
@@ -70,7 +78,7 @@ case ${1:-} in
       --userns=keep-id --security-opt label=disable \
       --cgroups=enabled --pid=host \
       -v "$run:/run/user/$uid" -e XDG_RUNTIME_DIR="/run/user/$uid" \
-      -v "$parent:/run/host-wayland/wayland-0" -e WAYLAND_DISPLAY=/run/host-wayland/wayland-0 \
+      "${display[@]}" \
       -v "$here/lab-session.sh:/usr/local/bin/lab-session:ro" \
       -v "$here/lab@koje.io:/usr/share/gnome-shell/extensions/lab@koje.io:ro" \
       -v "$extension:/usr/share/gnome-shell/extensions/koje@koje.io:ro" \

@@ -1,7 +1,7 @@
 # Draft: GNOME APIs koje would need (from the GNOME experiment)
 
 Status: collecting, not posted. Every GNOME internal the koje extension
-(`gnome/extension/koje@koje.io`) patches or reads is listed here with the
+(`gnome/src/extension`) patches or reads is listed here with the
 public API that would replace it (ADR 0059). Update this file in the same change
 that adds the internal.
 

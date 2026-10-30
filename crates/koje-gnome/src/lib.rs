@@ -1,7 +1,7 @@
 //! GNOME Shell adapter (ADR 0059): implements koje-core's [`Compositor`] port
 //! over koje's GNOME Shell extension, which serves `io.koje.Extension1` on the
 //! session bus from inside the Shell. The interface is
-//! `gnome/extension/koje@koje.io/dbus/io.koje.Extension1.xml`; the bus form
+//! `gnome/src/extension/dbus/io.koje.Extension1.xml`; the bus form
 //! of everything is in [`wire`], the event stream in [`events`].
 
 pub mod events;

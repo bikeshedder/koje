@@ -4,10 +4,12 @@
 
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
+import type Meta from 'gi://Meta';
+import type Mtk from 'gi://Mtk';
 
 /** Let `widget` follow the window actor `actor` (offsets: `offsets`). */
-export function follow(widget, actor) {
-    for (const c of ['X', 'Y']) {
+export function follow(widget: Clutter.Actor, actor: Clutter.Actor): void {
+    for (const c of ['X', 'Y'] as const) {
         widget.add_constraint(new Clutter.BindConstraint({
             source: actor, coordinate: Clutter.BindCoordinate[c],
         }));
@@ -16,14 +18,14 @@ export function follow(widget, actor) {
 }
 
 /** Move a following widget by (x, y) from its window actor. */
-export function offsets(widget, x, y) {
-    const [cx, cy] = widget.get_constraints();
+export function offsets(widget: Clutter.Actor, x: number, y: number): void {
+    const [cx, cy] = widget.get_constraints() as Clutter.BindConstraint[];
     cx.offset = x;
     cy.offset = y;
 }
 
 /** `below` right below the window actor, `above` right above it. */
-export function restack(actor, below = [], above = []) {
+export function restack(actor: Clutter.Actor, below: Clutter.Actor[] = [], above: Clutter.Actor[] = []): void {
     const parent = actor.get_parent();
     if (!parent)
         return;
@@ -43,7 +45,7 @@ export function restack(actor, below = [], above = []) {
 }
 
 /** A window's frame within its actor (which also holds client-side shadows). */
-export function frameIn(w) {
+export function frameIn(w: Meta.Window): {x: number; y: number; frame: Mtk.Rectangle} {
     const frame = w.get_frame_rect();
     const buffer = w.get_buffer_rect();
     return {x: frame.x - buffer.x, y: frame.y - buffer.y, frame};

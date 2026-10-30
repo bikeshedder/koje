@@ -1,0 +1,10 @@
+{
+    // koje's GNOME Shell extension (ADR 0060): type-checked here,
+    // bundled by tools/build-extension.mjs into build/extension/koje@koje.io.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": true
+    },
+    "include": ["src/extension/**/*.ts", "src/api/**/*.ts"],
+    "exclude": ["src/**/*.test.ts"]
+}

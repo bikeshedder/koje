@@ -20,8 +20,8 @@ podman exec -d koje-spike-a foot
 ./lab.sh stop                  # the lab and every spike container
 ```
 
-koje's extension (`gnome/extension/koje@koje.io`) is mounted from the
-repository and enabled; after changing it, `./lab.sh stop && ./lab.sh start`.
+koje's extension as `just ui` builds it (`gnome/build/extension/koje@koje.io`) is mounted from the
+repository and enabled; after changing it, `just ui`, then `./lab.sh stop && ./lab.sh start`.
 The lab's session bus is `$XDG_RUNTIME_DIR/koje-gnome-lab/run/bus`, reachable
 from the dev container: `just test-extension` runs the adapter against the
 extension, and `DBUS_SESSION_BUS_ADDRESS=unix:path=… gdbus call --session -d
@@ -30,6 +30,9 @@ io.koje.Extension …` calls it.
 Run `lab.sh` from a VS Code terminal of the dev container (it needs
 `WAYLAND_DISPLAY` from VS Code). `./lab.sh` without arguments lists the
 commands.
+
+Without it (an agent's shell), `./lab.sh start --headless` runs GNOME Shell on
+a virtual monitor instead of in a window; `eval` and the tests work the same.
 
 ## How it is built
 

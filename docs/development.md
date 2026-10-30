@@ -28,7 +28,7 @@ VS Code user setting (once): `"dev.containers.dockerPath": "podman"`.
 | Unit tests, CLI tests | anywhere (dev container, CI) | `just check` |
 | GNOME adapter against the extension | dev container with the GNOME lab | `docs/spikes/setup/gnome-lab/lab.sh start`, then `just test-extension` |
 | Context containers, nested Podman | host; dev container without cgroups | host: `cargo test -p koje-podman -- --ignored`; dev container: add `--skip cgroups` |
-| The extension's code | dev container | `just lint-extension`; a headless GNOME Shell (spike G.4) |
+| The extension's code | dev container | `just lint-extension` (types), `just check-ui`; the GNOME lab, headless without VS Code's Wayland (`lab.sh start --headless`) |
 | Full end-to-end (windows from contexts, colors, states) | host only | `just deb`, install the package, `koje setup` |
 
 Tests needing real systems are `#[ignore]`d so `just check` stays hermetic.

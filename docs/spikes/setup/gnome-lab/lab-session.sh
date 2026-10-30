@@ -2,7 +2,8 @@
 # Entry point of the GNOME lab container: a stand-in system bus (GNOME Shell
 # needs one), the session bus with PipeWire (the devkit window gets the
 # screen through it), then GNOME Shell with its devkit window on the dev
-# container's Wayland (the socket VS Code forwards).
+# container's Wayland (the socket VS Code forwards) – or, with LAB_HEADLESS,
+# headless on a virtual monitor.
 set -eu
 export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/system_bus_socket"
 export GTK_A11Y=none
@@ -28,4 +29,7 @@ exec sh -c '
   echo "$DBUS_SESSION_BUS_ADDRESS" > "$XDG_RUNTIME_DIR/lab-session-bus"
   gsettings set org.gnome.shell enabled-extensions "[\"lab@koje.io\", \"koje@koje.io\"]"
   gsettings set org.gnome.shell welcome-dialog-last-shown-version "999"
+  if [ -n "${LAB_HEADLESS:-}" ]; then
+    exec gnome-shell --headless --wayland --no-x11 --virtual-monitor 1920x1080 "$@"
+  fi
   exec gnome-shell --devkit --wayland --no-x11 "$@"' lab-session "$@"

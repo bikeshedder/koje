@@ -253,7 +253,7 @@ fn members(xml: &str) -> BTreeSet<String> {
 
 #[tokio::test]
 async fn the_fake_matches_the_extensions_interface() {
-    let file = include_str!("../../../gnome/extension/koje@koje.io/dbus/io.koje.Extension1.xml");
+    let file = include_str!("../../../gnome/src/extension/dbus/io.koje.Extension1.xml");
     let (_server, client) = fake::serve(Fake::default()).await;
     let introspect = zbus::fdo::IntrospectableProxy::builder(&client)
         .destination(crate::BUS_NAME)

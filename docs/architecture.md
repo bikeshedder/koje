@@ -29,7 +29,7 @@ shared base image: read-only layers used by all contexts
 GNOME provides the desktop: top bar, overview, dash, settings, displays,
 notifications, lock screen and the session (ADR 0059, 0061). Graphical programs
 talk directly to GNOME's Mutter through the Wayland socket koje binds into the
-container. koje's GNOME Shell extension (`gnome/extension/koje@koje.io`) adds
+container. koje's GNOME Shell extension (`gnome/src/extension`, TypeScript) adds
 what is koje's own and serves `io.koje.Extension1`; kojed drives it through the
 `koje-gnome` adapter (windows, workspaces, placement, events).
 

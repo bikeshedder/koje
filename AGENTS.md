@@ -33,7 +33,7 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 | access profile | Which host resources a context gets (`gpu`, `sound`, `wayland`, `nested`, `network`, …): a profile (`full`, `desktop`, `headless`, `isolated`) plus overrides; also host interfaces (`notifications`, `file_chooser`, …). ADR 0017, 0019. |
 | integration | Optional description of how koje launches/remembers a program. Programs work without one. |
 | dotfiles preset | Folder in `~/.config/koje/dotfiles/<name>` mounted read-only into contexts that list it and linked into their home (ADR 0038). |
-| extension | koje's GNOME Shell extension (`gnome/extension/koje@koje.io`): glow and badge, sleep overlay, indicator, context apps; serves `io.koje.Extension1`. |
+| extension | koje's GNOME Shell extension (`gnome/src/extension`, built into `gnome/build/extension/koje@koje.io`): glow and badge, sleep overlay, indicator, context apps; serves `io.koje.Extension1`. |
 | settings app | `io.koje.Settings`, koje's own settings (TypeScript on GJS, ADR 0060). |
 | koje / kojed | The CLI / the background service. Never use "koje" for a context. |
 
@@ -47,7 +47,7 @@ crates/koje-gnome  GNOME adapter (ADR 0059): Compositor port over koje's GNOME S
 crates/koje-podman Podman adapter (ContainerRuntime), base image
 crates/koje-runtime driving context containers (up, down, mounts, host bus, limits); kojed runs the lifecycle, the CLI shell/run/open
 crates/koje-forward static D-Bus forwarder inside every context (ADR 0025)
-gnome              koje's UI (ADR 0060): the GNOME Shell extension (gnome/extension/koje@koje.io, JS), the settings app (gnome/src/settings, TypeScript + Blueprint), the D-Bus client generated from kojed's interface file (gnome/src/api)
+gnome              koje's UI (ADR 0060): the GNOME Shell extension (gnome/src/extension), the settings app (gnome/src/settings, TypeScript + Blueprint), the D-Bus client generated from kojed's interface file (gnome/src/api)
 build             the Ubuntu 26.04 image `just deb` builds the package in (ADR 0045)
 assets            files koje ships besides binaries: kojed's unit, icon, base image
 scripts           host helpers outside koje itself (package build and install, nested GNOME session)
@@ -72,7 +72,7 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 | format | `just fmt` |
 | Debian package (ADR 0045) | `just deb`; on the host `just install` |
 | UI (TypeScript, ADR 0060) | `just ui` builds `gnome/build`; `just check-ui` (generated types current, `tsc`, vitest, ESLint); `just settings` runs the app |
-| GNOME extension | `just lint-extension`; with the GNOME lab running `just test-extension`; on the host `just nested-gnome` |
+| GNOME extension | `just lint-extension` (types); `just ui`, then with the GNOME lab running (`lab.sh start --headless` without VS Code's Wayland) `just test-extension`; on the host `just nested-gnome` |
 
 ## How to work here
 

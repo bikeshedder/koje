@@ -17,5 +17,6 @@
         "outDir": "build"
     },
     "include": ["src/**/*.ts"],
-    "exclude": ["src/**/*.test.ts"]
+    // The extension runs inside GNOME Shell: tsconfig.extension.json.
+    "exclude": ["src/**/*.test.ts", "src/extension/**"]
 }

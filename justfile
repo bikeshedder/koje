@@ -27,7 +27,7 @@ test *ARGS:
 
 # Lint koje's GNOME Shell extension (ADR 0059; npm fetches ESLint once)
 lint-extension:
-    cd gnome && npm ci --no-audit --no-fund --silent && npx eslint extension
+    cd gnome && npm ci --no-audit --no-fund --silent && npx tsc -p tsconfig.extension.json
 
 # Build koje's UI (ADR 0060): TypeScript and Blueprint in gnome/src to gnome/build
 ui:

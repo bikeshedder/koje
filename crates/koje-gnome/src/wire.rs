@@ -1,5 +1,5 @@
 //! What goes over the bus, as pure conversions between koje-core's port and
-//! `io.koje.Extension1` (`gnome/extension/koje@koje.io/dbus/`).
+//! `io.koje.Extension1` (`gnome/src/extension/dbus/`).
 //!
 //! A window's address is its Mutter id (`Meta.Window.get_id()`) in decimal.
 

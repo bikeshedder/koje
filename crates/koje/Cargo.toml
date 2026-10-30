@@ -54,9 +54,9 @@ assets = [
     ["../../target/deb-staging/koje-forward", "usr/lib/koje/", "755"],
     ["../../assets/systemd/kojed.service", "usr/lib/systemd/user/", "644"],
     # koje's GNOME Shell extension (ADR 0059); `koje setup` enables it.
-    ["../../gnome/extension/koje@koje.io/metadata.json", "usr/share/gnome-shell/extensions/koje@koje.io/", "644"],
-    ["../../gnome/extension/koje@koje.io/*.js", "usr/share/gnome-shell/extensions/koje@koje.io/", "644"],
-    ["../../gnome/extension/koje@koje.io/dbus/*.xml", "usr/share/gnome-shell/extensions/koje@koje.io/dbus/", "644"],
+    ["../../gnome/build/extension/koje@koje.io/metadata.json", "usr/share/gnome-shell/extensions/koje@koje.io/", "644"],
+    ["../../gnome/build/extension/koje@koje.io/extension.js", "usr/share/gnome-shell/extensions/koje@koje.io/", "644"],
+    ["../../gnome/build/extension/koje@koje.io/dbus/*.xml", "usr/share/gnome-shell/extensions/koje@koje.io/dbus/", "644"],
     ["../../assets/icons/io.koje.Koje-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     # koje Settings (ADR 0060): gnome/ built by `just ui` (scripts/build-deb.sh).
     ["../../assets/bin/koje-settings", "usr/bin/", "755"],
