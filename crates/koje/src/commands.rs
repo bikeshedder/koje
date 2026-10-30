@@ -15,7 +15,7 @@ use crate::prompt::confirm;
 pub fn run(command: &Command) -> Result<()> {
     let paths = Paths::from_env()?;
     match command {
-        Command::List { json } => list(&paths, *json),
+        Command::List => list(&paths),
         Command::Setup { dry_run, yes } => crate::setup::run(*dry_run, *yes),
         Command::Doctor => crate::doctor::run(),
         Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
@@ -86,7 +86,7 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Save { ctx, state } => {
             crate::runtime::save(&paths, &ctx.context, state.as_deref())
         }
-        Command::Stats { context, json } => crate::memory::stats(&paths, context.as_deref(), *json),
+        Command::Stats { context } => crate::memory::stats(&paths, context.as_deref()),
         Command::Limit { ctx, soft, hard } => {
             crate::memory::limit(&paths, &ctx.context, soft.as_deref(), hard.as_deref())
         }
@@ -478,31 +478,26 @@ fn age(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
     }
 }
 
-/// One row of `koje list --json`. Field names are a public interface for
-/// scripts and bar modules; only add fields.
-#[derive(Debug, serde::Serialize)]
+/// One row of `koje list`.
+#[derive(Debug)]
 struct ListRow {
     name: String,
-    #[serde(flatten)]
     config: Option<ListConfig>,
     /// Number of stored states (without the virtual `empty`).
     states: usize,
     /// Why `context.toml` could not be loaded, if it could not.
-    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug)]
 struct ListConfig {
     prefix: String,
     color: String,
-    image: String,
-    mounts: Vec<String>,
 }
 
 /// `koje list`: contexts found in the config directory. A context whose
 /// `context.toml` is broken is listed with its error instead of failing the list.
-fn list(paths: &Paths, json: bool) -> Result<()> {
+fn list(paths: &Paths) -> Result<()> {
     let mut rows = Vec::new();
     for name in context::names(paths)? {
         let states = states::stored_names(paths, &name)?.len();
@@ -511,8 +506,6 @@ fn list(paths: &Paths, json: bool) -> Result<()> {
                 Some(ListConfig {
                     prefix: cfg.prefix,
                     color: cfg.color.to_string(),
-                    image: cfg.image,
-                    mounts: cfg.mounts.iter().map(|m| m.path.to_string()).collect(),
                 }),
                 None,
             ),
@@ -526,10 +519,6 @@ fn list(paths: &Paths, json: bool) -> Result<()> {
         });
     }
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&rows)?);
-        return Ok(());
-    }
     if rows.is_empty() {
         println!(
             "no contexts yet – create one with `koje new <context>` ({})",

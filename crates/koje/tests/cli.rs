@@ -146,8 +146,6 @@ fn list_without_contexts() {
     let out = koje(tmp.path(), &["list"]);
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("no contexts yet"));
-    let json = stdout(&koje(tmp.path(), &["list", "--json"]));
-    assert_eq!(json.trim(), "[]");
 }
 
 #[test]
@@ -397,7 +395,7 @@ fn state_commands_follow_adr_0013() {
 }
 
 #[test]
-fn list_shows_details_and_json() {
+fn list_shows_details() {
     let tmp = tempfile::tempdir().unwrap();
     stdout(&koje(tmp.path(), &["new", "kp"]));
     stdout(&koje(
@@ -418,17 +416,6 @@ fn list_shows_details_and_json() {
         "{kp}"
     );
     assert!(text.contains("zz "), "{text}");
-
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout(&koje(tmp.path(), &["list", "--json"]))).unwrap();
-    assert_eq!(json[0]["name"], "kp");
-    assert_eq!(json[0]["prefix"], "KP");
-    assert_eq!(json[0]["color"], "#2E7D5B");
-    assert_eq!(json[0]["states"], 1);
-    assert_eq!(json[0]["mounts"], serde_json::json!([]));
-    assert!(json[0].get("error").is_none());
-    assert_eq!(json[1]["name"], "zz");
-    assert!(json[1]["error"].is_string());
 }
 
 #[test]
@@ -1116,10 +1103,12 @@ fn stats_and_limit() {
     stdout(&koje(tmp.path(), &["new", "kp"]));
     let out = stdout(&koje_fake(tmp.path(), &path, &["stats"]));
     assert!(out.contains("kp") && out.contains("not created"), "{out}");
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout(&koje_fake(tmp.path(), &path, &["stats", "--json"]))).unwrap();
-    assert_eq!(json[0]["context"], "kp");
-    assert!(json[0]["soft"].is_null(), "no limits by default (ADR 0035)");
+    let kp = out.lines().find(|l| l.starts_with("kp ")).unwrap();
+    assert_eq!(
+        kp.matches('–').count(),
+        4,
+        "no limits by default (ADR 0035): {kp}"
+    );
 
     let out = stdout(&koje_fake(
         tmp.path(),

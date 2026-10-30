@@ -85,12 +85,7 @@ pub enum Command {
     /// Resume a paused context.
     Wake(Ctx),
     /// Show memory usage per context.
-    Stats {
-        context: Option<String>,
-        /// Machine-readable output (JSON array; sizes in bytes).
-        #[arg(long)]
-        json: bool,
-    },
+    Stats { context: Option<String> },
     /// Change memory limits of a running or stopped context.
     Limit {
         #[command(flatten)]
@@ -229,11 +224,7 @@ pub enum Command {
     #[command(subcommand)]
     Image(ImageCmd),
     /// List contexts.
-    List {
-        /// Machine-readable output (JSON array).
-        #[arg(long)]
-        json: bool,
-    },
+    List,
     /// Install koje's files for this user (Hyprland snippet, Waybar if you
     /// have none, base image) and remove the old install.sh's; run after
     /// every package install or upgrade. Shows the plan first.
@@ -448,10 +439,10 @@ mod tests {
     }
 
     #[test]
-    fn list_takes_json() {
-        assert!(matches!(
-            parse(&["list", "--json"]).unwrap().command,
-            Command::List { json: true }
-        ));
+    fn list_takes_no_json() {
+        assert!(matches!(parse(&["list"]).unwrap().command, Command::List));
+        // ADR 0060: scripts use D-Bus (busctl), not --json.
+        assert!(parse(&["list", "--json"]).is_err());
+        assert!(parse(&["stats", "--json"]).is_err());
     }
 }

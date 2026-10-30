@@ -132,7 +132,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje shell <context> [--dev [<container>]] [-u <user>]` | shell in the context, or in its (only / named) dev container; `-u root` logs in as root there |
 | `koje settings [<context>]` | open the settings app (`koje-settings`, ADR 0060; not built yet, G.27), on a context if given |
 | `koje config [--stdin]` | edit `config.toml` in $EDITOR; `--stdin` takes the new file from stdin (the settings app) |
-| `koje new \| edit \| rm <context>`, `koje list [--json]` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
+| `koje new \| edit \| rm <context>`, `koje list` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
 | `koje setup [--dry-run] [--yes]` | after the package (ADR 0045): enable koje's GNOME Shell extension, build the base image, restart an outdated kojed; plan first, asks once |

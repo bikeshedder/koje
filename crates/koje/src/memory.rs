@@ -10,16 +10,14 @@ use koje_core::paths::Paths;
 use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
 use koje_core::size::ByteSize;
 use koje_podman::Podman;
-use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 struct Row {
     context: String,
     state: &'static str,
-    /// Bytes; `null` when not running.
+    /// Bytes; `None` when not running.
     working_set: Option<u64>,
     current: Option<u64>,
-    anon: Option<u64>,
     soft: Option<u64>,
     hard: Option<u64>,
     /// `normal`, `near_soft`, `over_soft`, `over_hard`.
@@ -56,15 +54,14 @@ fn row(podman: &Podman, cfg: &ContextConfig, global: &GlobalConfig) -> Result<Ro
         state: state_name(status),
         working_set: usage.map(|u| u.working_set().0),
         current: usage.map(|u| u.current.0),
-        anon: usage.map(|u| u.anon.0),
         soft: limits.memory_soft.map(|b| b.0),
         hard: limits.memory_hard.map(|b| b.0),
         level: usage.map(|u| level_name(memory::classify(u.working_set(), &limits))),
     })
 }
 
-/// `koje stats [<context>] [--json]`.
-pub fn stats(paths: &Paths, context: Option<&str>, json: bool) -> Result<()> {
+/// `koje stats [<context>]`.
+pub fn stats(paths: &Paths, context: Option<&str>) -> Result<()> {
     let global = GlobalConfig::load(&paths.global_config())?;
     let configs = match context {
         Some(c) => vec![context::load(paths, &ContextName::new(c)?)?],
@@ -75,10 +72,6 @@ pub fn stats(paths: &Paths, context: Option<&str>, json: bool) -> Result<()> {
         .iter()
         .map(|cfg| row(&podman, cfg, &global))
         .collect::<Result<_>>()?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&rows)?);
-        return Ok(());
-    }
     if rows.is_empty() {
         println!("no contexts yet – create one with `koje new <context>`");
         return Ok(());

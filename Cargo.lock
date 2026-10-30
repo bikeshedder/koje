@@ -397,7 +397,6 @@ dependencies = [
  "koje-core",
  "koje-podman",
  "serde",
- "serde_json",
  "tempfile",
  "tokio",
  "tracing",
