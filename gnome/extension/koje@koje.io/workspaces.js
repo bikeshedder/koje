@@ -3,7 +3,11 @@
 // host workspace keeps its number when context workspaces come and go
 // (context names never are numbers). A context's workspace is made when a
 // command names it. GNOME removes empty workspaces; the ones kojed keeps
-// (`keep-workspaces`) stay.
+// (`keep-workspaces`) stay, and so does host workspace 1.
+//
+// Order (decided 2026-10-30): host workspaces first, then the contexts',
+// then GNOME's empty last one. After each of GNOME's workspace checks the
+// workspaces are moved into that order.
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
@@ -22,7 +26,11 @@ export class Workspaces {
 
         this._tracker = Main.wm._workspaceTracker;
         const check = this._tracker._checkWorkspaces;
-        const kept = () => [...this._kept].map(n => this._contexts.get(n)).filter(Boolean);
+        const kept = () => [
+            ...[...this._kept].map(n => this._contexts.get(n)).filter(Boolean),
+            this._firstHost(),
+        ].filter(Boolean);
+        const self = this;
         this._tracker._checkWorkspaces = function () {
             const marked = kept().filter(ws => !ws._keepAliveId);
             marked.forEach(ws => (ws._keepAliveId = KEPT));
@@ -30,6 +38,7 @@ export class Workspaces {
                 return check.call(this);
             } finally {
                 marked.filter(ws => ws._keepAliveId === KEPT).forEach(ws => (ws._keepAliveId = 0));
+                self._arrange();
             }
         };
     }
@@ -86,6 +95,55 @@ export class Workspaces {
     _others() {
         const contexts = new Set(this._contexts.values());
         return this._all().filter(ws => !contexts.has(ws));
+    }
+
+    /** Host workspace 1, unless it is GNOME's empty last one. */
+    _firstHost() {
+        const all = this._all();
+        const first = this._others()[0];
+        return first && first !== all[all.length - 1] ? first : null;
+    }
+
+    // Host workspaces, then the contexts', then GNOME's empty last one: an
+    // empty host workspace other than host 1, wherever it is (a context's
+    // workspace made after it must not take its place, or GNOME keeps that
+    // one as its empty last one). A host workspace in front is made if there
+    // is none.
+    _arrange() {
+        try {
+            // GNOME keeps the first empty workspace after the last used one:
+            // an empty context's workspace that kojed does not keep and that
+            // is not shown goes here, or GNOME would keep it.
+            const time = global.get_current_time();
+            const kept = new Set([...this._kept].map(n => this._contexts.get(n)));
+            const active = this._manager.get_active_workspace();
+            for (const ws of [...this._contexts.values()]) {
+                if (!kept.has(ws) && ws !== active && ws.n_windows === 0)
+                    this._manager.remove_workspace(ws, time);
+            }
+            const contexts = new Set(this._contexts.values());
+            let all = this._all();
+            const hostsNow = all.filter(ws => !contexts.has(ws));
+            const trailing = hostsNow.slice(1).reverse().find(ws => ws.n_windows === 0) ??
+                (hostsNow.length === 1 && hostsNow[0] === all[all.length - 1] &&
+                 hostsNow[0].n_windows === 0 ? hostsNow[0] : null);
+            if (!all.some(ws => !contexts.has(ws) && ws !== trailing)) {
+                this._manager.append_new_workspace(false, time);
+                all = this._all();
+            }
+            const hosts = all.filter(ws => !contexts.has(ws) && ws !== trailing);
+            const order = [...hosts, ...all.filter(ws => contexts.has(ws)), trailing]
+                .filter(Boolean);
+            order.forEach((ws, i) => {
+                if (ws.index() !== i)
+                    this._manager.reorder_workspace(ws, i);
+            });
+            // GNOME's empty last one, if a context's is last now.
+            if (!trailing)
+                this._manager.append_new_workspace(false, time);
+        } catch (e) {
+            logError(e, 'koje: ordering workspaces');
+        }
     }
 
     _forgetRemoved() {
