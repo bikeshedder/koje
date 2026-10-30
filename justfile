@@ -34,6 +34,11 @@ lint-extension:
 test-extension:
     DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/koje-gnome-lab/run/bus cargo test -p koje-gnome --test extension -- --ignored
 
+# On the HOST, in a GNOME session: a nested GNOME Shell with the installed
+# extension, its own kojed and a test context (scripts/nested-gnome.sh)
+nested-gnome *ARGS:
+    scripts/nested-gnome.sh {{ARGS}}
+
 # Build all crates
 build:
     cargo build --workspace
