@@ -34,7 +34,11 @@ compositor process and may use Mutter's and the Shell's internals.
 - **kojed keeps its logic** and talks to the extension through a new
   `Compositor` adapter `koje-gnome`. It picks the adapter at start.
 - **One GNOME workspace per context, across all monitors.** The extension
-  keeps context workspaces alive.
+  keeps context workspaces alive. GNOME arranges and removes workspaces as
+  it always does; context workspaces show in their context's color, with
+  their name where there is room: the top bar's workspace dots, the
+  overview's thumbnails and the keyboard switcher popup (decided 2026-10-30;
+  keeping host workspaces in front was tried and reverted).
 - **No** custom launcher, overview, bar, OSD, notification server, share picker,
   screenshot UI, session or settings bridge on GNOME: GNOME's own are used.
   The koje settings app (`koje-shell settings`) stays. It is about koje only.
