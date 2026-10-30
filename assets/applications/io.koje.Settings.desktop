@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=koje Settings
+Comment=Contexts, their states, windows and memory
+Exec=koje-settings
+Icon=io.koje.Koje-symbolic
+Categories=Settings;System;
+Keywords=koje;context;container;state;memory;
+StartupNotify=true
+DBusActivatable=false

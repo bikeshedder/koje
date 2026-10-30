@@ -47,7 +47,7 @@ crates/koje-gnome  GNOME adapter (ADR 0059): Compositor port over koje's GNOME S
 crates/koje-podman Podman adapter (ContainerRuntime), base image
 crates/koje-runtime driving context containers (up, down, mounts, host bus, limits); shared by the CLI and kojed
 crates/koje-forward static D-Bus forwarder inside every context (ADR 0025)
-gnome              koje's UI (ADR 0060): the GNOME Shell extension (gnome/extension/koje@koje.io); the settings app and the TS toolchain will join it
+gnome              koje's UI (ADR 0060): the GNOME Shell extension (gnome/extension/koje@koje.io, JS), the settings app (gnome/src/settings, TypeScript + Blueprint), the D-Bus client generated from kojed's interface file (gnome/src/api)
 build             the Ubuntu 26.04 image `just deb` builds the package in (ADR 0045)
 assets            files koje ships besides binaries: kojed's unit, icon, base image
 scripts           host helpers outside koje itself (package build and install, nested GNOME session)
@@ -71,6 +71,7 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
 | run CLI | `just koje list` |
 | format | `just fmt` |
 | Debian package (ADR 0045) | `just deb`; on the host `just install` |
+| UI (TypeScript, ADR 0060) | `just ui` builds `gnome/build`; `just check-ui` (generated types current, `tsc`, vitest, ESLint); `just settings` runs the app |
 | GNOME extension | `just lint-extension`; with the GNOME lab running `just test-extension`; on the host `just nested-gnome` |
 
 ## How to work here
@@ -97,8 +98,12 @@ Always run `just check` before saying a change is done. It runs `cargo fmt --che
   through koje's extension (`koje-gnome`, `io.koje.Extension1`). Every GNOME
   internal the extension touches is listed in `docs/upstream/gnome-apis.md`.
 - koje's UI is TypeScript on GJS (ADR 0060): the extension and the settings app.
-  It talks to kojed only over `io.koje.Daemon1`. Logic without `gi://` imports
-  lives in plain modules with tests; nothing blocks the main loop.
+  It talks to kojed only over `io.koje.Daemon1`, whose contract is
+  `crates/kojed/dbus/io.koje.Daemon1.xml` (change it with kojed's API; `just ui`
+  regenerates `gnome/src/api/daemon1.ts`). Logic without `gi://` imports lives
+  in plain modules with vitest tests (`model.ts`); widgets only render it;
+  nothing blocks the main loop. Run `just check-ui` besides `just check` when
+  `gnome/` or the interface file changed.
 - GNOME provides the desktop and its settings; koje builds no pages for system
   settings.
 - Programs inside contexts are never modified or configured by koje. Integrations

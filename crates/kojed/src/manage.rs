@@ -133,7 +133,8 @@ fn switches(access: &Access) -> HashMap<String, bool> {
 /// - `profile`: `s`, empty for `config.toml`'s; `default_profile`: `s`,
 ///   `config.toml`'s (`full` when unset),
 /// - `access`: `a{sb}`, the switches the context sets itself; `effective`:
-///   `a{sb}`, every switch as the context gets it,
+///   `a{sb}`, every switch as the context gets it; `bases`: `a{sa{sb}}`,
+///   every profile's switches by name, `config.toml`'s under `""`,
 /// - `mounts`: `as`, paths as written,
 /// - `memory_soft`, `memory_hard`: `t`, bytes, 0 for none.
 pub fn config(paths: &Paths, ctx: &ContextName) -> Result<HashMap<String, OwnedValue>> {
@@ -165,6 +166,14 @@ pub fn config(paths: &Paths, ctx: &ContextName) -> Result<HashMap<String, OwnedV
     );
     put("access", value(overrides));
     put("effective", value(switches(&cfg.effective_access(&global))));
+    // Each profile's switches, and config.toml's under "": a form shows the
+    // switches of a profile chosen before it is saved.
+    let mut bases: HashMap<String, HashMap<String, bool>> = Profile::ALL
+        .into_iter()
+        .map(|p| (p.as_str().to_owned(), switches(&p.access())))
+        .collect();
+    bases.insert(String::new(), switches(&global.access.standalone()));
+    put("bases", value(bases));
     put("mounts", value(s.mounts));
     put("memory_soft", value(s.memory_soft.map_or(0, |b| b.0)));
     put("memory_hard", value(s.memory_hard.map_or(0, |b| b.0)));
@@ -391,6 +400,10 @@ mod tests {
             ""
         );
         assert_eq!(u64::try_from(&c["memory_soft"]).unwrap(), 0);
+        let bases: HashMap<String, HashMap<String, bool>> =
+            HashMap::try_from(c["bases"].try_clone().unwrap()).unwrap();
+        assert!(!bases["desktop"]["gpu"]);
+        assert!(bases[""]["gpu"]);
         let effective: HashMap<String, bool> =
             HashMap::try_from(c["effective"].try_clone().unwrap()).unwrap();
         assert_eq!(effective.get("gpu"), Some(&true));

@@ -46,7 +46,7 @@ states and memory limits. Run `koje setup` as your user after \
 installing or upgrading."""
 section = "utils"
 priority = "optional"
-depends = "$auto, gnome-shell (>= 50), gnome-shell (<< 51~), podman, uidmap, passt, fuse-overlayfs, xdg-dbus-proxy"
+depends = "$auto, gnome-shell (>= 50), gnome-shell (<< 51~), gjs, gir1.2-adw-1, gir1.2-gtk-4.0, podman, uidmap, passt, fuse-overlayfs, xdg-dbus-proxy"
 recommends = "foot"
 assets = [
     ["target/release/koje", "usr/bin/", "755"],
@@ -58,4 +58,10 @@ assets = [
     ["../../gnome/extension/koje@koje.io/*.js", "usr/share/gnome-shell/extensions/koje@koje.io/", "644"],
     ["../../gnome/extension/koje@koje.io/dbus/*.xml", "usr/share/gnome-shell/extensions/koje@koje.io/dbus/", "644"],
     ["../../assets/icons/io.koje.Koje-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
+    # koje Settings (ADR 0060): gnome/ built by `just ui` (scripts/build-deb.sh).
+    ["../../assets/bin/koje-settings", "usr/bin/", "755"],
+    ["../../assets/applications/io.koje.Settings.desktop", "usr/share/applications/", "644"],
+    ["../../gnome/build/api/*.js", "usr/share/koje/ui/api/", "644"],
+    ["../../gnome/build/settings/*.js", "usr/share/koje/ui/settings/", "644"],
+    ["../../gnome/build/settings/ui/*.ui", "usr/share/koje/ui/settings/ui/", "644"],
 ]

@@ -1,1 +1,3 @@
 node_modules/
+# `just ui` output; the package ships it
+build/

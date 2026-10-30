@@ -1,0 +1,255 @@
+// koje Settings (ADR 0060): the contexts in the sidebar, Memory first; per
+// context the pages Settings, States and Windows. Rows that depend on
+// kojed's data are added from code (window.ts).
+using Gtk 4.0;
+using Adw 1;
+
+Adw.ApplicationWindow window {
+  title: "koje Settings";
+  default-width: 960;
+  default-height: 700;
+  width-request: 360;
+  height-request: 400;
+
+  Adw.Breakpoint {
+    condition ("max-width: 640sp")
+
+    setters {
+      split.collapsed: true;
+    }
+  }
+
+  content: Adw.ToastOverlay toasts {
+    Adw.NavigationSplitView split {
+      min-sidebar-width: 220;
+
+      sidebar: Adw.NavigationPage {
+        title: "koje";
+
+        Adw.ToolbarView {
+          [top]
+          Adw.HeaderBar {
+            [end]
+            Button new_context {
+              icon-name: "list-add-symbolic";
+              tooltip-text: "New Context";
+            }
+          }
+
+          content: ScrolledWindow {
+            hscrollbar-policy: never;
+
+            ListBox sidebar {
+              styles [
+                "navigation-sidebar",
+              ]
+            }
+          };
+        }
+      };
+
+      content: Adw.NavigationPage content_page {
+        title: "Memory";
+
+        Adw.ToolbarView {
+          [top]
+          Adw.HeaderBar header {
+            title-widget: Adw.ViewSwitcher switcher {
+              stack: context_stack;
+              policy: wide;
+              visible: false;
+            };
+
+            [end]
+            Box actions {
+              spacing: 6;
+            }
+          }
+
+          content: Stack pages {
+            transition-type: crossfade;
+
+            StackPage {
+              name: "memory";
+
+              child: Adw.PreferencesPage {
+                Adw.PreferencesGroup memory_group {
+                  title: "Memory";
+                  description: "Each running context's working set against its limits. Limits are set on a context's page.";
+                }
+              };
+            }
+
+            StackPage {
+              name: "context";
+
+              child: Adw.ViewStack context_stack {
+                Adw.ViewStackPage {
+                  name: "settings";
+                  title: "Settings";
+                  icon-name: "emblem-system-symbolic";
+
+                  child: Adw.PreferencesPage {
+                    Adw.PreferencesGroup {
+                      title: "Appearance";
+
+                      Adw.EntryRow prefix_row {
+                        title: "Short label";
+                      }
+
+                      Adw.EntryRow label_row {
+                        title: "Name in the top bar (empty: the context's name)";
+                      }
+
+                      Adw.EntryRow icon_row {
+                        title: "Icon name (empty: folder-symbolic)";
+                      }
+
+                      Adw.ActionRow {
+                        title: "Color";
+                        subtitle: "Of the glow, the badge and the workspace";
+
+                        [suffix]
+                        ColorDialogButton color_button {
+                          valign: center;
+
+                          dialog: ColorDialog {
+                            with-alpha: false;
+                          };
+                        }
+                      }
+                    }
+
+                    Adw.PreferencesGroup access_group {
+                      title: "Access";
+                      description: "What the context may use on this computer. Changes apply to a new container (Recreate).";
+
+                      Adw.ComboRow profile_row {
+                        title: "Profile";
+                      }
+                    }
+
+                    Adw.PreferencesGroup mounts_group {
+                      title: "Folders";
+                      description: "Folders below your home that the context sees at the same path.";
+
+                      [header-suffix]
+                      Button add_mount {
+                        icon-name: "list-add-symbolic";
+                        tooltip-text: "Add Folder";
+                        valign: center;
+
+                        styles [
+                          "flat",
+                        ]
+                      }
+                    }
+
+                    Adw.PreferencesGroup {
+                      title: "Memory Limits";
+                      description: "Sizes like 6G. Soft: a notification at 90 % and 100 %. Hard: the context is saved and shut down.";
+
+                      Adw.EntryRow soft_row {
+                        title: "Soft limit (empty: none)";
+                      }
+
+                      Adw.EntryRow hard_row {
+                        title: "Hard limit (empty: none)";
+                      }
+                    }
+
+                    Adw.PreferencesGroup {
+                      Box {
+                        spacing: 12;
+                        halign: end;
+
+                        Button revert_button {
+                          label: "Revert";
+                          sensitive: false;
+                        }
+
+                        Button save_button {
+                          label: "Save";
+                          sensitive: false;
+
+                          styles [
+                            "suggested-action",
+                          ]
+                        }
+                      }
+                    }
+
+                    Adw.PreferencesGroup {
+                      title: "Container";
+
+                      Adw.ActionRow image_row {
+                        title: "Image";
+                      }
+
+                      Adw.ActionRow {
+                        title: "Recreate";
+                        subtitle: "A new container from the current settings. Everything installed in it outside your home is lost; the windows come back.";
+
+                        [suffix]
+                        Button recreate_button {
+                          label: "Recreate…";
+                          valign: center;
+
+                          styles [
+                            "destructive-action",
+                          ]
+                        }
+                      }
+                    }
+                  };
+                }
+
+                Adw.ViewStackPage {
+                  name: "states";
+                  title: "States";
+                  icon-name: "document-save-symbolic";
+
+                  child: Adw.PreferencesPage {
+                    Adw.PreferencesGroup states_group {
+                      title: "States";
+                      description: "Which programs run and where. Starting a context loads its default state.";
+
+                      [header-suffix]
+                      Button save_as {
+                        label: "Save As…";
+                        valign: center;
+                      }
+                    }
+                  };
+                }
+
+                Adw.ViewStackPage {
+                  name: "windows";
+                  title: "Windows";
+                  icon-name: "focus-windows-symbolic";
+
+                  child: Adw.PreferencesPage {
+                    Adw.PreferencesGroup windows_group {
+                      title: "Windows";
+                      description: "What a save would remember of the running context.";
+                    }
+                  };
+                }
+              };
+            }
+
+            StackPage {
+              name: "kojed";
+
+              child: Adw.StatusPage {
+                icon-name: "dialog-warning-symbolic";
+                title: "kojed Is Not Running";
+                description: "koje's background service is needed for everything here. Start it with: systemctl --user start kojed";
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+}

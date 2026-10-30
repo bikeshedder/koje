@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build the koje package (ADR 0045) in an Ubuntu 26.04 container
 # (build/Containerfile), on the host or in the dev container alike – only
-# Podman and git are needed: the binaries, the musl forwarder, then cargo-deb.
+# Podman and git are needed: the UI (gnome/, ADR 0060), the binaries, the musl
+# forwarder, then cargo-deb.
 # Writes target/debian/koje_<version>_amd64.deb. `just deb` runs it.
 #
 # Its own target directory (target/ubuntu): artifacts built against the dev
@@ -30,6 +31,7 @@ podman run --rm \
   "$image:$tag" bash -euo pipefail -c '
     export CARGO_TARGET_DIR=/src/target/ubuntu
     mkdir -p target/deb-staging target/debian
+    (cd gnome && npm ci --no-audit --no-fund --silent && npm run --silent build)
     cargo build --release --locked -p koje -p kojed
     cargo build --release --locked -p koje-forward --target x86_64-unknown-linux-musl
     cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/koje-forward" target/deb-staging/

@@ -29,6 +29,18 @@ test *ARGS:
 lint-extension:
     cd gnome && npm ci --no-audit --no-fund --silent && npx eslint extension
 
+# Build koje's UI (ADR 0060): TypeScript and Blueprint in gnome/src to gnome/build
+ui:
+    cd gnome && npm ci --no-audit --no-fund --silent && npm run --silent build
+
+# Check koje's UI: generated D-Bus types current, TypeScript, tests, ESLint
+check-ui:
+    cd gnome && npm ci --no-audit --no-fund --silent && npm run --silent check
+
+# Run koje Settings from gnome/build against the session's kojed (`just ui` first)
+settings *ARGS:
+    gjs -m gnome/build/settings/main.js {{ARGS}}
+
 # The GNOME adapter against the extension running in the GNOME lab
 # (docs/spikes/setup/gnome-lab: lab.sh start first)
 test-extension:

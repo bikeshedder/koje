@@ -130,7 +130,7 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje dotfiles [-c <context>]` | link the dotfiles presets again now in every running context (or one) and list the presets (ADR 0038) |
 | `koje terminal [-c <context>]` | open a terminal (foot) in the active context; on a workspace without a context, on the host (Super+Return, ADR 0037) |
 | `koje shell <context> [--dev [<container>]] [-u <user>]` | shell in the context, or in its (only / named) dev container; `-u root` logs in as root there |
-| `koje settings [<context>]` | open the settings app (`koje-settings`, ADR 0060; not built yet, G.27), on a context if given |
+| `koje settings [<context>]` | open koje Settings (`koje-settings`, ADR 0060), on a context if given |
 | `koje config [--stdin]` | edit `config.toml` in $EDITOR; `--stdin` takes the new file from stdin (the settings app) |
 | `koje new \| edit \| rm <context>`, `koje list` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
@@ -179,8 +179,10 @@ windows get the sleep overlay. Memory stays allocated (can be swapped out).
 | `koje-runtime` | driving context containers: up, down, sleep, mounts, dotfiles, host bus, limits; shared by the CLI and kojed |
 | `koje` | CLI, client of core, koje-runtime and kojed |
 
-UI (ADR 0060): TypeScript on GJS in `gnome/` – the Shell extension (now plain
-JS, G.26) and the settings app (G.27).
+UI (ADR 0060), in `gnome/`: the Shell extension (plain JS so far) and koje
+Settings (`koje-settings`, `io.koje.Settings`: TypeScript on GJS, GTK 4 and
+libadwaita, layout in Blueprint). Both talk to kojed over `io.koje.Daemon1`;
+the settings app's client is generated from `crates/kojed/dbus/io.koje.Daemon1.xml`.
 
 ## Outlook (not planned now)
 

@@ -1,0 +1,21 @@
+{
+    // koje's UI in TypeScript for GJS (ADR 0060): `just ui` compiles src/
+    // to build/, which GJS runs as ES modules.
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ES2022",
+        "moduleResolution": "bundler",
+        "lib": ["ES2022"],
+        "types": [],
+        "strict": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "skipLibCheck": true,
+        "rootDir": "src",
+        "outDir": "build"
+    },
+    "include": ["src/**/*.ts"],
+    "exclude": ["src/**/*.test.ts"]
+}

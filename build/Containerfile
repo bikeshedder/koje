@@ -1,11 +1,13 @@
 # Builds the koje package (ADR 0045) on the distribution koje runs on:
-# Ubuntu 26.04, so the package fits the host exactly.
+# Ubuntu 26.04, so the package fits the host exactly. Node and Blueprint
+# build koje's UI (gnome/, ADR 0060).
 # scripts/build-deb.sh (`just deb`) builds the image once and runs it; it
 # works the same on the host and in the dev container.
 FROM docker.io/library/ubuntu:26.04
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates curl git build-essential pkg-config rustup musl-tools \
+        nodejs npm blueprint-compiler \
     && rm -rf /var/lib/apt/lists/*
 # The workspace's toolchain (rust-toolchain.toml), the static forwarder's
 # target and cargo-deb.

@@ -60,6 +60,7 @@
         default_profile  s      config.toml's profile ("full" when unset)
         access           a{sb}  the switches the context sets itself
         effective        a{sb}  every switch as the context gets it
+        bases            a{sa{sb}}  every profile's switches by name, config.toml's under ""
         mounts           as     host folders as written in context.toml
         memory_soft      t      bytes, 0 for none
         memory_hard      t      bytes, 0 for none

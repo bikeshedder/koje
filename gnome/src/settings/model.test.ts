@@ -1,0 +1,138 @@
+import {describe, expect, it} from 'vitest';
+
+import {
+    type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
+    memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
+    states, statusLabel, validName, withSwitch,
+} from './model.js';
+
+const config: Config = {
+    name: 'kp', prefix: 'KP', label: '', icon: '', color: '#2E7D5B', image: 'koje/base',
+    profile: '', default_profile: 'full',
+    access: {sound: false},
+    effective: {gpu: true, sound: false},
+    bases: {'': {gpu: true, sound: true}, desktop: {gpu: false, sound: true}},
+    mounts: ['~/src'], memory_soft: 6 * 2 ** 30, memory_hard: 0,
+};
+
+describe('contexts', () => {
+    const [kp, bad] = contexts([
+        ['kp', 'Kundenportal', 'folder-symbolic', '#2E7D5B', 'running', 2],
+        ['zz', 'zz', '', '', 'nonsense', 0],
+    ]);
+    it('read the rows', () => {
+        expect(kp.label).toBe('Kundenportal');
+        expect(bad.status).toBe('invalid');
+    });
+    it('say their status, or what is under way', () => {
+        expect(statusLabel(kp, undefined)).toBe('Running · 2 windows');
+        expect(statusLabel(kp, 'down')).toBe('Stopping…');
+        expect(statusLabel({...kp, status: 'paused'}, undefined)).toBe('Asleep');
+    });
+    it('offer what their status allows', () => {
+        expect(actions(kp)).toEqual(['sleep', 'down']);
+        expect(actions({...kp, status: 'stopped'})).toEqual(['up']);
+        expect(actions({...kp, status: 'paused'})).toEqual(['wake', 'down']);
+        expect(actions(bad)).toEqual([]);
+    });
+});
+
+describe('sizes as koje writes them', () => {
+    it('parse', () => {
+        expect(parseSize('6G')).toBe(6 * 2 ** 30);
+        expect(parseSize('512m')).toBe(512 * 2 ** 20);
+        expect(parseSize('1024')).toBe(1024);
+        expect(parseSize(' ')).toBe(0);
+        expect(parseSize('6 GB')).toBeNull();
+        expect(parseSize('lots')).toBeNull();
+    });
+    it('format', () => {
+        expect(formatSize(6 * 2 ** 30)).toBe('6G');
+        expect(formatSize(1536 * 2 ** 20)).toBe('1536M');
+        expect(formatSize(0)).toBe('');
+        expect(humanSize(1_503_238_553)).toBe('1.3 GiB');
+        expect(humanSize(20 * 2 ** 30)).toBe('20 GiB');
+        expect(humanSize(900)).toBe('900 B');
+    });
+    it('describe memory against the limits', () => {
+        expect(memoryLabel(2 ** 30, 2 * 2 ** 30, 0)).toBe('1.0 GiB of soft 2.0 GiB');
+        expect(memoryLabel(2 ** 30, 0, 0)).toBe('1.0 GiB · no limit');
+        expect(memoryFraction(2 ** 30, 2 ** 30, 4 * 2 ** 30)).toBe(0.25);
+        expect(memoryFraction(3, 2, 0)).toBe(1);
+        expect(memoryFraction(3, 0, 0)).toBe(0);
+    });
+});
+
+describe('the context form', () => {
+    const f = form(config);
+    it('comes from the config', () => {
+        expect(f.memorySoft).toBe('6G');
+        expect(f.memoryHard).toBe('');
+        expect(effective(f, config.bases)).toEqual({gpu: true, sound: false});
+    });
+    it('shows the switches of a profile chosen before saving', () => {
+        expect(effective({...f, profile: 'desktop'}, config.bases).gpu).toBe(false);
+    });
+    it('keeps only switches that differ from the profile', () => {
+        const back = withSwitch(f, config.bases, 'sound', true);
+        expect(back.access).toEqual({});
+        const off = withSwitch(f, config.bases, 'gpu', false);
+        expect(off.access).toEqual({sound: false, gpu: false});
+    });
+    it('sends only what changed', () => {
+        expect(changes(f, f)).toEqual({});
+        const edited = {...f, label: 'Kundenportal', memoryHard: '8G', mounts: ['~/src', '~/docs']};
+        expect(changes(f, edited)).toEqual({
+            label: 'Kundenportal', memory_hard: 8 * 2 ** 30, mounts: ['~/src', '~/docs'],
+        });
+        expect(changes(f, {...f, access: {}})).toEqual({access: {}});
+    });
+    it('says what keeps it from being saved', () => {
+        expect(problems(f)).toEqual({});
+        expect(Object.keys(problems({...f, prefix: ' ', color: 'green', memoryHard: '4G'})).sort())
+            .toEqual(['color', 'memorySoft', 'prefix']);
+        expect(problems({...f, icon: '../x'}).icon).toBeTruthy();
+    });
+    it('takes folders below the home only', () => {
+        expect(mountPath('/home/mj/src/koje', '/home/mj')).toBe('~/src/koje');
+        expect(mountPath('/home/mj', '/home/mj')).toBeNull();
+        expect(mountPath('/home/mjx/a', '/home/mj')).toBeNull();
+        expect(mountPath('/srv', '/home/mj/')).toBeNull();
+    });
+});
+
+describe('states', () => {
+    const now = 1_000_000;
+    const [def, fresh, empty, broken] = states([
+        ['default', 'default', true, true, 3, 1, now - 300, ''],
+        ['fresh', 'fresh', false, false, 0, 0, 0, ''],
+        ['empty', '', false, false, 0, 0, 0, ''],
+        ['old', '', false, true, 0, 0, 0, 'bad toml'],
+    ]);
+    it('say what they hold', () => {
+        expect(stateSubtitle(def, now)).toBe('3 windows · saved 5 min ago');
+        expect(stateSubtitle(fresh, now)).toBe('Not saved yet');
+        expect(stateSubtitle(empty, now)).toBe('No windows (built in)');
+        expect(stateSubtitle(broken, now)).toBe('Cannot be read: bad toml');
+    });
+    it('offer what can be done with them', () => {
+        expect(stateActions(def, true)).toEqual(['load', 'save', 'copy', 'rename', 'remove']);
+        expect(stateActions(empty, true)).toEqual(['load']);
+        expect(stateActions(fresh, false)).toEqual(['load']);
+    });
+    it('age as koje state list', () => {
+        expect(ago(now - 30, now)).toBe('just now');
+        expect(ago(now - 7200, now)).toBe('2 h ago');
+        expect(ago(now - 86400, now)).toBe('1 day ago');
+        expect(ago(now - 3 * 86400, now)).toBe('3 days ago');
+    });
+});
+
+it('accepts names as koje does', () => {
+    expect(validName('kundenportal')).toBe(true);
+    expect(validName('kp-2')).toBe(true);
+    expect(validName('Kp')).toBe(false);
+    expect(validName('2kp')).toBe(false);
+    expect(validName('kp_2')).toBe(false);
+    expect(validName('a'.repeat(49))).toBe(false);
+});

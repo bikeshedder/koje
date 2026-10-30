@@ -1,0 +1,4 @@
+#!/bin/sh
+# koje Settings (ADR 0060): koje's settings app, TypeScript built for GJS
+# (gnome/, `just ui`), installed by the package to /usr/share/koje/ui.
+exec gjs -m /usr/share/koje/ui/settings/main.js "$@"
