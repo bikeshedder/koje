@@ -294,6 +294,23 @@ pub fn set_config(
     Ok(follow(paths, ctx, &before, &after))
 }
 
+/// A context's dash favorites (ADR 0053, 0062): desktop file ids, `None`
+/// when it has none of its own.
+pub fn favorites(paths: &Paths, ctx: &ContextName) -> Result<Option<Vec<String>>> {
+    Ok(context::load(paths, ctx)?.favorites)
+}
+
+/// Set them (`None`: none of its own) in `context.toml`, comments kept.
+pub fn set_favorites(paths: &Paths, ctx: &ContextName, favorites: Option<&[String]>) -> Result<()> {
+    context::load(paths, ctx)?;
+    let path = paths.context_config(ctx);
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let new = context::with_favorites(&text, favorites).map_err(|e| Invalid(e.to_string()))?;
+    context::replace_config(paths, ctx, &new).map_err(|e| Invalid(e.to_string()))?;
+    Ok(())
+}
+
 /// What a running or created context does after its config changed (as
 /// `koje edit`); notes for what it cannot do.
 fn follow(
@@ -357,6 +374,26 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), v.try_clone().unwrap()))
             .collect()
+    }
+
+    #[test]
+    fn favorites_set_kept_and_unset() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(tmp.path());
+        new_context(&p, "kp").unwrap();
+        let kp = ContextName::new("kp").unwrap();
+        assert_eq!(favorites(&p, &kp).unwrap(), None);
+        let ids = ["firefox.desktop".to_owned(), "foot.desktop".to_owned()];
+        set_favorites(&p, &kp, Some(&ids)).unwrap();
+        assert_eq!(favorites(&p, &kp).unwrap().as_deref(), Some(&ids[..]));
+        // Nothing pinned is not the same as none of its own.
+        set_favorites(&p, &kp, Some(&[])).unwrap();
+        assert_eq!(favorites(&p, &kp).unwrap(), Some(vec![]));
+        set_favorites(&p, &kp, None).unwrap();
+        assert_eq!(favorites(&p, &kp).unwrap(), None);
+        let err = set_favorites(&p, &kp, Some(&["firefox".to_owned()])).unwrap_err();
+        assert!(err.downcast_ref::<Invalid>().is_some(), "{err:#}");
+        assert!(favorites(&p, &ContextName::new("nope").unwrap()).is_err());
     }
 
     #[test]

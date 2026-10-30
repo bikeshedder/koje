@@ -12,6 +12,8 @@ export interface Methods {
     Contexts: {in: []; out: [[string, string, string, string, string, number][]]};
     ActiveContext: {in: []; out: [string]};
     Focus: {in: [string]; out: []};
+    Favorites: {in: [string]; out: [boolean, string[]]};
+    SetFavorites: {in: [string, boolean, string[]]; out: []};
     NewContext: {in: [string]; out: [string]};
     Config: {in: [string]; out: [Record<string, unknown>]};
     SetConfig: {in: [string, Record<string, GLib.Variant>]; out: [string[]]};
@@ -39,6 +41,8 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     Contexts: ['()', '(a(sssssu))'],
     ActiveContext: ['()', '(s)'],
     Focus: ['(s)', '()'],
+    Favorites: ['(s)', '(bas)'],
+    SetFavorites: ['(sbas)', '()'],
     NewContext: ['(s)', '(s)'],
     Config: ['(s)', '(a{sv})'],
     SetConfig: ['(sa{sv})', '(as)'],
@@ -64,6 +68,7 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
 /** Each signal's arguments. */
 export interface Signals {
     ContextsChanged: [];
+    FavoritesChanged: [string];
     OperationStarted: [string, string];
     OperationFinished: [string, string];
     OperationFailed: [string, string, string, string];

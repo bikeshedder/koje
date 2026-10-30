@@ -316,6 +316,35 @@ impl Api {
         Ok(created)
     }
 
+    /// The context's dash favorites (ADR 0053, 0062): `(own, ids)`; `own`
+    /// false when it has none of its own (GNOME's apply, as far as it has
+    /// the programs).
+    async fn favorites(&self, context: &str) -> Result<(bool, Vec<String>), Error> {
+        let (paths, ctx) = (self.paths.clone(), context_name(context)?);
+        let own = blocking(move || crate::manage::favorites(&paths, &ctx)).await?;
+        Ok((own.is_some(), own.unwrap_or_default()))
+    }
+
+    /// Set them, as pinned from the dash; `own` false removes the context's
+    /// own (`ids` ignored).
+    async fn set_favorites(
+        &self,
+        context: &str,
+        own: bool,
+        ids: Vec<String>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let (paths, ctx) = (self.paths.clone(), context_name(context)?);
+        let c = ctx.clone();
+        blocking(move || crate::manage::set_favorites(&paths, &c, own.then_some(&ids[..]))).await?;
+        let _ = Self::favorites_changed(&emitter, ctx.as_str()).await;
+        Ok(())
+    }
+
+    /// A context's dash favorites changed.
+    #[zbus(signal)]
+    async fn favorites_changed(emitter: &SignalEmitter<'_>, context: &str) -> zbus::Result<()>;
+
     /// The windows of a running context's live state: `(id, app id,
     /// command, integration)`, empty strings when unknown.
     async fn windows(&self, context: &str) -> Result<Vec<(String, String, String, String)>, Error> {

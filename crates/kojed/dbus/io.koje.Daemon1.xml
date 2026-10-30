@@ -48,6 +48,26 @@
     <method name="Focus">
       <arg name="context" type="s" direction="in"/>
     </method>
+    <!--
+      The context's dash favorites (ADR 0053, 0062): desktop file ids. own
+      false: it has none of its own; GNOME's apply, as far as the context
+      has those programs.
+    -->
+    <method name="Favorites">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="own" type="b" direction="out"/>
+      <arg name="ids" type="as" direction="out"/>
+    </method>
+    <!-- Set them, as pinned from the dash; own false removes the context's own (ids ignored). -->
+    <method name="SetFavorites">
+      <arg name="context" type="s" direction="in"/>
+      <arg name="own" type="b" direction="in"/>
+      <arg name="ids" type="as" direction="in"/>
+    </method>
+    <!-- A context's dash favorites changed. -->
+    <signal name="FavoritesChanged">
+      <arg name="context" type="s"/>
+    </signal>
     <!-- Create a context as `koje new` does, with a color of its own; returns its name. -->
     <method name="NewContext">
       <arg name="name" type="s" direction="in"/>
