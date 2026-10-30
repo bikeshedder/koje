@@ -1,5 +1,7 @@
-// koje's one top-bar button (ADR 0059): the context of the workspace on
-// screen in its color, its memory against its limits, and koje Settings.
+// koje's one top-bar button (ADR 0059), on the left next to the workspace
+// indicator: the context of the workspace on screen in its color, a meter
+// of its memory against its limits (as the Hyprland bar's, M8.21), and a
+// menu with the numbers and koje Settings.
 // Colors and memory from kojed (`ListContexts`, `Memory`), refreshed on its
 // `ContextsChanged` and `MemoryChanged` and when the workspace changes.
 
@@ -23,6 +25,47 @@ async function kojed(method, params, replyType) {
     return reply.deepUnpack();
 }
 
+// The meter: width, line thickness, soft-limit tick (px); amber from this
+// share of the soft limit (koje_core::memory::WARN_PERCENT).
+const METER_WIDTH = 64;
+const TRACK = 4;
+const SOFT_MARK = 10;
+const WARN = 0.9;
+
+/** The used part's color by level (GNOME's palette, as koje-shell's). */
+export function levelColor(used, soft, hard) {
+    if (hard > 0 && used >= hard)
+        return [0xe0, 0x1b, 0x24];
+    if (soft > 0 && used >= soft)
+        return [0xe6, 0x61, 0x00];
+    if (soft > 0 && used >= soft * WARN)
+        return [0xe5, 0xa5, 0x0a];
+    return [0x2e, 0xc2, 0x7e];
+}
+
+function paintMeter(area, [used, soft, hard]) {
+    const cr = area.get_context();
+    const [width, height] = area.get_surface_size();
+    const max = Math.max(hard || soft, 1);
+    const middle = height / 2;
+    const text = area.get_theme_node().get_foreground_color();
+    const line = (to, rgba) => {
+        cr.setSourceRGBA(...rgba);
+        cr.rectangle(0, middle - TRACK / 2, to, TRACK);
+        cr.fill();
+    };
+    line(width, [text.red / 255, text.green / 255, text.blue / 255, 0.2]);
+    const fill = Math.min(used / max, 1) * width;
+    line(fill, [...levelColor(used, soft, hard).map(c => c / 255), 1]);
+    if (hard > 0 && soft > 0) {
+        const at = Math.min(Math.max(width * soft / max, 1), width - 1);
+        cr.setSourceRGBA(text.red / 255, text.green / 255, text.blue / 255, 0.7);
+        cr.rectangle(at - 1, middle - SOFT_MARK / 2, 2, SOFT_MARK);
+        cr.fill();
+    }
+    cr.$dispose();
+}
+
 /** "1.2 GB", "1.2 GB of 6.0 GB" with a soft limit, both limits if set. */
 export function memoryText(used, soft, hard) {
     const size = n => GLib.format_size(n);
@@ -39,8 +82,16 @@ class Indicator extends PanelMenu.Button {
             style: 'width: 10px; height: 10px; border-radius: 5px;',
         });
         this._label = new St.Label({y_align: Clutter.ActorAlign.CENTER, text: 'koje'});
+        this._meter = new St.DrawingArea({
+            y_align: Clutter.ActorAlign.CENTER,
+            width: METER_WIDTH,
+            height: SOFT_MARK + 2,
+            visible: false,
+        });
+        this._meter.connect('repaint', a => paintMeter(a, this._memoryValues));
         box.add_child(this._dot);
         box.add_child(this._label);
+        box.add_child(this._meter);
         this.add_child(box);
 
         this._memory = new PopupMenu.PopupMenuItem('', {reactive: false});
@@ -59,6 +110,11 @@ class Indicator extends PanelMenu.Button {
         this._memory.visible = context !== '';
         this._memory.label.text = memory
             ? `Memory: ${memoryText(...memory)}` : 'Memory: not measured yet';
+        // A meter needs a limit to fill up to.
+        this._memoryValues = memory;
+        this._meter.visible = Boolean(memory && (memory[1] > 0 || memory[2] > 0));
+        if (this._meter.visible)
+            this._meter.queue_repaint();
     }
 
     _settings() {
@@ -76,7 +132,8 @@ export class TopBar {
     constructor(workspaces) {
         this._workspaces = workspaces;
         this._button = new Indicator();
-        Main.panel.addToStatusArea('koje', this._button, 0, 'right');
+        // Right after the workspace indicator (Activities).
+        Main.panel.addToStatusArea('koje', this._button, 1, 'left');
         this._signalIds = ['ContextsChanged', 'MemoryChanged'].map(signal =>
             Gio.DBus.session.signal_subscribe(KOJED[0], KOJED[2], signal, KOJED[1], null,
                 Gio.DBusSignalFlags.NONE, () => this.refresh()));
