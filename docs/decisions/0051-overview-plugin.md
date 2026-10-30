@@ -1,6 +1,6 @@
 # 0051. The overview's windows come from a koje Hyprland plugin
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-26
 - Source: host test of M8.67 ("the screenshots are pixelated and don't look
   right"); amends ADR 0049

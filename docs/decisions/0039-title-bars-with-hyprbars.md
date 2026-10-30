@@ -1,6 +1,6 @@
 # 0039. Title bars from the hyprbars plugin
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-24
 - Source: discussion (title bars to move windows)
 

@@ -1,6 +1,6 @@
 # 0001. Hyprland is the only compositor
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-16
 - Source: concept document (`docs/concept/koje-konzept.pdf`)
 

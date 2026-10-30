@@ -1,6 +1,6 @@
 # 0057. Windows look as in GNOME; windows outside their context glow and carry a badge
 
-- Status: Accepted
+- Status: Accepted (the plugin part: superseded by [0061](0061-remove-the-hyprland-path.md))
 - Date: 2026-10-27
 - Source: discussion ("the window borders should look exactly like GNOME –
   the current outlines just don't look right"); revises ADR 0018's visible

@@ -1,6 +1,6 @@
 # 0048. koje is its own session; Hyprland is the compositor it starts
 
-- Status: Accepted (updated 2026-10-26: the session config is generated at login; no user file required)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-26
 - Source: discussion (GNOME Settings refuses to start under
   `XDG_CURRENT_DESKTOP=Hyprland`, M8.30; a lost `hyprland.conf` took the

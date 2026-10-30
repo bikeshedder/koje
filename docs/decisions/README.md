@@ -5,7 +5,7 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 
 | # | Decision | Status |
 |---|---|---|
-| 0001 | [Hyprland is the only compositor](0001-hyprland-only.md) | Accepted |
+| 0001 | [Hyprland is the only compositor](0001-hyprland-only.md) | Superseded by 0061 |
 | 0002 | [Drive Podman directly, no Distrobox](0002-podman-directly.md) | Accepted |
 | 0003 | [Each context runs its own nested Podman](0003-podman-in-podman.md) | Accepted |
 | 0004 | [Layouts are part of a state](0004-layouts-in-states.md) | Accepted |
@@ -22,11 +22,11 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0015 | [Runtime environment of a context container](0015-context-runtime-environment.md) | Accepted |
 | 0016 | [GPU access in context containers](0016-gpu-access.md) | Accepted |
 | 0017 | [Access profiles: configurable host access per context](0017-access-profiles.md) | Accepted |
-| 0018 | [Window colors by tag rule](0018-window-colors-by-tag-rule.md) | Accepted |
+| 0018 | [Window colors by tag rule](0018-window-colors-by-tag-rule.md) | Superseded by 0061 |
 | 0019 | [Host interfaces through a forwarder and a filtered proxy](0019-host-interfaces-via-forwarder.md) | Accepted |
 | 0020 | [Lucide as koje's icon font](0020-lucide-icon-font.md) | Accepted (koje's own UI: 0043) |
 | 0021 | [Installer: what it may change](0021-installer.md) | Accepted (binaries: 0045; `hyprland.conf`: 0048) |
-| 0022 | [A security-context Wayland socket per context](0022-wayland-security-context.md) | Accepted |
+| 0022 | [A security-context Wayland socket per context](0022-wayland-security-context.md) | Superseded by 0061 |
 | 0023 | [The base image `koje/base`](0023-base-image.md) | Accepted |
 | 0024 | [One koje overlay for sleeping and hanging windows](0024-unresponsive-window-overlay.md) | Accepted |
 | 0025 | [Running the host-bus proxy and the forwarder](0025-host-bus-runtime.md) | Accepted |
@@ -40,28 +40,29 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0033 | [Mounts follow `context.toml` while a context runs](0033-live-mounts.md) | Accepted |
 | 0034 | [Mounts are folders below the home](0034-mounts-below-the-home.md) | Accepted |
 | 0035 | [Memory limits use the working set; no limits by default](0035-memory-accounting.md) | Accepted |
-| 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Accepted (bar and toolkit: 0042) |
-| 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Accepted (look: 0043; keyboard: 0044; session entry and services: 0048) |
+| 0036 | [A settings app built with Kiesel; the bar stays on Waybar](0036-settings-app-and-bar.md) | Superseded by 0061 |
+| 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Superseded by 0061 |
 | 0038 | [Dotfiles presets: shared, read-only configuration for contexts](0038-dotfiles-presets.md) | Accepted |
-| 0039 | [Title bars from the hyprbars plugin](0039-title-bars-with-hyprbars.md) | Accepted |
+| 0039 | [Title bars from the hyprbars plugin](0039-title-bars-with-hyprbars.md) | Superseded by 0061 |
 | 0040 | [Context images: image folders, registry images, a koje layer and kept versions](0040-context-images.md) | Proposed |
-| 0041 | [Volume, brightness and media keys through `koje media`, with an OSD](0041-volume-brightness-and-media-keys.md) | Accepted |
-| 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Accepted (bar design: 0047) |
-| 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Accepted (bar: 0047, Super: 0049) |
-| 0044 | [GNOME Settings for the system, a gsettings bridge in kojed](0044-gnome-settings-and-gsettings-bridge.md) | Accepted |
+| 0041 | [Volume, brightness and media keys through `koje media`, with an OSD](0041-volume-brightness-and-media-keys.md) | Superseded by 0061 |
+| 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Superseded by 0061 |
+| 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Superseded by 0061 |
+| 0044 | [GNOME Settings for the system, a gsettings bridge in kojed](0044-gnome-settings-and-gsettings-bridge.md) | Superseded by 0061 |
 | 0045 | [koje ships as one Debian package, built in the dev container](0045-debian-package.md) | Accepted |
-| 0046 | [Displays: GNOME Settings through Mutter's API, `monitors.xml` as the source](0046-displays-through-monitors-xml.md) | Accepted |
-| 0047 | [koje's bar is a clone of GNOME's top bar](0047-gnome-top-bar.md) | Accepted |
-| 0048 | [koje is its own session; Hyprland is the compositor it starts](0048-koje-session.md) | Accepted |
-| 0049 | [An overview and a dash like GNOME's](0049-overview-and-dash.md) | Accepted (windows: 0051; dash: 0053) |
-| 0050 | [koje's own screen sharing picker](0050-screen-sharing-picker.md) | Accepted |
-| 0051 | [The overview's windows come from a koje Hyprland plugin](0051-overview-plugin.md) | Accepted |
-| 0052 | [New windows open as in GNOME](0052-new-windows-as-in-gnome.md) | Accepted |
-| 0053 | [The dash and the workspace shortcuts follow the context](0053-dash-per-context.md) | Accepted |
-| 0054 | [The shell draws the background from GNOME's settings](0054-background-from-the-shell.md) | Accepted |
+| 0046 | [Displays: GNOME Settings through Mutter's API, `monitors.xml` as the source](0046-displays-through-monitors-xml.md) | Superseded by 0061 |
+| 0047 | [koje's bar is a clone of GNOME's top bar](0047-gnome-top-bar.md) | Superseded by 0061 |
+| 0048 | [koje is its own session; Hyprland is the compositor it starts](0048-koje-session.md) | Superseded by 0061 |
+| 0049 | [An overview and a dash like GNOME's](0049-overview-and-dash.md) | Superseded by 0061 |
+| 0050 | [koje's own screen sharing picker](0050-screen-sharing-picker.md) | Superseded by 0061 |
+| 0051 | [The overview's windows come from a koje Hyprland plugin](0051-overview-plugin.md) | Superseded by 0061 |
+| 0052 | [New windows open as in GNOME](0052-new-windows-as-in-gnome.md) | Superseded by 0061 |
+| 0053 | [The dash and the workspace shortcuts follow the context](0053-dash-per-context.md) | Superseded by 0061 |
+| 0054 | [The shell draws the background from GNOME's settings](0054-background-from-the-shell.md) | Superseded by 0061 |
 | 0055 | [Workspaces, contexts and overlays have an icon and a label](0055-icons-and-labels.md) | Accepted |
-| 0056 | [Everything in koje.conf is a setting: the look in koje Settings, shortcuts in GNOME Settings](0056-everything-in-koje-conf-is-a-setting.md) | Accepted |
-| 0057 | [Windows look as in GNOME; windows outside their context glow and carry a badge](0057-windows-as-in-gnome-foreign-windows-marked.md) | Accepted |
-| 0058 | [Notifications are grouped by app and compact, as in Android](0058-notifications-grouped-as-in-android.md) | Accepted |
-| 0059 | [Experiment: koje as a customization of GNOME Shell](0059-experiment-koje-on-gnome-shell.md) | Proposed (branch `gnome`; UI and API: 0060) |
-| 0060 | [koje's UI in TypeScript on GJS; kojed's API is D-Bus](0060-ui-in-typescript-api-on-d-bus.md) | Accepted (GNOME path) |
+| 0056 | [Everything in koje.conf is a setting: the look in koje Settings, shortcuts in GNOME Settings](0056-everything-in-koje-conf-is-a-setting.md) | Superseded by 0061 |
+| 0057 | [Windows look as in GNOME; windows outside their context glow and carry a badge](0057-windows-as-in-gnome-foreign-windows-marked.md) | Accepted (plugin part superseded by 0061) |
+| 0058 | [Notifications are grouped by app and compact, as in Android](0058-notifications-grouped-as-in-android.md) | Superseded by 0061 |
+| 0059 | [Experiment: koje as a customization of GNOME Shell](0059-experiment-koje-on-gnome-shell.md) | Accepted (0061; UI and API: 0060) |
+| 0060 | [koje's UI in TypeScript on GJS; kojed's API is D-Bus](0060-ui-in-typescript-api-on-d-bus.md) | Accepted |
+| 0061 | [koje runs on GNOME only; the Hyprland path is removed](0061-remove-the-hyprland-path.md) | Accepted |

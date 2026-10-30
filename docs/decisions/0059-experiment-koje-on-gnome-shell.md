@@ -1,6 +1,6 @@
 # 0059. Experiment: koje as a customization of GNOME Shell
 
-- Status: Proposed (experiment on branch `gnome`)
+- Status: Accepted ([0061](0061-remove-the-hyprland-path.md))
 - Date: 2026-10-29
 - Source: discussion ("rather than emulating GNOME, give customizing GNOME a
   try"); plan [G](../plan/G-gnome.md)

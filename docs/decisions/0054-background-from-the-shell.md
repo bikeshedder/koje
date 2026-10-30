@@ -1,6 +1,6 @@
 # 0054. The shell draws the background from GNOME's settings
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-27
 - Source: plan tasks M8.82, M8.83 (requested 2026-10-26: the background
   changeable with GNOME Settings, GNOME's menu on a right click)

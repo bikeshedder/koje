@@ -2,8 +2,8 @@
 
 Branch `gnome` only (ADR 0059). koje runs inside a stock GNOME 50 session. A
 GNOME Shell extension adds what is koje's own; GNOME provides everything else.
-No custom launcher, overview, bar, OSD, notifications or settings bridges. The
-Hyprland path stays untouched until G.14 decides. Limitations: ADR 0059;
+No custom launcher, overview, bar, OSD, notifications or settings bridges.
+The Hyprland path is removed (ADR 0061, G.28). Limitations: ADR 0059;
 upstream asks: [docs/upstream/gnome-apis.md](../upstream/gnome-apis.md).
 
 Kept: contexts and containers, states (one geometry per window), memory limits,
@@ -73,7 +73,7 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
   - The compositor choice moved to koje-core (`compositor::Kind::from_env`) for the CLI. `layout`, `stash`, `unstash`, `snap`, `overlay`, `pin`, `unpin` fail on GNOME (CLI test). `koje setup` on GNOME: the extension (`gnome-extensions enable`, else GNOME's `enabled-extensions` for the next login) and the image. `koje doctor` on GNOME: GNOME Shell 50, the extension serving `io.koje.Extension`, L1 as a warning. The .deb installs the extension to `/usr/share/gnome-shell/extensions/`; the extension starts `kojed.service` through systemd (nothing else does in a GNOME session). ADR 0005 is about states and needs no change; `docs/architecture.md` has a note.
   - `just deb` builds; the package holds the extension. Installed and run on the host 2026-10-30: first tests worked. Risk: a systemd user manager that still has `HYPRLAND_INSTANCE_SIGNATURE` from a Hyprland login makes kojed choose Hyprland; `KOJE_COMPOSITOR=gnome` overrides.
 - [x] **G.17 `koje shell` and `koje run` as another user** (user, from daily use): `-u, --user <user>` passed to `podman exec --user` (e.g. `root` to install packages; the context is rootless, its root is the user on the host). Also for `shell --dev`.
-- [~] **G.18 Memory meter in the top bar** (user): the context's memory against its limit in the bar itself, on the left near the workspace indicator, not only in the menu.
+- [x] **G.18 Memory meter in the top bar** (user): the context's memory against its limit in the bar itself, on the left near the workspace indicator, not only in the menu.
   - The button moved to the left box after Activities; a 64 px meter as the Hyprland bar's (M8.21): filled to the hard limit, else the soft one, a tick at the soft limit when both are set, GNOME's green/amber (90 % of soft)/orange (over soft)/red (hard). Hidden without limits. Checked in a headless GNOME Shell with test values (place, visibility, menu text); its drawing and real numbers on the host.
 - [x] **G.19 Nested GNOME session for extension work** (user): `just nested-gnome [context]` (`scripts/nested-gnome.sh`) on the host: a devkit GNOME Shell on its own session bus with the installed extension, a second kojed there (own config and state in `$XDG_RUNTIME_DIR/koje-nested`), a test context (default `nested-test`) up with a foot; closing the window stops both. New extension code without logging out. Not run here (no host session).
 - [x] **G.20 Host workspaces first** – reverted (user): GNOME keeps arranging workspaces; G.21 marks context workspaces instead.
@@ -89,6 +89,7 @@ profiles. Deferred: layouts and stash, overlays, pin/unpin, snap zones.
   - Done when: the extension builds, lints and passes `just test-extension` as before; the generated types are checked to be current. After G.23.
 - [ ] **G.27 Settings app in TypeScript** (`io.koje.Settings`, `gnome/settings/`): Memory; per context Context, States, Windows; libadwaita with Blueprint layouts, view models as pure TS; `.desktop` and D-Bus activation; `koje settings [<context>]` and the indicator's "koje Settings…" open it
   - Done when: it runs in the nested GNOME session (G.19) against kojed; view models tested; in the .deb. After G.24 and G.26. The prototype in `crates/koje-shell` is not ported.
-- [ ] **G.28 Remove koje-shell and the Hyprland path**: crates, plugin, assets, Hyprland-only CLI commands and Daemon1 members, `koje apps --json`
-  - Notes: needs the ADR that removes the Hyprland path (ADR 0059; after G.14).
-- [ ] **G.14 Evaluation**: code kept vs. not needed (lines), daily-use findings, limitations hit, recommendation (adopt → ADR to remove the Hyprland path; or stop)
+- [~] **G.28 Remove koje-shell and the Hyprland path**: crates, plugin, assets, Hyprland-only CLI commands and Daemon1 members, `koje apps --json`
+  - Decided by ADR 0061 (2026-10-30, user): the Hyprland path goes now, before G.14.
+- [-] **G.14 Evaluation**: code kept vs. not needed (lines), daily-use findings, limitations hit, recommendation (adopt → ADR to remove the Hyprland path; or stop)
+  - Dropped: the user adopted GNOME from daily use (ADR 0061).

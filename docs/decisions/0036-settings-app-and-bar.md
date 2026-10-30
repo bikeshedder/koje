@@ -1,6 +1,6 @@
 # 0036. A settings app built with Kiesel; the bar stays on Waybar
 
-- Status: Accepted; bar and toolkit superseded by ADR 0042 (own bar, GTK4)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-22
 - Source: plan task M8.3, discussion (the concept's panel overlay revisited)
 

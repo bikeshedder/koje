@@ -1,6 +1,6 @@
 # 0049. An overview and a dash like GNOME's
 
-- Status: Accepted (the windows: ADR 0051 – a koje Hyprland plugin; the dash
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
   per context and the workspace shortcuts: ADR 0053)
 - Date: 2026-10-26
 - Source: discussion after the task list was dropped (ADR 0047); amends the

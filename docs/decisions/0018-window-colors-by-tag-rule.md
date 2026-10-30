@@ -1,6 +1,6 @@
 # 0018. Window colors by tag rule
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-17
 - Source: spike [M2.2](../spikes/M2.2-hyprland-ipc.md), Hyprland v0.53.3
 

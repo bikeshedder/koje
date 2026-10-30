@@ -1,6 +1,6 @@
 # 0060. koje's UI in TypeScript on GJS; kojed's API is D-Bus
 
-- Status: Accepted (GNOME path, branch `gnome`)
+- Status: Accepted
 - Date: 2026-10-30
 - Source: discussion about the settings app (2026-10-29/30); plan
   [G](../plan/G-gnome.md) G.22–G.28

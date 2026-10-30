@@ -1,6 +1,6 @@
 # 0047. koje's bar is a clone of GNOME's top bar
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-26
 - Source: discussion after M8.30 ("clone the GNOME bar, not the Waybar
   design"); revises the bar of ADR 0042 and ADR 0043

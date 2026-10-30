@@ -1,6 +1,6 @@
 # 0052. New windows open as in GNOME
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-26
 - Source: host report "every Firefox and Thunderbird window opens way too
   small" (a `WAYLAND_DEBUG` trace); ADR 0043 (GNOME look and feel), ADR 0051

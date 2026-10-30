@@ -1,6 +1,6 @@
 # 0022. A security-context Wayland socket per context
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-18
 - Source: spike [M2.9](../spikes/M2.9-screen-capture.md), Hyprland 0.53.3 real session
 

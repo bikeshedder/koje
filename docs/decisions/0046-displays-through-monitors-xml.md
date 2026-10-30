@@ -1,6 +1,6 @@
 # 0046. Displays: GNOME Settings through Mutter's API, `monitors.xml` as the source
 
-- Status: Accepted (updated 2026-10-26: the monitor config is generated at login into the runtime directory, ADR 0048)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-26
 - Source: discussion (a lost `hyprland.conf` left the screen at a wrong mode;
   configuring screens in GNOME Settings); answers the open question

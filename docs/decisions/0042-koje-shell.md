@@ -1,6 +1,6 @@
 # 0042. The koje shell: an own bar, and GTK4 for all of koje's UI
 
-- Status: Accepted (the bar's design: ADR 0047 – a clone of GNOME's top bar)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-24
 - Source: discussion (Waybar's limits, the toolkit for an own bar, one program
   for all of koje's UI); revises ADR 0036, answers the open question "Own bar"

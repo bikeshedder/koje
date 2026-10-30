@@ -1,6 +1,6 @@
 # 0056. Everything in koje.conf is a setting: the look in koje Settings, shortcuts in GNOME Settings
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-27
 - Source: discussion after M8.91 ("make the overlay configurable in the koje
   settings – everything in koje.conf should be editable with the koje

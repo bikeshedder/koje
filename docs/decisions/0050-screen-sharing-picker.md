@@ -1,6 +1,6 @@
 # 0050. koje's own screen sharing picker
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-26
 - Source: M8.65 ([report](../spikes/M8.65-share-picker.md)), M8.66
 

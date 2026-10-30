@@ -1,6 +1,6 @@
 # 0058. Notifications are grouped by app and compact, as in Android
 
-- Status: Accepted
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-28
 - Source: discussion (requested 2026-10-28: "Group the notifications by app
   similar to how Android manages notifications. Make the display more compact.

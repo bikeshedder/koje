@@ -1,6 +1,6 @@
 # 0043. GNOME's look and feel, with libadwaita
 
-- Status: Accepted (notifications: ADR 0058; the bar's design: ADR 0047 – a clone of GNOME's top bar; Super alone: ADR 0049 – the overview)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-25
 - Source: discussion (the look of koje's GTK4 UI, ADR 0042); answers the open
   question "Look of koje's GTK4 UI"

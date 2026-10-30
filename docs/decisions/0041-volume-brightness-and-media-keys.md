@@ -1,6 +1,6 @@
 # 0041. Volume, brightness and media keys through `koje media`, with an OSD
 
-- Status: Accepted (the OSD toolkit revised by ADR 0042: GTK4 instead of Kiesel Desktop)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-24
 - Source: discussion (after `koje setup` replaced Hyprland's default config, the
   laptop's brightness and volume keys were dead); extends ADR 0037

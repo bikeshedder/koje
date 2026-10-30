@@ -1,6 +1,6 @@
 # 0053. The dash and the workspace shortcuts follow the context
 
-- Status: Accepted (amends 0049)
+- Status: Superseded by [0061](0061-remove-the-hyprland-path.md)
 - Date: 2026-10-26
 - Source: host test of the overview (M8.69); M8.75, M8.76
 
