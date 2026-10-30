@@ -35,9 +35,6 @@ compositor process and may use Mutter's and the Shell's internals.
   `Compositor` adapter `koje-gnome`. It picks the adapter at start.
 - **One GNOME workspace per context, across all monitors.** The extension
   keeps context workspaces alive.
-- **Host workspaces first, then the contexts', then GNOME's empty last one**
-  (decided 2026-10-30, after the nested test lost every host workspace). Host
-  workspace 1 always stays, even empty.
 - **No** custom launcher, overview, bar, OSD, notification server, share picker,
   screenshot UI, session or settings bridge on GNOME: GNOME's own are used.
   The koje settings app (`koje-shell settings`) stays. It is about koje only.
