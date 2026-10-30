@@ -13,14 +13,17 @@
 // and `search` and Shell.App's `activate` and `open_new_window` as JS calls
 // them (docs/upstream/gnome-apis.md).
 
+import type Gio from 'gi://Gio';
 import GioUnix from 'gi://GioUnix';
 import GLib from 'gi://GLib';
 import type Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 
+import * as AppDisplay from 'resource:///org/gnome/shell/ui/appDisplay.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {Kojed} from '../api/kojed.js';
+import {badge} from './badge.js';
 import type * as Match from './match.js';
 import {isHost, type Workspaces} from './workspaces.js';
 
@@ -40,6 +43,9 @@ interface Listed {
     should_show(): boolean;
     get_categories(): null;
 }
+
+/** AppDisplay.AppDisplay's `_loadApps`, internal. */
+type LoadApps = {_loadApps(...args: unknown[]): unknown[]};
 
 /** Whether every word of `query` is in the program's name or keywords. */
 function matches({name, keywords}: Program, query: string): boolean {
@@ -61,6 +67,8 @@ export class Apps {
     #kojed = new Kojed();
     /** context → koje id → program */
     #contexts = new Map<string, Map<string, Program>>();
+    /** context → its color */
+    #colors = new Map<string, string>();
     #appSys: Shell.AppSystem;
     #orig;
     #activeId: number;
@@ -73,7 +81,9 @@ export class Apps {
         const appSys = this.#appSys as unknown as Patched;
         const search = Shell.AppSystem as unknown as {search(query: string): string[][]};
         const App = Shell.App.prototype;
+        const Grid = AppDisplay.AppDisplay.prototype as unknown as LoadApps;
         this.#orig = {
+            gridApps: Grid._loadApps,
             lookup: appSys.lookup_app,
             installed: appSys.get_installed,
             search: search.search,
@@ -104,6 +114,27 @@ export class Apps {
             if (!self.#launchContexts(this))
                 orig.openNew.apply(this, args);
         };
+        // App folders name host apps by id: on a context's workspace the
+        // grid has none (as if they were removed; an emptied folder is left
+        // disposed in GNOME's cache).
+        Grid._loadApps = function (this: {_folderSettings: Gio.Settings}, ...args: unknown[]) {
+            if (!self.#current())
+                return orig.gridApps.apply(this, args);
+            const real = this._folderSettings;
+            this._folderSettings = new Proxy(real, {
+                get(target, key) {
+                    if (key === 'get_strv')
+                        return (k: string) => k === 'folder-children' ? [] : target.get_strv(k);
+                    const value = Reflect.get(target, key) as unknown;
+                    return typeof value === 'function' ? value.bind(target) : value;
+                },
+            });
+            try {
+                return orig.gridApps.apply(this, args);
+            } finally {
+                this._folderSettings = real;
+            }
+        };
 
         this.#activeId = global.workspace_manager.connect('active-workspace-changed',
             () => void this.#load());
@@ -123,6 +154,7 @@ export class Apps {
         (Shell.AppSystem as unknown as {search: unknown}).search = this.#orig.search;
         Shell.App.prototype.activate = this.#orig.activate;
         Shell.App.prototype.open_new_window = this.#orig.openNew;
+        (AppDisplay.AppDisplay.prototype as unknown as LoadApps)._loadApps = this.#orig.gridApps;
         this.#contexts.clear();
         this.#appSys.emit('installed-changed');
     }
@@ -130,6 +162,11 @@ export class Apps {
     /** A context's programs as last loaded, by koje id; empty before. */
     programs(context: string): Map<string, Program> {
         return this.#contexts.get(context) ?? new Map();
+    }
+
+    /** A context's color as kojed last said, gray before. */
+    color(context: string): string {
+        return this.#colors.get(context) ?? '#808080';
     }
 
     /** Start a context's program by its desktop file id. */
@@ -162,6 +199,9 @@ export class Apps {
         }
         let list: [string, string, string, string[], string, string][];
         try {
+            const [contexts] = await this.#kojed.call('Contexts');
+            for (const [name, , , color] of contexts)
+                this.#colors.set(name, color);
             [list] = await this.#kojed.call('Apps', context);
         } catch (e) {
             log(`koje: the programs of ${context}: ${e instanceof Error ? e.message : String(e)}`);
@@ -188,6 +228,7 @@ export class Apps {
         if (icon)
             entry.set_string(group, 'Icon', icon);
         const app = new Shell.App({app_info: GioUnix.DesktopAppInfo.new_from_keyfile(entry)!});
+        badge(app, context, () => this.color(context));
         const launch = () => this.#launch(context, id);
         Object.assign(app, {
             get_id: () => kojeId,

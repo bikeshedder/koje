@@ -29,6 +29,7 @@ import * as AppFavorites from 'resource:///org/gnome/shell/ui/appFavorites.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {Kojed} from '../api/kojed.js';
+import {badge} from './badge.js';
 import type {Apps, Program} from './apps.js';
 import * as Match from './match.js';
 import type {Service} from './service.js';
@@ -380,6 +381,9 @@ export class Dash {
         entry.set_string(group, 'Exec', 'true');
         const app = new Shell.App({app_info: GioUnix.DesktopAppInfo.new_from_keyfile(entry)!});
         Object.assign(app, {get_id: () => kojeId, open_new_window: () => {}, launch: () => {}});
+        const context = this.#context();
+        if (context)
+            badge(app, context, () => this.#apps.color(context));
         return app;
     }
 
