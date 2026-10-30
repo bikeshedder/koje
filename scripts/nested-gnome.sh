@@ -6,6 +6,10 @@
 #
 #   scripts/nested-gnome.sh [context]     # default context: nested-test
 #
+# While it runs, `. $XDG_RUNTIME_DIR/koje-nested/env` in another terminal
+# makes koje, koje-shell and programs there use the nested session (its bus,
+# config, state and window), e.g. `koje-shell settings`.
+#
 # The nested koje has its own config and state (in $XDG_RUNTIME_DIR/koje-nested,
 # gone at the next boot); states still go to ~/.local/share/koje/<context>
 # (Podman's storage shares XDG_DATA_HOME). Use a context of its own: two kojeds
@@ -75,9 +79,14 @@ exec dbus-run-session -- bash -euo pipefail -c '
   unset HYPRLAND_INSTANCE_SIGNATURE
   kojed > "$log/kojed.log" 2>&1 &
   kojed=$!
+  # For other terminals: the nested session'\''s environment.
+  for v in DBUS_SESSION_BUS_ADDRESS PATH WAYLAND_DISPLAY KOJE_COMPOSITOR XDG_CONFIG_HOME XDG_STATE_HOME; do
+    printf "export %s=%q\n" "$v" "${!v}"
+  done > "$log/env"
   cleanup() {
     koje down "$NESTED_CONTEXT" --no-save >&3 2>&3 || true
     kill "$kojed" 2>/dev/null || true
+    rm -f "$log/env"
   }
   trap cleanup EXIT
   # kojed on the bus before koje asks it.
@@ -94,5 +103,6 @@ exec dbus-run-session -- bash -euo pipefail -c '
   say
   say "Nested GNOME Shell on $socket with context $NESTED_CONTEXT."
   say "Logs: $log/shell.log, $log/kojed.log. Close its window to end it."
+  say "In another terminal: . $log/env – then koje, koje-shell settings, … use it."
   wait "$shell" || true
 ' 2>"$home/session.log"
