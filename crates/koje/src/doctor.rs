@@ -192,7 +192,7 @@ fn package() -> Check {
 }
 
 fn forwarder() -> Check {
-    match crate::hostbus::forwarder_binary() {
+    match koje_runtime::hostbus::forwarder_binary() {
         Some(p) => Check::ok(format!("forwarder {}", p.display())),
         None => Check::warn(
             format!(

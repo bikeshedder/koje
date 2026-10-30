@@ -10,7 +10,7 @@ use koje_core::paths::Paths;
 use koje_core::states::{self, Role, Summary};
 
 use crate::cli::{Command, Ctx, ImageCmd, StateCmd};
-use crate::prompt::confirm;
+use koje_runtime::prompt::confirm;
 
 pub fn run(command: &Command) -> Result<()> {
     let paths = Paths::from_env()?;
@@ -29,7 +29,9 @@ pub fn run(command: &Command) -> Result<()> {
             }
         }
         Command::Config { stdin } => config(&paths, *stdin),
-        Command::Recreate { ctx, yes } => crate::runtime::recreate(&paths, &ctx.context, *yes),
+        Command::Recreate { ctx, yes } => {
+            koje_runtime::runtime::recreate(&paths, &ctx.context, *yes)
+        }
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
         Command::State(cmd) => state(&paths, cmd),
@@ -42,11 +44,11 @@ pub fn run(command: &Command) -> Result<()> {
             recover,
             no_recover,
             no_focus,
-        } => crate::runtime::up(
+        } => koje_runtime::runtime::up(
             &paths,
             &ctx.context,
             state.as_deref(),
-            crate::runtime::UpOptions {
+            koje_runtime::runtime::UpOptions {
                 no_save: *no_save,
                 recover: *recover,
                 no_recover: *no_recover,
@@ -57,38 +59,38 @@ pub fn run(command: &Command) -> Result<()> {
             ctx,
             state,
             no_save,
-        } => crate::runtime::down(&paths, &ctx.context, state.as_deref(), *no_save),
+        } => koje_runtime::runtime::down(&paths, &ctx.context, state.as_deref(), *no_save),
 
         Command::Shell { ctx, dev, user } => {
-            crate::runtime::shell(&paths, &ctx.context, dev.as_deref(), user.as_deref())
+            koje_runtime::runtime::shell(&paths, &ctx.context, dev.as_deref(), user.as_deref())
         }
 
-        Command::Open { ctx, target } => crate::runtime::open(&paths, &ctx.context, target),
+        Command::Open { ctx, target } => koje_runtime::runtime::open(&paths, &ctx.context, target),
         Command::Run {
             ctx,
             no_focus,
             user,
             command,
-        } => crate::runtime::run(&paths, &ctx.context, command, !*no_focus, user.as_deref()),
+        } => koje_runtime::runtime::run(&paths, &ctx.context, command, !*no_focus, user.as_deref()),
 
         Command::Apps { ctx, start } => crate::apps::run(&paths, ctx, start.as_deref()),
         Command::Favorites { ctx, set, reset } => {
             crate::apps::favorites(&paths, ctx, set.as_deref(), *reset)
         }
-        Command::Dotfiles { context } => crate::dotfiles::run(&paths, context.as_deref()),
+        Command::Dotfiles { context } => koje_runtime::dotfiles::run(&paths, context.as_deref()),
         Command::Terminal(ctx) => crate::terminal::run(&paths, ctx),
 
-        Command::Sleep(ctx) => crate::runtime::sleep(&paths, &ctx.context),
-        Command::Wake(ctx) => crate::runtime::wake(&paths, &ctx.context),
+        Command::Sleep(ctx) => koje_runtime::runtime::sleep(&paths, &ctx.context),
+        Command::Wake(ctx) => koje_runtime::runtime::wake(&paths, &ctx.context),
 
         Command::Focus(ctx) => focus(&paths, ctx),
 
         Command::Save { ctx, state } => {
-            crate::runtime::save(&paths, &ctx.context, state.as_deref())
+            koje_runtime::runtime::save(&paths, &ctx.context, state.as_deref())
         }
-        Command::Stats { context } => crate::memory::stats(&paths, context.as_deref()),
+        Command::Stats { context } => koje_runtime::memory::stats(&paths, context.as_deref()),
         Command::Limit { ctx, soft, hard } => {
-            crate::memory::limit(&paths, &ctx.context, soft.as_deref(), hard.as_deref())
+            koje_runtime::memory::limit(&paths, &ctx.context, soft.as_deref(), hard.as_deref())
         }
     }
 }
@@ -198,7 +200,7 @@ fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::Con
             );
         }
     }
-    if let Err(e) = crate::mounts::sync(paths, name, &after, true) {
+    if let Err(e) = koje_runtime::mounts::sync(paths, name, &after, true) {
         println!("note: mounts of {name} not changed: {e:#}");
     }
     // A running context links changed presets at once (ADR 0038).
@@ -208,7 +210,7 @@ fn apply_edit(paths: &Paths, name: &ContextName, before: &koje_core::config::Con
     );
     if running
         && (after.dotfiles != before.dotfiles || !after.dotfiles.is_empty())
-        && let Err(e) = crate::dotfiles::link(paths, &after)
+        && let Err(e) = koje_runtime::dotfiles::link(paths, &after)
     {
         println!("note: dotfiles of {name} not linked: {e:#}");
     }
@@ -356,7 +358,7 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
         podman.release_home(&name)?;
         podman.remove_volume(&volume)?;
     }
-    crate::hostbus::stop_proxy(&name);
+    koje_runtime::hostbus::stop_proxy(&name);
     context::remove(paths, &name)?;
     println!("removed context {name}");
     Ok(())

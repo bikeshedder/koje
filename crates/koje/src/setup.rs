@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use koje_core::setup::{self, Action, Step};
 
-use crate::prompt::confirm;
+use koje_runtime::prompt::confirm;
 
 /// Command → Debian/Ubuntu package koje needs on the host.
 pub const DEPENDENCIES: [(&str, &str); 5] = [

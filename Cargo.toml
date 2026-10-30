@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/koje-core", "crates/koje-podman", "crates/koje-gnome", "crates/koje-forward", "crates/koje", "crates/kojed"]
+members = ["crates/koje-core", "crates/koje-podman", "crates/koje-gnome", "crates/koje-forward", "crates/koje-runtime", "crates/koje", "crates/kojed"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,6 +15,7 @@ publish = false
 koje-core = { path = "crates/koje-core" }
 koje-podman = { path = "crates/koje-podman" }
 koje-gnome = { path = "crates/koje-gnome" }
+koje-runtime = { path = "crates/koje-runtime" }
 
 anyhow = "1"
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }

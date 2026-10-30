@@ -396,6 +396,7 @@ dependencies = [
  "futures-util",
  "koje-core",
  "koje-podman",
+ "koje-runtime",
  "serde",
  "tempfile",
  "tokio",
@@ -453,6 +454,20 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "koje-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "koje-core",
+ "koje-podman",
+ "serde",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "zbus",
 ]
 
 [[package]]

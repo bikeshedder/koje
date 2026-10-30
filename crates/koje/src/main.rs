@@ -7,13 +7,7 @@ mod apps;
 mod cli;
 mod commands;
 mod doctor;
-mod dotfiles;
-mod hostbus;
 mod kojed;
-mod memory;
-mod mounts;
-mod prompt;
-mod runtime;
 mod setup;
 mod terminal;
 

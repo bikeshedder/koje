@@ -36,7 +36,7 @@ pub fn run(paths: &Paths, ctx: &ActiveCtx) -> Result<()> {
     match place {
         // The active context's workspace is in view already; a named one is
         // switched to, like `koje run`.
-        Place::Context(name) => crate::runtime::run(
+        Place::Context(name) => koje_runtime::runtime::run(
             paths,
             &name,
             &[TERMINAL.to_owned()],

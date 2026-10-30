@@ -36,7 +36,7 @@ pub fn run(paths: &Paths, ctx: &ActiveCtx, start: Option<&str>) -> Result<()> {
         command.insert(0, crate::terminal::TERMINAL.to_owned());
     }
     // The active context's workspace is in view already.
-    crate::runtime::run(paths, name.as_str(), &command, ctx.context.is_some(), None)
+    koje_runtime::runtime::run(paths, name.as_str(), &command, ctx.context.is_some(), None)
 }
 
 /// List a context's favorites, or set them (`--set`) or remove them
