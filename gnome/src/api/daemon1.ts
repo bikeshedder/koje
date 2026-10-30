@@ -31,19 +31,6 @@ export interface Methods {
     ContextOfPid: {in: [number]; out: [string]};
     Memory: {in: [string]; out: [string, number, number, number, number]};
     MemoryHistory: {in: [string]; out: [string, number, number[]]};
-    WaylandSocket: {in: [string]; out: [string]};
-    SoundSockets: {in: [string]; out: [string]};
-    ReleaseWaylandSocket: {in: [string]; out: []};
-    State: {in: [string]; out: [string]};
-    Restore: {in: [string, string, string]; out: [number]};
-    CloseWindows: {in: [string, number]; out: [string[]]};
-    Started: {in: [string]; out: []};
-    Stopped: {in: [string]; out: []};
-    Hide: {in: [string]; out: []};
-    Show: {in: [string]; out: []};
-    CurrentState: {in: [string]; out: [string]};
-    WindowsLost: {in: [string]; out: [boolean]};
-    SwitchState: {in: [string, string, string]; out: [number, number, number]};
     Reload: {in: []; out: []};
 }
 
@@ -71,19 +58,6 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     ContextOfPid: ['(u)', '(s)'],
     Memory: ['(s)', '(stttt)'],
     MemoryHistory: ['(s)', '(suat)'],
-    WaylandSocket: ['(s)', '(s)'],
-    SoundSockets: ['(s)', '(s)'],
-    ReleaseWaylandSocket: ['(s)', '()'],
-    State: ['(s)', '(s)'],
-    Restore: ['(sss)', '(u)'],
-    CloseWindows: ['(su)', '(as)'],
-    Started: ['(s)', '()'],
-    Stopped: ['(s)', '()'],
-    Hide: ['(s)', '()'],
-    Show: ['(s)', '()'],
-    CurrentState: ['(s)', '(s)'],
-    WindowsLost: ['(s)', '(b)'],
-    SwitchState: ['(sss)', '(uuu)'],
     Reload: ['()', '()'],
 };
 

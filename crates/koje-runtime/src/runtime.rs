@@ -2,8 +2,6 @@
 //! (M3.4). Decisions come from `koje_core::lifecycle`; this module only
 //! gathers the inputs and executes the steps.
 
-use std::path::Path;
-
 use anyhow::{Context as _, Result, bail};
 use koje_core::config::{ContextConfig, GlobalConfig};
 use koje_core::context;
@@ -16,6 +14,8 @@ use koje_core::paths::Paths;
 use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
 use koje_core::spec::{Built, ContextInputs, build};
 use koje_podman::Podman;
+
+use crate::host::Host;
 use koje_podman::image::BASE_IMAGE;
 
 /// The flags of `koje up`.
@@ -44,7 +44,13 @@ impl Default for UpOptions {
 
 /// `koje up <context> [-s <state>]`: create (first time) and start the
 /// context, restore a state, or switch a running one to another state.
-pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) -> Result<()> {
+pub fn up(
+    kojed: &dyn Host,
+    paths: &Paths,
+    context: &str,
+    state: Option<&str>,
+    opts: UpOptions,
+) -> Result<()> {
     let UpOptions {
         no_save,
         recover,
@@ -64,13 +70,10 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
     let plan = plan_up(status);
     // Running: kojed has its live state (even without windows, after
     // `up -s empty`) and its recovery file is current – unless kojed found the
-    // windows lost (Hyprland or the session crashed). Stopped with a recovery
-    // file: it did not shut down cleanly.
+    // windows lost (the session crashed). Stopped with a recovery file: it
+    // did not shut down cleanly.
     let running = plan == UpPlan::AlreadyRunning;
-    let kojed_says = if running { windows_lost(&name) } else { None };
-    let lost = kojed_says == Some(true);
-    // Without kojed nothing can be restored or switched: "already running".
-    let live_known = running && kojed_says == Some(false);
+    let lost = running && kojed.windows_lost(&name);
     let mut to_load = if running && !lost {
         state_to_load(paths, &name, &cfg, &requested)?
     } else {
@@ -81,7 +84,7 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
     }
     let fingerprint = koje_core::container::fingerprint(&cfg.image, &access);
     note_if_changed(&podman, &name, plan, &fingerprint);
-    let host = prepare_host(&podman, &name, &access, plan)?;
+    let host = prepare_host(kojed, &podman, &name, &access, plan)?;
     // Folders below the home: mounted live into the shared home, before the
     // container starts (ADR 0033).
     if let Err(e) = crate::mounts::sync(paths, &name, &cfg, false) {
@@ -107,8 +110,8 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
             podman.start(&name)?;
             crate::say!("started {name}");
         }
-        UpPlan::AlreadyRunning if live_known && state.is_some() => {
-            switch_state(paths, &name, &requested, to_load.take(), no_save)?;
+        UpPlan::AlreadyRunning if !lost && state.is_some() => {
+            switch_state(kojed, paths, &name, &requested, to_load.take(), no_save)?;
         }
         UpPlan::AlreadyRunning if lost => {
             crate::say!("{name} is running, but its windows were lost");
@@ -125,11 +128,11 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
     }
     // Show the context's workspace before its programs start (ADR 0028): their
     // windows open where the user looks, kojed does not have to move them.
-    if let Err(e) = crate::kojed::call::<_, ()>("Started", &(name.as_str(),)) {
+    if let Err(e) = kojed.started(&name) {
         tracing::debug!("not telling kojed that {name} started: {e:#}");
     }
-    if focus {
-        show_workspace(&name);
+    if focus && let Err(e) = kojed.focus(&name) {
+        tracing::debug!("not focusing {name}: {e:#}");
     }
     if (!running || lost)
         && let Some(Load {
@@ -139,17 +142,11 @@ pub fn up(paths: &Paths, context: &str, state: Option<&str>, opts: UpOptions) ->
         }) = to_load
         && !state.windows.is_empty()
     {
-        let text = state.to_toml(Path::new("state"))?;
-        let current = state_name
-            .as_ref()
-            .map(StateName::as_str)
-            .unwrap_or_default();
-        let started: u32 = crate::kojed::call("Restore", &(name.as_str(), text.as_str(), current))
+        let windows = state.windows.len();
+        let started = kojed
+            .restore(&name, state, state_name)
             .with_context(|| format!("restoring {label} of {name}"))?;
-        crate::say!(
-            "restoring {label}: {} window(s), {started} program(s) started",
-            state.windows.len()
-        );
+        crate::say!("restoring {label}: {windows} window(s), {started} program(s) started");
     }
     Ok(())
 }
@@ -223,6 +220,7 @@ pub fn config_changed(paths: &Paths, context: &ContextName) -> Result<bool> {
 /// starts: the live mounts directory, kojed's Wayland and sound sockets, the
 /// host bus proxy.
 fn prepare_host(
+    kojed: &dyn Host,
     podman: &Podman,
     name: &ContextName,
     access: &koje_core::access::Access,
@@ -232,15 +230,17 @@ fn prepare_host(
     // kojed's security-context socket (ADR 0022); it must exist before the
     // container starts, since its directory is mounted.
     if access.wayland {
-        let socket: String = crate::kojed::call("WaylandSocket", &(name.as_str(),))
+        let socket = kojed
+            .wayland_socket(name)
             .context("getting the context's Wayland socket from kojed")?;
-        host.wayland_socket = Some(socket.into());
+        host.wayland_socket = Some(socket);
     }
     // Sound through kojed's directory of socket links (ADR 0029).
     if access.sound && (host.pipewire_socket.is_some() || host.pulse_socket.is_some()) {
-        let dir: String = crate::kojed::call("SoundSockets", &(name.as_str(),))
+        let dir = kojed
+            .sound_sockets(name)
             .context("getting the context's sound sockets from kojed")?;
-        host.sound_dir = Some(dir.into());
+        host.sound_dir = Some(dir);
     }
     // The home, shared for live mounts before the container starts (ADR 0033);
     // after kojed's sockets, so nothing is created when those fail.
@@ -266,20 +266,19 @@ struct Load {
     state: koje_core::state::State,
 }
 
-/// The state a running context is in, from kojed (ADR 0032); `None` for
-/// `empty`, unknown, or without kojed.
-fn current_state(name: &ContextName) -> Option<StateName> {
-    crate::kojed::call::<_, String>("CurrentState", &(name.as_str(),))
-        .ok()
-        .and_then(|s| StateName::new(s).ok())
-}
-
 /// Where `save`/`down` write without `-s`: the state the context is in, else
 /// the `default` role (ADR 0032).
-fn save_target(name: &ContextName, cfg: &ContextConfig, given: Option<&str>) -> Result<StateName> {
+fn save_target(
+    kojed: &dyn Host,
+    name: &ContextName,
+    cfg: &ContextConfig,
+    given: Option<&str>,
+) -> Result<StateName> {
     let t = match given {
         Some(s) => StateName::new(s)?,
-        None => current_state(name).unwrap_or_else(|| cfg.states.default.clone()),
+        None => kojed
+            .current_state(name)
+            .unwrap_or_else(|| cfg.states.default.clone()),
     };
     koje_core::state::ensure_writable(&t)?;
     Ok(t)
@@ -289,17 +288,18 @@ fn save_target(name: &ContextName, cfg: &ContextConfig, given: Option<&str>) -> 
 /// into the state the context is in (unless `--no-save`; nothing to save
 /// from `empty`, ADR 0032), then kojed keeps, closes and starts.
 fn switch_state(
+    kojed: &dyn Host,
     paths: &Paths,
     name: &ContextName,
     requested: &StateName,
     target: Option<Load>,
     no_save: bool,
 ) -> Result<()> {
-    let current = current_state(name);
+    let current = kojed.current_state(name);
     if !no_save {
         match &current {
             Some(c) => {
-                let live = live_state(name)?;
+                let live = kojed.live_state(name)?;
                 koje_core::states::write(paths, name, c, &live)?;
                 crate::say!(
                     "saved {} window(s) of {name} into state {c}",
@@ -319,25 +319,13 @@ fn switch_state(
         state: koje_core::state::State::new(koje_core::name::LayoutName::initial()),
     });
     let label = target.label;
-    let text = target.state.to_toml(Path::new("state"))?;
-    let target_name = target
-        .name
-        .as_ref()
-        .map(StateName::as_str)
-        .unwrap_or_default();
-    let (kept, closed, started): (u32, u32, u32) =
-        crate::kojed::call("SwitchState", &(name.as_str(), text.as_str(), target_name))
-            .with_context(|| format!("switching {name} to {label}"))?;
+    let (kept, closed, started) = kojed
+        .switch_state(name, target.state, target.name)
+        .with_context(|| format!("switching {name} to {label}"))?;
     crate::say!(
         "{name}: switched to {label} – {kept} window(s) kept, {closed} closed, {started} program(s) started"
     );
     Ok(())
-}
-
-/// Whether kojed found the running context's windows lost; `None` without
-/// kojed.
-fn windows_lost(name: &ContextName) -> Option<bool> {
-    crate::kojed::call::<_, bool>("WindowsLost", &(name.as_str(),)).ok()
 }
 
 /// The state to load, or the recovery file after a crash (ADR 0006), as
@@ -422,28 +410,23 @@ fn state_to_load(
     }
 }
 
-/// The live state of a running context from kojed (ADR 0030).
-fn live_state(name: &ContextName) -> Result<koje_core::state::State> {
-    let text: String = crate::kojed::call("State", &(name.as_str(),))
-        .with_context(|| format!("getting the windows of {name} from kojed"))?;
-    Ok(koje_core::state::State::from_toml(
-        &text,
-        Path::new("kojed's live state"),
-    )?)
-}
-
 /// `koje save <context> [-s <state>]`: write the running windows and layouts
 /// into a state (default: the state it is in, else `default`; ADR 0032).
 /// Returns the state and how many windows went into it.
-pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<(StateName, usize)> {
+pub fn save(
+    kojed: &dyn Host,
+    paths: &Paths,
+    context: &str,
+    state: Option<&str>,
+) -> Result<(StateName, usize)> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
-    let target = save_target(&name, &cfg, state)?;
+    let target = save_target(kojed, &name, &cfg, state)?;
     let podman = Podman::new();
     if !matches!(podman.status(&name)?, ContainerStatus::Running) {
         bail!("{name} is not running – nothing to save (start it with: koje up {name})");
     }
-    let live = live_state(&name)?;
+    let live = kojed.live_state(&name)?;
     koje_core::states::write(paths, &name, &target, &live)?;
     Ok((target, live.windows.len()))
 }
@@ -451,6 +434,7 @@ pub fn save(paths: &Paths, context: &str, state: Option<&str>) -> Result<(StateN
 /// `koje down <context> --no-save`: stop the context container. Windows that
 /// stay open stop it only with `force` ([`StillOpen`]).
 pub fn down(
+    kojed: &dyn Host,
     paths: &Paths,
     context: &str,
     state: Option<&str>,
@@ -462,7 +446,7 @@ pub fn down(
     let target = if no_save {
         None
     } else {
-        Some(save_target(&name, &cfg, state)?)
+        Some(save_target(kojed, &name, &cfg, state)?)
     };
     let podman = Podman::new();
     let plan = plan_down(podman.status(&name)?);
@@ -472,13 +456,13 @@ pub fn down(
         }
         // The state first: closing the windows changes the live state (ADR 0030).
         if let Some(t) = &target {
-            let live = live_state(&name).with_context(|| {
+            let live = kojed.live_state(&name).with_context(|| {
                 format!("not stopped – to stop without saving: koje down {name} --no-save")
             })?;
             koje_core::states::write(paths, &name, t, &live)?;
             crate::say!("saved {} window(s) into state {t}", live.windows.len());
         }
-        close_programs(&name, force)?;
+        close_programs(kojed, &name, force)?;
         podman.stop(&name)?;
         crate::say!("stopped {name}");
         // A clean shutdown: no crash to recover from (ADR 0006).
@@ -490,12 +474,8 @@ pub fn down(
         DownPlan::NotCreated => crate::say!("{name} has not been started yet"),
     }
     crate::hostbus::stop_proxy(&name);
-    if let Err(e) = crate::kojed::call::<_, ()>("Stopped", &(name.as_str(),)) {
-        tracing::debug!("not telling kojed that {name} stopped: {e:#}");
-    }
-    if let Err(e) = crate::kojed::call::<_, ()>("ReleaseWaylandSocket", &(name.as_str(),)) {
-        tracing::debug!("not releasing the Wayland socket of {name}: {e:#}");
-    }
+    kojed.stopped(&name);
+    kojed.release_wayland_socket(&name);
     Ok(())
 }
 
@@ -503,7 +483,7 @@ pub fn down(
 /// changes a running container cannot take (ADR 0033, 0034). Saves and closes
 /// like `down`, removes the container (home volume, states and config stay),
 /// and starts it again with the saved state; a stopped context stays stopped.
-pub fn recreate(paths: &Paths, context: &str) -> Result<()> {
+pub fn recreate(kojed: &dyn Host, paths: &Paths, context: &str) -> Result<()> {
     let name = ContextName::new(context)?;
     let cfg = context::load(paths, &name)?;
     let podman = Podman::new();
@@ -513,16 +493,22 @@ pub fn recreate(paths: &Paths, context: &str) -> Result<()> {
     }
     let running = matches!(status, ContainerStatus::Running | ContainerStatus::Paused);
     // Where `down` saves – and what comes back afterwards.
-    let state = save_target(&name, &cfg, None)?;
+    let state = save_target(kojed, &name, &cfg, None)?;
     if running {
-        down(paths, context, None, false, false)?;
+        down(kojed, paths, context, None, false, false)?;
     }
     podman
         .remove(&name)
         .with_context(|| format!("removing {name}'s container"))?;
     crate::say!("removed {name}'s container (its home is kept)");
     if running {
-        up(paths, context, Some(state.as_str()), UpOptions::default())
+        up(
+            kojed,
+            paths,
+            context,
+            Some(state.as_str()),
+            UpOptions::default(),
+        )
     } else {
         crate::say!("{name}'s container is created again at the next: koje up {name}");
         Ok(())
@@ -530,7 +516,7 @@ pub fn recreate(paths: &Paths, context: &str) -> Result<()> {
 }
 
 /// How long `down` waits for programs to end.
-const CLOSE_TIMEOUT_SECS: u32 = 10;
+const CLOSE_TIMEOUT_SECS: u64 = 10;
 
 /// Windows stayed open while `down` closed them (a program may be asking to
 /// save): the context still runs; `koje down` asks whether to stop anyway.
@@ -544,19 +530,15 @@ pub struct StillOpen {
 /// End the context's programs in order before the container stops (M5.4):
 /// kojed closes windows or signals programs and waits. Fails with
 /// [`StillOpen`] when windows stay open, unless `force`.
-fn close_programs(name: &ContextName, force: bool) -> Result<()> {
-    let wait = std::time::Duration::from_secs(u64::from(CLOSE_TIMEOUT_SECS) + 10);
-    let open: Vec<String> =
-        match crate::kojed::call_within("CloseWindows", &(name.as_str(), CLOSE_TIMEOUT_SECS), wait)
-        {
-            Ok(open) => open,
-            Err(e) => {
-                crate::say!(
-                    "note: programs not closed in order ({e:#}) – stopping {name} directly"
-                );
-                return Ok(());
-            }
-        };
+fn close_programs(kojed: &dyn Host, name: &ContextName, force: bool) -> Result<()> {
+    let timeout = std::time::Duration::from_secs(CLOSE_TIMEOUT_SECS);
+    let open = match kojed.close_windows(name, timeout) {
+        Ok(open) => open,
+        Err(e) => {
+            crate::say!("note: programs not closed in order ({e:#}) – stopping {name} directly");
+            return Ok(());
+        }
+    };
     if open.is_empty() {
         return Ok(());
     }
@@ -668,7 +650,7 @@ pub fn open(paths: &Paths, context: &str, target: &str) -> Result<()> {
 
 /// `koje sleep <context>`: freeze the context (CPU 0, memory kept). Moving its
 /// windows to the stash first comes with M5; frozen windows are harmless (M2.8).
-pub fn sleep(paths: &Paths, context: &str) -> Result<()> {
+pub fn sleep(kojed: &dyn Host, paths: &Paths, context: &str) -> Result<()> {
     let name = ContextName::new(context)?;
     context::load(paths, &name)?;
     let podman = Podman::new();
@@ -676,7 +658,7 @@ pub fn sleep(paths: &Paths, context: &str) -> Result<()> {
         PausePlan::Do => {
             // Its windows out of the way first (M7.4): frozen windows would
             // still be drawn and may be reported as not responding.
-            if let Err(e) = crate::kojed::call::<_, ()>("Hide", &(name.as_str(),)) {
+            if let Err(e) = kojed.hide(&name) {
                 crate::say!("note: windows stay where they are ({e:#})");
             }
             podman.pause(&name)?;

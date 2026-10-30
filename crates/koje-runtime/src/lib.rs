@@ -4,6 +4,7 @@
 //! decisions come from `koje_core`, this crate gathers inputs and executes.
 
 pub mod dotfiles;
+pub mod host;
 pub mod hostbus;
 pub mod kojed;
 pub mod memory;

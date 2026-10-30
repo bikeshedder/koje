@@ -11,21 +11,15 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 pub const NOT_RUNNING: &str = "kojed is not running – start it with: systemctl --user start kojed";
 
-/// Call a method of `io.koje.Daemon1`.
+/// Call a method of `io.koje.Daemon1`, from the CLI's commands that kojed
+/// does not run (`run`, `focus`, …). Inside kojed the runtime reaches it
+/// through [`crate::host::Host`].
 pub fn call<B, R>(method: &str, body: &B) -> Result<R>
 where
     B: serde::Serialize + DynamicType + Sync,
     R: for<'d> serde::Deserialize<'d> + Type,
 {
-    call_within(method, body, TIMEOUT)
-}
-
-/// [`call`] for methods that wait (`CloseWindows`).
-pub fn call_within<B, R>(method: &str, body: &B, timeout: Duration) -> Result<R>
-where
-    B: serde::Serialize + DynamicType + Sync,
-    R: for<'d> serde::Deserialize<'d> + Type,
-{
+    let timeout = TIMEOUT;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

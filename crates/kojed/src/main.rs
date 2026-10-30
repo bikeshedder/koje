@@ -14,6 +14,7 @@
 
 mod api;
 mod daemon;
+mod host;
 mod manage;
 mod procfs;
 mod sound;

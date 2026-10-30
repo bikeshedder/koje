@@ -131,7 +131,7 @@ async fn serves_contexts_without_hyprland() {
     assert_eq!(list, [row("work", "#FF0000", "stopped")]);
     let active: String = call(&conn, "ActiveContext", &()).await;
     assert_eq!(active, "");
-    // Focus needs Hyprland; the error says so instead of hanging.
+    // Focus needs GNOME Shell; the error says so instead of hanging.
     let err = conn
         .call_method(
             Some(BUS_NAME),
@@ -154,15 +154,6 @@ async fn serves_contexts_without_hyprland() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("InvalidArgs"), "{err}");
-
-    // The bar's view: no podman container exists here, so nothing runs
-    // until `koje up` says so.
-    let (): () = call(&conn, "Started", &("work",)).await;
-    let list: Vec<Row> = call(&conn, "Contexts", &()).await;
-    assert_eq!(list, [row("work", "#FF0000", "running")]);
-    let (): () = call(&conn, "Stopped", &("work",)).await;
-    let list: Vec<Row> = call(&conn, "Contexts", &()).await;
-    assert_eq!(list, [row("work", "#FF0000", "stopped")]);
 
     // `koje new` writes the file, then asks kojed to reload.
     create(root, "home", Color::rgb(0, 0, 0xff));

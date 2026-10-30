@@ -279,79 +279,8 @@
     <signal name="MemoryChanged">
     </signal>
 
-    <!--
-      ===== For koje's own commands (koje-runtime) =====
-      The steps of up, down, save, sleep and wake. Not for other clients:
-      they may change with koje.
-    -->
+    <!-- ===== For koje's own commands ===== -->
 
-    <!-- The context's Wayland socket (a link to Mutter's), created if needed; its directory is mounted into the context. -->
-    <method name="WaylandSocket">
-      <arg name="context" type="s" direction="in"/>
-      <arg type="s" direction="out"/>
-    </method>
-    <!-- The context's sound directory with links to the host's sound sockets (ADR 0029). -->
-    <method name="SoundSockets">
-      <arg name="context" type="s" direction="in"/>
-      <arg type="s" direction="out"/>
-    </method>
-    <!-- Remove the context's Wayland socket (down). -->
-    <method name="ReleaseWaylandSocket">
-      <arg name="context" type="s" direction="in"/>
-    </method>
-    <!-- The live state of a running context as TOML, the format of a state file (ADR 0030). -->
-    <method name="State">
-      <arg name="context" type="s" direction="in"/>
-      <arg type="s" direction="out"/>
-    </method>
-    <!-- Start the windows of a state (TOML) in a context just started; the number of programs started. -->
-    <method name="Restore">
-      <arg name="context" type="s" direction="in"/>
-      <arg name="state" type="s" direction="in"/>
-      <arg name="name" type="s" direction="in"/>
-      <arg type="u" direction="out"/>
-    </method>
-    <!-- End the context's programs in order and wait up to timeout seconds; the windows still open. -->
-    <method name="CloseWindows">
-      <arg name="context" type="s" direction="in"/>
-      <arg name="timeout" type="u" direction="in"/>
-      <arg type="as" direction="out"/>
-    </method>
-    <!-- The context's container started. -->
-    <method name="Started">
-      <arg name="context" type="s" direction="in"/>
-    </method>
-    <!-- The context's container stopped. -->
-    <method name="Stopped">
-      <arg name="context" type="s" direction="in"/>
-    </method>
-    <!-- Before sleep: the sleep overlay on the context's windows. -->
-    <method name="Hide">
-      <arg name="context" type="s" direction="in"/>
-    </method>
-    <!-- After wake: the overlay off. -->
-    <method name="Show">
-      <arg name="context" type="s" direction="in"/>
-    </method>
-    <!-- The state a running context is in (ADR 0032); "" for empty or unknown. -->
-    <method name="CurrentState">
-      <arg name="context" type="s" direction="in"/>
-      <arg type="s" direction="out"/>
-    </method>
-    <!-- Whether a running context lost its windows (the session crashed, the container survived). -->
-    <method name="WindowsLost">
-      <arg name="context" type="s" direction="in"/>
-      <arg type="b" direction="out"/>
-    </method>
-    <!-- Switch a running context to another state (TOML): (windows kept, closed, programs started). -->
-    <method name="SwitchState">
-      <arg name="context" type="s" direction="in"/>
-      <arg name="state" type="s" direction="in"/>
-      <arg name="name" type="s" direction="in"/>
-      <arg type="u" direction="out"/>
-      <arg type="u" direction="out"/>
-      <arg type="u" direction="out"/>
-    </method>
     <!-- Read the contexts' config files again (after `koje new` and `koje edit`). -->
     <method name="Reload">
     </method>

@@ -17,10 +17,8 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::OwnedValue;
 
 use crate::daemon::{Change, Daemon};
+use crate::host::Host;
 use crate::wayland::Sockets;
-
-/// How long restored windows may take to appear.
-const RESTORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub type Shared = Arc<Mutex<Daemon<Gnome, Podman>>>;
 
@@ -89,15 +87,6 @@ async fn blocking<T: Send + 'static>(
         .map_err(Error::from)
 }
 
-/// `""` or `empty` → `None`.
-fn state_name_arg(name: &str) -> fdo::Result<Option<StateName>> {
-    if name.is_empty() {
-        return Ok(None);
-    }
-    let n = StateName::new(name).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?;
-    Ok((!n.is_empty_state()).then_some(n))
-}
-
 fn context_arg(context: &str) -> fdo::Result<ContextName> {
     ContextName::new(context).map_err(|e| fdo::Error::InvalidArgs(e.to_string()))
 }
@@ -127,126 +116,6 @@ impl Api {
             .focus(&ctx)
             .await
             .map_err(|e| failed(&e))
-    }
-
-    /// The context's security-context Wayland socket (ADR 0022), created if
-    /// needed; its directory is what `koje up` mounts.
-    async fn wayland_socket(&self, context: &str) -> fdo::Result<String> {
-        let ctx = context_arg(context)?;
-        if !self.daemon.lock().await.knows(&ctx) {
-            return Err(fdo::Error::InvalidArgs(format!("no context named {ctx}")));
-        }
-        let path = self.sockets.ensure(&ctx).map_err(|e| failed(&e))?;
-        Ok(path.display().to_string())
-    }
-
-    /// The context's sound directory with links to the host's sound sockets
-    /// (ADR 0029), kept current by kojed; `koje up` mounts it.
-    async fn sound_sockets(&self, context: &str) -> fdo::Result<String> {
-        let ctx = context_arg(context)?;
-        if !self.daemon.lock().await.knows(&ctx) {
-            return Err(fdo::Error::InvalidArgs(format!("no context named {ctx}")));
-        }
-        crate::sound::ensure(&self.runtime, &ctx)
-            .map(|d| d.display().to_string())
-            .map_err(|e| fdo::Error::Failed(format!("sound links for {ctx}: {e}")))
-    }
-
-    /// Stop serving the context's Wayland socket (`koje down`).
-    fn release_wayland_socket(&self, context: &str) -> fdo::Result<()> {
-        self.sockets.release(&context_arg(context)?);
-        Ok(())
-    }
-
-    /// The live state of a running context as TOML (ADR 0030), the format of
-    /// a state file.
-    async fn state(&self, context: &str) -> fdo::Result<String> {
-        let ctx = context_arg(context)?;
-        let state = self
-            .daemon
-            .lock()
-            .await
-            .state(&ctx)
-            .await
-            .map_err(|e| failed(&e))?;
-        state
-            .to_toml(std::path::Path::new("live state"))
-            .map_err(|e| fdo::Error::Failed(e.to_string()))
-    }
-
-    /// Start the windows of a state (TOML, as a state file) in a context that
-    /// was just started (`koje up`, M5.3); the number of programs started.
-    /// Windows that do not appear within a minute leave the live state.
-    async fn restore(&self, context: &str, state: &str, name: &str) -> fdo::Result<u32> {
-        let ctx = context_arg(context)?;
-        let name = state_name_arg(name)?;
-        let state = koje_core::state::State::parse(state, std::path::Path::new("state from koje"))
-            .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?
-            .state;
-        let plan = self
-            .daemon
-            .lock()
-            .await
-            .restore(&ctx, state, name)
-            .await
-            .map_err(|e| failed(&e))?;
-        let daemon = Arc::clone(&self.daemon);
-        tokio::spawn(async move {
-            tokio::time::sleep(RESTORE_TIMEOUT).await;
-            daemon.lock().await.expire_pending(&ctx);
-        });
-        Ok(u32::try_from(plan.launches.len()).unwrap_or(u32::MAX))
-    }
-
-    /// End the context's programs in order (`koje down`, M5.4) and wait up
-    /// to `timeout` seconds for their windows to go; the windows still open
-    /// (`id (app id)`), e.g. a program asking to save.
-    async fn close_windows(&self, context: &str, timeout: u32) -> fdo::Result<Vec<String>> {
-        let ctx = context_arg(context)?;
-        self.daemon
-            .lock()
-            .await
-            .close_windows(&ctx)
-            .await
-            .map_err(|e| failed(&e))?;
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout.into());
-        loop {
-            // Unlocked meanwhile: the event loop sees the windows close.
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            let open = self.daemon.lock().await.open_windows(&ctx);
-            if open.is_empty() || tokio::time::Instant::now() >= deadline {
-                return Ok(open);
-            }
-        }
-    }
-
-    /// `koje up` started the context.
-    async fn started(
-        &self,
-        context: &str,
-        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) -> fdo::Result<()> {
-        let ctx = context_arg(context)?;
-        self.daemon
-            .lock()
-            .await
-            .started(&ctx)
-            .await
-            .map_err(|e| failed(&e))?;
-        let _ = Self::contexts_changed(&emitter).await;
-        Ok(())
-    }
-
-    /// `koje down` stopped the context.
-    async fn stopped(
-        &self,
-        context: &str,
-        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) -> fdo::Result<()> {
-        let ctx = context_arg(context)?;
-        self.daemon.lock().await.stopped(&ctx).await;
-        let _ = Self::contexts_changed(&emitter).await;
-        Ok(())
     }
 
     /// The running context a process belongs to (same PID namespace as the
@@ -506,8 +375,9 @@ impl Api {
                 )));
             }
         }
-        self.operation(conn, ctx, "up", move |paths, ctx| {
+        self.operation(conn, ctx, "up", move |host, paths, ctx| {
             koje_runtime::runtime::up(
+                host,
                 paths,
                 ctx.as_str(),
                 state.as_deref(),
@@ -536,8 +406,8 @@ impl Api {
     ) -> Result<(), Error> {
         let ctx = context_name(context)?;
         let state = (!state.is_empty()).then(|| state.to_owned());
-        self.operation(conn, ctx, "down", move |paths, ctx| {
-            koje_runtime::runtime::down(paths, ctx.as_str(), state.as_deref(), !save, force)
+        self.operation(conn, ctx, "down", move |host, paths, ctx| {
+            koje_runtime::runtime::down(host, paths, ctx.as_str(), state.as_deref(), !save, force)
         })
     }
 
@@ -547,13 +417,16 @@ impl Api {
         &self,
         context: &str,
         state: &str,
+        #[zbus(connection)] conn: &zbus::Connection,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<(String, u32), Error> {
         let ctx = context_name(context)?;
         let (paths, state) = (self.paths.clone(), state.to_owned());
         let c = ctx.clone();
+        let host = self.host(conn);
         let (saved, windows) = blocking(move || {
             koje_runtime::runtime::save(
+                &host,
                 &paths,
                 c.as_str(),
                 (!state.is_empty()).then_some(state.as_str()),
@@ -574,8 +447,8 @@ impl Api {
         #[zbus(connection)] conn: &zbus::Connection,
     ) -> Result<(), Error> {
         let ctx = context_name(context)?;
-        self.operation(conn, ctx, "sleep", |paths, ctx| {
-            koje_runtime::runtime::sleep(paths, ctx.as_str())
+        self.operation(conn, ctx, "sleep", |host, paths, ctx| {
+            koje_runtime::runtime::sleep(host, paths, ctx.as_str())
         })
     }
 
@@ -588,8 +461,8 @@ impl Api {
         #[zbus(connection)] conn: &zbus::Connection,
     ) -> Result<(), Error> {
         let ctx = context_name(context)?;
-        self.operation(conn, ctx, "recreate", |paths, ctx| {
-            koje_runtime::runtime::recreate(paths, ctx.as_str())
+        self.operation(conn, ctx, "recreate", |host, paths, ctx| {
+            koje_runtime::runtime::recreate(host, paths, ctx.as_str())
         })
     }
 
@@ -677,30 +550,6 @@ impl Api {
     #[zbus(signal)]
     async fn memory_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 
-    /// Before `koje sleep` (M7.4): every window of the context into its stash.
-    async fn hide(
-        &self,
-        context: &str,
-        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) -> fdo::Result<()> {
-        let ctx = context_arg(context)?;
-        let hidden = self.daemon.lock().await.hide(&ctx).await;
-        let _ = Self::contexts_changed(&emitter).await;
-        hidden.map_err(|e| failed(&e))
-    }
-
-    /// After `koje wake` (M7.4): the active layout back.
-    async fn show(
-        &self,
-        context: &str,
-        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) -> fdo::Result<()> {
-        let ctx = context_arg(context)?;
-        let shown = self.daemon.lock().await.show(&ctx).await;
-        let _ = Self::contexts_changed(&emitter).await;
-        shown.map_err(|e| failed(&e))
-    }
-
     /// Wake a sleeping context (as `koje wake`): continue its container,
     /// then show its windows – the sleep overlay's button on GNOME (ADR 0059).
     async fn wake(
@@ -727,61 +576,12 @@ impl Api {
         .map_err(|e| fdo::Error::Failed(e.to_string()))?
         .map_err(|e| failed(&e))?;
         // Awake now; without the extension there is no overlay to take away.
-        if let Err(e) = self.show(context, emitter).await {
-            tracing::warn!(context = %ctx, "windows not shown after waking: {e}");
+        let shown = self.daemon.lock().await.show(&ctx).await;
+        let _ = Self::contexts_changed(&emitter).await;
+        if let Err(e) = shown {
+            tracing::warn!(context = %ctx, "windows not shown after waking: {e:#}");
         }
         Ok(())
-    }
-
-    /// The state a running context is in (ADR 0032); `""` for `empty` or
-    /// unknown. `koje save`/`down` without `-s` write it.
-    async fn current_state(&self, context: &str) -> fdo::Result<String> {
-        let ctx = context_arg(context)?;
-        Ok(self
-            .daemon
-            .lock()
-            .await
-            .current_state(&ctx)
-            .map(ToString::to_string)
-            .unwrap_or_default())
-    }
-
-    /// Whether a running context lost its windows (Hyprland or the session
-    /// crashed, the container survived): `koje up` then offers its recovery
-    /// file (ADR 0006).
-    async fn windows_lost(&self, context: &str) -> fdo::Result<bool> {
-        let ctx = context_arg(context)?;
-        Ok(self.daemon.lock().await.is_lost(&ctx))
-    }
-
-    /// Switch a running context to another state (TOML, as a state file;
-    /// M5.9). Returns `(windows kept, windows closed, programs started)`.
-    /// New windows that do not appear within a minute leave the live state.
-    async fn switch_state(
-        &self,
-        context: &str,
-        state: &str,
-        name: &str,
-    ) -> fdo::Result<(u32, u32, u32)> {
-        let ctx = context_arg(context)?;
-        let name = state_name_arg(name)?;
-        let state = koje_core::state::State::parse(state, std::path::Path::new("state from koje"))
-            .map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?
-            .state;
-        let (kept, closed, started) = self
-            .daemon
-            .lock()
-            .await
-            .switch_state(&ctx, state, name)
-            .await
-            .map_err(|e| failed(&e))?;
-        let daemon = Arc::clone(&self.daemon);
-        tokio::spawn(async move {
-            tokio::time::sleep(RESTORE_TIMEOUT).await;
-            daemon.lock().await.expire_pending(&ctx);
-        });
-        let n = |x: usize| u32::try_from(x).unwrap_or(u32::MAX);
-        Ok((n(kept), n(closed), n(started)))
     }
 
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
@@ -808,6 +608,17 @@ impl Api {
 }
 
 impl Api {
+    /// What the runtime needs from kojed (G.34).
+    fn host(&self, conn: &zbus::Connection) -> Host {
+        Host {
+            daemon: Arc::clone(&self.daemon),
+            sockets: self.sockets.clone(),
+            runtime: self.runtime.clone(),
+            conn: conn.clone(),
+            handle: tokio::runtime::Handle::current(),
+        }
+    }
+
     /// Run `f` for `ctx` on the blocking pool, reported by the operation
     /// signals; one operation per context at a time.
     fn operation(
@@ -815,7 +626,7 @@ impl Api {
         conn: &zbus::Connection,
         ctx: ContextName,
         operation: &'static str,
-        f: impl FnOnce(&Paths, &ContextName) -> anyhow::Result<()> + Send + 'static,
+        f: impl FnOnce(&Host, &Paths, &ContextName) -> anyhow::Result<()> + Send + 'static,
     ) -> Result<(), Error> {
         {
             let mut busy = self.busy.lock().map_err(|e| Error::Failed(e.to_string()))?;
@@ -823,6 +634,7 @@ impl Api {
                 return Err(Error::Busy(format!("{ctx} is busy with another operation")));
             }
         }
+        let host = self.host(conn);
         let (conn, paths, busy) = (conn.clone(), self.paths.clone(), Arc::clone(&self.busy));
         tokio::spawn(async move {
             let emitter = match SignalEmitter::new(&conn, OBJECT_PATH) {
@@ -841,7 +653,7 @@ impl Api {
                     move |line| {
                         let _ = tx.send(line.to_owned());
                     },
-                    || f(&paths, &c),
+                    || f(&host, &paths, &c),
                 )
             });
             let progress = async {
