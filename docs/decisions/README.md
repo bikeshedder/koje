@@ -71,3 +71,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0064 | [Images are managed like contexts](0064-images-managed-like-contexts.md) | Accepted (built-in images: amended by 0065) |
 | 0065 | [koje's own images can be customized](0065-koje-images-customized-on-demand.md) | Accepted |
 | 0066 | [Passwordless sudo in contexts, as an access switch](0066-passwordless-sudo-in-contexts.md) | Accepted |
+| 0067 | [Images are named as Podman names them, with a version, and chosen per context](0067-image-references-with-versions.md) | Accepted |
