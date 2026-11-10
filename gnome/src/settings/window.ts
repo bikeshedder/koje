@@ -11,6 +11,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import {Kojed, KojedError} from '../api/kojed.js';
 import {ask, askName} from './dialogs.js';
 import * as model from './model.js';
+import {OutputDialog} from './output.js';
 
 Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish');
 Gio._promisify(Gtk.FileLauncher.prototype, 'launch', 'launch_finish');
@@ -62,6 +63,9 @@ export class SettingsWindow {
     readonly #memoryRow: Gtk.ListBoxRow;
     /** Context → operation under way (`up`, `down`, …). */
     readonly #busy = new Map<string, string>();
+    /** Context → the output of its last operation. */
+    readonly #logs = new Map<string, model.Log>();
+    readonly #output = new OutputDialog();
     #selected = MEMORY;
     #running = false;
 
@@ -116,10 +120,29 @@ export class SettingsWindow {
         });
         this.#kojed.connect('OperationStarted', (context, operation) => {
             this.#busy.set(context, operation);
+            const log = model.logStarted(operation);
+            this.#logs.set(context, log);
+            if (this.#output.context === context)
+                this.#output.present(this.#window, context, model.logTitle(context, log), []);
             this.#render();
+        });
+        this.#kojed.connect('OperationProgress', (context, operation, line) => {
+            let log = this.#logs.get(context);
+            if (!log || log.state !== 'running') {
+                // Started before this window was there.
+                log = model.logStarted(operation);
+                this.#logs.set(context, log);
+            }
+            const wasBuilding = log.building;
+            model.logLine(log, line);
+            if (this.#output.context === context)
+                this.#output.append(line);
+            else if (!wasBuilding && log.building && context === this.#selected)
+                this.#showOutput(context); // a build takes minutes: show what it does
         });
         this.#kojed.connect('OperationFinished', (context, operation) => {
             this.#busy.delete(context);
+            this.#ended(context, null);
             if (operation === 'remove')
                 this.#toast(`Removed ${context}`);
             else if (context === this.#selected)
@@ -128,10 +151,11 @@ export class SettingsWindow {
         });
         this.#kojed.connect('OperationFailed', (context, operation, error, message) => {
             this.#busy.delete(context);
+            this.#ended(context, message);
             if (operation === 'down' && error === 'io.koje.Error.WindowsOpen')
                 void this.#stopAnyway(context);
             else
-                this.#toast(`${context}: ${operation} failed – ${message}`);
+                this.#toast(`${context}: ${operation} failed – ${message}`, () => this.#showOutput(context));
             this.#scheduleRefresh();
         });
         this.#kojed.watch(running => {
@@ -316,8 +340,18 @@ export class SettingsWindow {
     #renderActions(c: model.Context): void {
         this.#clearActions();
         if (this.#busy.has(c.name)) {
-            this.#actions.append(new Adw.Spinner());
+            // What it does, live.
+            const busy = new Gtk.Button({child: new Adw.Spinner(), tooltip_text: 'Show Output'});
+            busy.connect('clicked', () => this.#showOutput(c.name));
+            this.#actions.append(busy);
             return;
+        }
+        if (this.#logs.has(c.name)) {
+            const last = new Gtk.Button({
+                icon_name: 'utilities-terminal-symbolic', tooltip_text: 'Output of the Last Operation',
+            });
+            last.connect('clicked', () => this.#showOutput(c.name));
+            this.#actions.append(last);
         }
         const buttons: Record<model.Action, [string, string, () => Promise<void>]> = {
             up: ['media-playback-start-symbolic', 'Start', () => this.#up(c.name, '')],
@@ -335,8 +369,35 @@ export class SettingsWindow {
 
     // ----- Calls -----
 
-    #toast(text: string): void {
-        this.#toasts.add_toast(new Adw.Toast({title: GLib.markup_escape_text(text, -1), timeout: 8}));
+    /** A toast; with `output`, a button that shows an operation's output. */
+    #toast(text: string, output?: () => void): void {
+        const toast = new Adw.Toast({title: GLib.markup_escape_text(text, -1), timeout: 8});
+        if (output) {
+            toast.button_label = 'Show Output';
+            toast.connect('button-clicked', output);
+        }
+        this.#toasts.add_toast(toast);
+    }
+
+    /** An operation of `context` ended (`failed`: why, else `null`). */
+    #ended(context: string, failed: string | null): void {
+        const log = this.#logs.get(context);
+        if (!log)
+            return;
+        const ended = model.logEnded(log, failed);
+        this.#logs.set(context, ended);
+        if (this.#output.context === context) {
+            this.#output.title = model.logTitle(context, ended);
+            if (failed !== null)
+                this.#output.append(`failed: ${failed}`);
+        }
+    }
+
+    /** The output of `context`'s current or last operation. */
+    #showOutput(context: string): void {
+        const log = this.#logs.get(context);
+        if (log)
+            this.#output.present(this.#window, context, model.logTitle(context, log), log.lines);
     }
 
     #error(e: unknown): void {

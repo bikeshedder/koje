@@ -378,3 +378,60 @@ export function stateActions(s: State, running: boolean): ('load' | 'save' | 'co
 export function validName(name: string): boolean {
     return name.length <= 48 && /^[a-z][a-z0-9-]*$/.test(name);
 }
+
+// ----- What an operation printed (kojed's OperationProgress) -----
+
+/** The output of a context's last operation. */
+export interface Log {
+    operation: string;
+    lines: string[];
+    state: 'running' | 'finished' | 'failed';
+    /** Why it failed. */
+    message: string;
+    /** Whether it built or pulled an image (the output is then shown at once). */
+    building: boolean;
+}
+
+/** Lines kept per operation: a build can print many thousands. */
+export const LOG_LINES = 5000;
+
+export function logStarted(operation: string): Log {
+    return {operation, lines: [], state: 'running', message: '', building: false};
+}
+
+/**
+ * Add `line` to `log` (in place: builds print thousands of lines); the
+ * oldest go beyond {@link LOG_LINES}.
+ */
+export function logLine(log: Log, line: string): void {
+    log.lines.push(line);
+    if (log.lines.length > LOG_LINES)
+        log.lines.splice(0, log.lines.length - LOG_LINES);
+    if (/^(building|pulling|adding your user to) /.test(line))
+        log.building = true;
+}
+
+export function logEnded(log: Log, failed: string | null): Log {
+    return failed === null
+        ? {...log, state: 'finished'}
+        : {...log, state: 'failed', message: failed, lines: [...log.lines, `failed: ${failed}`]};
+}
+
+/** The output dialog's title: `Starting kp…`, `Started kp`, `Recreating kp failed`. */
+export function logTitle(context: string, log: Log): string {
+    const [doing, done] = OPERATION_TITLES[log.operation] ?? [log.operation, log.operation];
+    switch (log.state) {
+    case 'running': return `${doing} ${context}…`;
+    case 'finished': return `${done} ${context}`;
+    case 'failed': return `${doing} ${context} failed`;
+    }
+}
+
+const OPERATION_TITLES: Record<string, [string, string]> = {
+    up: ['Starting', 'Started'],
+    down: ['Stopping', 'Stopped'],
+    sleep: ['Putting to sleep', 'Put to sleep'],
+    recreate: ['Recreating', 'Recreated'],
+    remove: ['Removing', 'Removed'],
+};
+

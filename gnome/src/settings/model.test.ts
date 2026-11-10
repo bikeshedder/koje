@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {
     type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
     memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
-    SWITCHES, adjustments, imageRow, recreateRow, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
+    LOG_LINES, SWITCHES, adjustments, logEnded, logLine, logStarted, logTitle, imageRow, recreateRow, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
 } from './model.js';
 
 const config: Config = {
@@ -192,3 +192,30 @@ it('accepts names as koje does', () => {
     expect(validName('kp_2')).toBe(false);
     expect(validName('a'.repeat(49))).toBe(false);
 });
+
+describe('an operation\'s output', () => {
+    it('collects lines and notices a build', () => {
+        const log = logStarted('up');
+        logLine(log, 'started kp');
+        expect(log.building).toBe(false);
+        logLine(log, 'building koje\'s image fedora (not built yet) – this can take a few minutes');
+        logLine(log, '  STEP 1/6: FROM registry.fedoraproject.org/fedora:44');
+        expect(log.building).toBe(true);
+        expect(log.lines).toHaveLength(3);
+        expect(logTitle('kp', log)).toBe('Starting kp…');
+        expect(logTitle('kp', logEnded(log, null))).toBe('Started kp');
+        const failed = logEnded(log, 'podman build failed');
+        expect(failed.state).toBe('failed');
+        expect(failed.lines.at(-1)).toBe('failed: podman build failed');
+        expect(logTitle('kp', {...failed, operation: 'recreate'})).toBe('Recreating kp failed');
+    });
+    it('keeps the last lines of a long build', () => {
+        const log = logStarted('recreate');
+        for (let i = 0; i < LOG_LINES + 10; i++)
+            logLine(log, String(i));
+        expect(log.lines).toHaveLength(LOG_LINES);
+        expect(log.lines[0]).toBe('10');
+        expect(log.lines.at(-1)).toBe(String(LOG_LINES + 9));
+    });
+});
+
