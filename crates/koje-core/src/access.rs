@@ -59,6 +59,9 @@ switches! {
     wayland,
     /// Devices and `/proc/sys` for nested Podman (ADR 0014).
     nested,
+    /// `sudo` without a password for your user inside the context (ADR
+    /// 0066). Root there is not root on the host (rootless Podman).
+    sudo,
     /// An own network; without it `--network none`.
     network,
     /// Desktop notifications on the host (ADR 0019).
@@ -113,6 +116,7 @@ impl Profile {
             },
             Self::Headless => Access {
                 nested: true,
+                sudo: true,
                 network: true,
                 notifications: true,
                 ..Access::NONE
@@ -189,13 +193,14 @@ mod tests {
 
     #[test]
     fn profile_table_matches_adr() {
-        assert_eq!(on(Profile::Full.access()).len(), 11);
+        assert_eq!(on(Profile::Full.access()).len(), 12);
         assert_eq!(
             on(Profile::Desktop.access()),
             [
                 "sound",
                 "wayland",
                 "nested",
+                "sudo",
                 "network",
                 "notifications",
                 "file_chooser",
@@ -207,7 +212,7 @@ mod tests {
         );
         assert_eq!(
             on(Profile::Headless.access()),
-            ["nested", "network", "notifications"]
+            ["nested", "sudo", "network", "notifications"]
         );
         assert_eq!(on(Profile::Isolated.access()), Vec::<&str>::new());
     }
@@ -236,7 +241,7 @@ mod tests {
         for (name, _) in Access::ALL.switches() {
             let cfg = parse(&format!("{name} = false"));
             assert!(!on(cfg.standalone()).contains(&name), "{name}");
-            assert_eq!(on(cfg.standalone()).len(), 10, "{name}");
+            assert_eq!(on(cfg.standalone()).len(), 11, "{name}");
         }
     }
 

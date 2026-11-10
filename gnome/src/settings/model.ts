@@ -114,6 +114,7 @@ export const SWITCHES: [string, string][] = [
     ['sound', 'Sound'],
     ['network', 'Network'],
     ['nested', 'Containers inside'],
+    ['sudo', 'Administrator rights (sudo, no password)'],
     ['notifications', 'Notifications'],
     ['file_chooser', 'File chooser'],
     ['settings', 'Desktop settings'],

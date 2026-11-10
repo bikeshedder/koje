@@ -238,6 +238,14 @@ impl<R: Runner> Podman<R> {
         self.podman(&args)
     }
 
+    /// Run a command as root in the context container; its stdout.
+    pub fn exec_root(&self, ctx: &ContextName, command: &[&str]) -> Result<String> {
+        let name = container_name(ctx);
+        let mut args = vec!["exec", "--user", "root", &name];
+        args.extend_from_slice(command);
+        self.podman(&args)
+    }
+
     /// Start a command in the context container in the background (`podman exec -d`).
     pub fn exec_detached(&self, ctx: &ContextName, command: &[&str]) -> Result<()> {
         let name = container_name(ctx);

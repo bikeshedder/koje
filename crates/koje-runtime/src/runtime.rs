@@ -170,6 +170,10 @@ fn after_start(
     {
         crate::say!("note: {e:#}");
     }
+    // sudo (ADR 0066): before programs start, as the switch says now.
+    if let Err(e) = crate::sudo::apply(podman, name, cfg.effective_access(global).sudo) {
+        crate::say!("note: sudo: {e:#}");
+    }
     // Dotfiles presets (ADR 0038): programs read their config when they start.
     if let Err(e) = crate::dotfiles::link(paths, cfg) {
         crate::say!("note: dotfiles of {name} not linked: {e:#}");

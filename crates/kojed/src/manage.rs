@@ -353,6 +353,14 @@ fn follow(
         if status != ContainerStatus::Missing && fp(before) != fp(after) {
             notes.push("the new image or access apply to a new container: recreate it".to_owned());
         }
+        // sudo follows at once (ADR 0066), without a new container.
+        let sudo = after.effective_access(&global).sudo;
+        if status == ContainerStatus::Running
+            && before.effective_access(&global).sudo != sudo
+            && let Err(e) = koje_runtime::sudo::apply(&podman, ctx, sudo)
+        {
+            notes.push(format!("sudo: {e:#}"));
+        }
         if matches!(status, ContainerStatus::Running | ContainerStatus::Paused)
             && before.limits != after.limits
             && let Ok(limits) = after.effective_limits(&global)

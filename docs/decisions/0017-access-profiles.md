@@ -1,6 +1,6 @@
 # 0017. Access profiles: configurable host access per context
 
-- Status: Accepted (extended by ADR 0019: host interface switches)
+- Status: Accepted (extended by ADR 0019: host interface switches; ADR 0066: `sudo`)
 - Date: 2026-10-17
 - Source: discussion after spike M2.3; amends ADR 0015 and ADR 0016
 
@@ -22,6 +22,7 @@ switches; single **switches** override it.
 | `sound` | PipeWire + PulseAudio sockets (playback *and* microphone) | no sound |
 | `wayland` | compositor socket | no GUI: shell, terminal, dev containers only |
 | `nested` | `/dev/fuse`, `/dev/net/tun`, `unmask=/proc/sys` (ADR 0014) | no dev containers |
+| `sudo` | `sudo` without a password inside (ADR 0066) | no sudo |
 | `network` | own network (pasta) | `--network none` |
 | `notifications` | desktop notifications on the host (ADR 0019) | none |
 | `file_chooser` | the host's file chooser portal | none |
@@ -30,12 +31,12 @@ switches; single **switches** override it.
 | `screencast` | screen sharing through the host's portal (asks each time) | – |
 | `print` | the host's CUPS socket and print portal (ADR 0019) | no printers |
 
-| Profile | gpu | sound | wayland | nested | network | notifications | file_chooser, settings, inhibit, screencast, print |
-|---|---|---|---|---|---|---|---|
-| `full` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `desktop` | – | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `headless` | – | – | – | ✓ | ✓ | ✓ | – |
-| `isolated` | – | – | – | – | – | – | – |
+| Profile | gpu | sound | wayland | nested | sudo | network | notifications | file_chooser, settings, inhibit, screencast, print |
+|---|---|---|---|---|---|---|---|---|
+| `full` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `desktop` | – | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `headless` | – | – | – | ✓ | ✓ | ✓ | ✓ | – |
+| `isolated` | – | – | – | – | – | – | – | – |
 
 ```toml
 # config.toml – default for all contexts (itself defaulting to "full")

@@ -35,7 +35,17 @@ pub fn fingerprint(image: &str, access: &Access) -> String {
         image: &'a str,
         access: &'a Access,
     }
-    let text = toml::to_string(&Settings { image, access }).unwrap_or_default();
+    // `sudo` is applied at every start (ADR 0066), not by a new container:
+    // left out, so contexts made before it was a switch keep their hash.
+    let mut text = String::new();
+    for line in toml::to_string(&Settings { image, access })
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.starts_with("sudo ="))
+    {
+        text.push_str(line);
+        text.push('\n');
+    }
     let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
@@ -61,6 +71,28 @@ mod tests {
         let kp = ContextName::new("kundenportal").unwrap();
         assert_eq!(container_name(&kp), "koje-kundenportal");
         assert_eq!(home_volume(&kp), "koje-kundenportal-home");
+    }
+
+    #[test]
+    fn fingerprints_stay_as_before_sudo_and_ignore_it() {
+        use crate::access::{Access, Profile};
+        // Values from before `sudo` was a switch: no recreate is asked for.
+        assert_eq!(
+            fingerprint("koje/base:latest", &Profile::Full.access()),
+            "v2-81e848296b63c642"
+        );
+        assert_eq!(
+            fingerprint("fedora", &Profile::Headless.access()),
+            "v2-721bfc2602d0fda3"
+        );
+        let off = Access {
+            sudo: false,
+            ..Access::ALL
+        };
+        assert_eq!(
+            fingerprint("fedora", &off),
+            fingerprint("fedora", &Access::ALL)
+        );
     }
 
     #[test]

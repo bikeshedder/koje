@@ -49,7 +49,7 @@ pub const LABEL_MISSING: &str = "io.koje.missing";
 /// one `missing <tool>` line per tool it lacks, and `gbm <dir>`, where its
 /// GBM looks for backends.
 pub const PROBE: &str = r#"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-for t in useradd dbus-daemon podman fuse-overlayfs newuidmap newgidmap setcap; do
+for t in useradd dbus-daemon podman fuse-overlayfs newuidmap newgidmap setcap sudo; do
   command -v "$t" >/dev/null 2>&1 || echo "missing $t"
 done
 for d in /usr/lib64/gbm /usr/lib/x86_64-linux-gnu/gbm /usr/lib/aarch64-linux-gnu/gbm /usr/lib/gbm; do
@@ -88,16 +88,19 @@ const REQUIRED: &[(&str, &str)] = &[
 ];
 
 /// Tools an access switch needs (ADR 0014: nested Podman).
-const BY_SWITCH: &[(&str, &[&str])] = &[(
-    "nested",
-    &[
-        "podman",
-        "fuse-overlayfs",
-        "newuidmap",
-        "newgidmap",
-        "setcap",
-    ],
-)];
+const BY_SWITCH: &[(&str, &[&str])] = &[
+    (
+        "nested",
+        &[
+            "podman",
+            "fuse-overlayfs",
+            "newuidmap",
+            "newgidmap",
+            "setcap",
+        ],
+    ),
+    ("sudo", &["sudo"]),
+];
 
 /// Why an image cannot be a context's image; empty when it can.
 pub fn blockers(missing: &BTreeSet<String>) -> Vec<String> {
@@ -594,6 +597,11 @@ mod tests {
             [
                 "nested: the image has no podman, setcap – install them in the image or turn nested off"
             ]
+        );
+        let no_sudo = read_probe("missing sudo\n");
+        assert_eq!(
+            warnings(&no_sudo.missing, &full),
+            ["sudo: the image has no sudo – install them in the image or turn sudo off"]
         );
         let isolated = crate::access::Profile::Isolated.access();
         assert_eq!(warnings(&p.missing, &isolated), Vec::<String>::new());

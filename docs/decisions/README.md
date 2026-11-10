@@ -70,3 +70,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0063 | [A context's own Containerfile, opened with xdg-open](0063-a-contexts-own-containerfile.md) | Accepted (settings app part superseded by 0064) |
 | 0064 | [Images are managed like contexts](0064-images-managed-like-contexts.md) | Accepted (built-in images: amended by 0065) |
 | 0065 | [koje's own images can be customized](0065-koje-images-customized-on-demand.md) | Accepted |
+| 0066 | [Passwordless sudo in contexts, as an access switch](0066-passwordless-sudo-in-contexts.md) | Accepted |

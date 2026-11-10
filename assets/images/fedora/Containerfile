@@ -15,7 +15,7 @@ RUN dnf -y install --setopt=install_weak_deps=False \
         pipewire-utils pulseaudio-utils cups-client \
         dejavu-sans-fonts dejavu-sans-mono-fonts google-noto-sans-fonts google-noto-emoji-fonts \
         podman podman-compose fuse-overlayfs slirp4netns passt shadow-utils libcap \
-        dbus-daemon dbus-tools gnome-keyring tar gzip \
+        dbus-daemon dbus-tools gnome-keyring tar gzip sudo \
     && dnf clean all
 
 # Starship, the shell prompt (not packaged in Fedora): a pinned release,

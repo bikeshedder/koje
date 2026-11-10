@@ -763,6 +763,12 @@ fn up_creates_once_then_starts_and_down_stops() {
     );
     assert!(calls.contains("--label io.koje.context=kp"), "{calls}");
     assert!(calls.lines().any(|l| l == "start koje-kp"), "{calls}");
+    // Passwordless sudo for the user (ADR 0066), as root, the name as an argument.
+    assert!(
+        calls.contains("exec --user root koje-kp sh -c set -e"),
+        "{calls}"
+    );
+    assert!(calls.contains("NOPASSWD: ALL"), "{calls}");
 
     // Without -s: a running context stays as it is (-s switches its state).
     let out = stdout(&s.koje(&["up", "kp"]));
