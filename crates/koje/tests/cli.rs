@@ -190,7 +190,7 @@ fn new_creates_context_with_defaults() {
         .path()
         .join("config/koje/contexts/kunden-portal/context.toml");
     let text = std::fs::read_to_string(file).unwrap();
-    assert!(text.contains("image  = \"koje/base:latest\""), "{text}");
+    assert!(text.contains("image  = \"fedora\""), "{text}");
 
     // The second context gets the next palette color.
     let out = stdout(&koje(tmp.path(), &["new", "shop", "--prefix", "SH"]));

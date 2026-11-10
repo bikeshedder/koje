@@ -728,9 +728,24 @@ pub fn sleep(kojed: &dyn Host, paths: &Paths, context: &str) -> Result<()> {
     Ok(())
 }
 
+/// The image the container runs. Until image folders are built (M3.20),
+/// `fedora` is `koje/base`.
+fn container_image(cfg: &ContextConfig) -> String {
+    let parsed = cfg.image_ref();
+    if let Some(hint) = &parsed.hint {
+        crate::say!("note: {hint}");
+    }
+    match parsed.image {
+        koje_core::image::ImageRef::Name(n) if n.as_str() == koje_core::image::DEFAULT => {
+            BASE_IMAGE.to_owned()
+        }
+        _ => cfg.image.clone(),
+    }
+}
+
 /// Build `koje/base` on first use (ADR 0023).
 fn ensure_image(podman: &Podman, cfg: &ContextConfig) -> Result<()> {
-    if cfg.image != BASE_IMAGE || podman.image_exists(BASE_IMAGE)? {
+    if container_image(cfg) != BASE_IMAGE || podman.image_exists(BASE_IMAGE)? {
         return Ok(());
     }
     crate::say!("{BASE_IMAGE} is missing – building it first (a few minutes)");
@@ -749,10 +764,11 @@ fn spec(
 ) -> Result<Built> {
     let mounts = koje_podman::host::resolve_mounts(cfg, &paths.host_dirs()?)?;
     let limits = cfg.effective_limits(global)?;
+    let image = container_image(cfg);
     Ok(build(
         &ContextInputs {
             name: &cfg.name,
-            image: &cfg.image,
+            image: &image,
             access,
             limits: &limits,
             mounts: &mounts,

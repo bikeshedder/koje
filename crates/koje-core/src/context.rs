@@ -57,7 +57,9 @@ pub fn new_config_toml(name: &ContextName, prefix: &str, color: Color) -> String
         r#"name   = "{name}"
 prefix = {prefix}
 color  = "{color}"
-image  = "koje/base:latest"
+# The image (ADR 0040): a folder in ~/.config/koje/images/<name> or koje's
+# built-in "fedora", a folder's path (~/…), or a registry image (docker.io/…).
+image  = "fedora"
 
 # Host folders bound into the context at the same path (ADR 0009).
 mounts = []
@@ -498,7 +500,7 @@ mod tests {
         let cfg = ContextConfig::from_toml(&text, std::path::Path::new("x")).unwrap();
         assert_eq!(cfg.prefix, "K\"P");
         assert_eq!(cfg.color, PALETTE[1]);
-        assert_eq!(cfg.image, "koje/base:latest");
+        assert_eq!(cfg.image, "fedora");
         assert_eq!(cfg.mounts, []);
         assert_eq!(cfg.access, crate::access::AccessConfig::default());
         // The commented [access] example is valid once uncommented.

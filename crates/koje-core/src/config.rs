@@ -30,7 +30,9 @@ pub struct ContextConfig {
     pub icon: Option<String>,
     /// Border and accent color.
     pub color: Color,
-    /// Container image the context is created from. Defaults to the shared base image.
+    /// The image the context is created from (ADR 0040, [`crate::image`]): an
+    /// image folder's or built-in image's name, a folder's path or a registry
+    /// image. Defaults to the built-in `fedora`.
     #[serde(default = "default_image")]
     pub image: String,
     /// Host folders bound into the context under the same path.
@@ -56,7 +58,7 @@ pub struct ContextConfig {
 }
 
 fn default_image() -> String {
-    "koje/base:latest".to_owned()
+    crate::image::DEFAULT.to_owned()
 }
 
 /// Memory limits of a context. Unset values fall back to [`GlobalConfig::default_limits`].
@@ -119,6 +121,7 @@ impl ContextConfig {
             source: Box::new(e),
         })?;
         cfg.limits.validate()?;
+        crate::image::parse(&cfg.image)?;
         crate::look::check("the context", cfg.label.as_deref(), cfg.icon.as_deref())?;
         if cfg.states.default.is_empty_state() || cfg.states.fresh.is_empty_state() {
             return Err(Error::ReservedState(StateName::EMPTY.to_owned()));
@@ -132,6 +135,14 @@ impl ContextConfig {
             source: e,
         })?;
         Self::from_toml(&text, path)
+    }
+
+    /// What `image = …` names (ADR 0040); checked when the file is read.
+    pub fn image_ref(&self) -> crate::image::Parsed {
+        crate::image::parse(&self.image).unwrap_or_else(|_| crate::image::Parsed {
+            image: crate::image::ImageRef::Registry(self.image.clone()),
+            hint: None,
+        })
     }
 
     /// Host resources after resolving the global and the context's `[access]`.
@@ -277,7 +288,7 @@ fresh   = "fresh"
             Path::new("x"),
         )
         .unwrap();
-        assert_eq!(cfg.image, "koje/base:latest");
+        assert_eq!(cfg.image, "fedora");
         assert_eq!(cfg.states, StateRoles::default());
     }
 

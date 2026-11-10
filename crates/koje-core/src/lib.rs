@@ -20,6 +20,7 @@ pub mod dotfiles;
 pub mod error;
 pub mod fsutil;
 pub mod hostbus;
+pub mod image;
 pub mod integration;
 pub mod layout;
 pub mod layouts;

@@ -10,6 +10,9 @@ pub enum Error {
         reason: &'static str,
     },
 
+    #[error("image {value:?}: {reason}")]
+    Image { value: String, reason: String },
+
     #[error("invalid color {0:?}: expected #RRGGBB")]
     InvalidColor(String),
 

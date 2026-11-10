@@ -97,6 +97,11 @@ impl Paths {
     }
 
     /// `~/.config/koje/dotfiles/`: one folder per dotfiles preset (ADR 0038).
+    /// Image folders (ADR 0040): `~/.config/koje/images/<name>/`.
+    pub fn images_dir(&self) -> PathBuf {
+        self.config.join("images")
+    }
+
     pub fn dotfiles_dir(&self) -> PathBuf {
         self.config.join("dotfiles")
     }

@@ -112,6 +112,13 @@ name_type!(
     "dotfiles preset"
 );
 
+name_type!(
+    /// Name of an image (ADR 0040), e.g. `fedora` – a folder in
+    /// `~/.config/koje/images/` or an image built into koje.
+    ImageName,
+    "image"
+);
+
 impl StateName {
     /// The reserved, virtual, read-only state that starts no windows.
     pub const EMPTY: &'static str = "empty";
