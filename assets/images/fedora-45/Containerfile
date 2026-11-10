@@ -2,8 +2,8 @@
 # programs, nothing about the host user. koje adds its user layer on top
 # (assets/images/user-layer) before a context runs it. Requirements come from
 # the M2 spikes (ADR 0014–0016, 0019). An image folder of your own builds on
-# it with: FROM localhost/koje/fedora
-FROM registry.fedoraproject.org/fedora:44
+# it with: FROM localhost/koje/fedora:45
+FROM registry.fedoraproject.org/fedora:45
 
 # Batteries included (ADR 0023): browser, terminal, file manager, tools.
 # Graphics (Mesa: AMD/Intel; NVIDIA via CDI at runtime), sound and printing
@@ -35,4 +35,4 @@ RUN mkdir -p /etc/xdg \
     && printf '[Default Applications]\nx-scheme-handler/http=firefox.desktop\nx-scheme-handler/https=firefox.desktop\ntext/html=firefox.desktop\n' \
         > /etc/xdg/mimeapps.list
 
-LABEL io.koje.image=fedora
+LABEL io.koje.image=fedora io.koje.version=45

@@ -18,7 +18,18 @@ pub fn run(command: &Command) -> Result<()> {
         Command::List => list(&paths),
         Command::Setup { dry_run, yes } => crate::setup::run(*dry_run, *yes),
         Command::Doctor => crate::doctor::run(),
-        Command::New { ctx, color, prefix } => new(&paths, ctx, color.as_deref(), prefix.clone()),
+        Command::New {
+            ctx,
+            color,
+            prefix,
+            image,
+        } => new(
+            &paths,
+            ctx,
+            color.as_deref(),
+            prefix.clone(),
+            image.as_deref(),
+        ),
 
         Command::Settings { context } => settings(&paths, context.as_deref()),
         Command::Edit { ctx, stdin } => {
@@ -42,6 +53,7 @@ pub fn run(command: &Command) -> Result<()> {
             image_new(&paths, name, from, label.as_deref())
         }
         Command::Image(ImageCmd::List) => image_list(&paths),
+        Command::Image(ImageCmd::Rename { name, new_name }) => image_rename(&paths, name, new_name),
         Command::Image(ImageCmd::Customize { image }) => image_customize(&paths, image),
         Command::Image(ImageCmd::Reset { image, yes }) => image_reset(&paths, image, *yes),
         Command::Image(ImageCmd::Rm { name, yes }) => image_rm(&paths, name, *yes),
@@ -105,15 +117,42 @@ pub fn run(command: &Command) -> Result<()> {
     }
 }
 
+/// An image chosen on the terminal from koje's and the folders (ADR 0067).
+fn choose_image(paths: &Paths, question: &str) -> Result<String> {
+    let choices: Vec<(String, String)> = koje_core::images::list(paths)?
+        .into_iter()
+        .filter(|e| e.error.is_none())
+        .map(|e| (e.reference(), e.label))
+        .collect();
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        let names: Vec<&str> = choices.iter().map(|(v, _)| v.as_str()).collect();
+        bail!("choose an image with --image: {}", names.join(", "));
+    }
+    koje_runtime::prompt::choose(question, &choices)?
+        .context("no image chosen; nothing was created")
+}
+
 fn context_name(ctx: &Ctx) -> Result<ContextName> {
     Ok(ContextName::new(&ctx.context)?)
 }
 
 /// `koje new`: write a fresh `context.toml`.
-fn new(paths: &Paths, ctx: &Ctx, color: Option<&str>, prefix: Option<String>) -> Result<()> {
+fn new(
+    paths: &Paths,
+    ctx: &Ctx,
+    color: Option<&str>,
+    prefix: Option<String>,
+    image: Option<&str>,
+) -> Result<()> {
     let name = context_name(ctx)?;
     let color = color.map(str::parse::<Color>).transpose()?;
-    let cfg = context::create(paths, &name, prefix, color)?;
+    let image = match image {
+        Some(i) => i.to_owned(),
+        None => choose_image(paths, &format!("Which image does {name} run?"))?,
+    };
+    // As it is: a wrong version or name is refused here, not at the first start.
+    koje_runtime::images::source(paths, &image)?;
+    let cfg = context::create(paths, &name, prefix, color, &image)?;
     println!(
         "created context {} ({}, {}) in {}",
         cfg.name,
@@ -364,7 +403,7 @@ pub fn image_build(paths: &Paths, images: &[String], no_cache: bool, pull: bool)
         images = koje_runtime::images::in_use(paths)?;
     }
     if images.is_empty() {
-        images.push(koje_core::image::DEFAULT.to_owned());
+        bail!("no context uses an image yet – name one: koje image build localhost/koje/fedora:45");
     }
     let opts = koje_runtime::images::Options {
         force: true,
@@ -410,13 +449,19 @@ fn image_edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
 fn image_new(paths: &Paths, name: &str, from: &str, label: Option<&str>) -> Result<()> {
     let name = koje_core::name::ImageName::new(name)?;
     let from_line = koje_runtime::images::from_line(paths, from)?;
-    if koje_core::image::parents(&format!("FROM {from_line}")).contains(&name) {
+    if koje_core::image::parents(&format!("FROM {from_line}"))
+        .iter()
+        .any(|p| p.koje_name() == Some(&name))
+    {
         bail!("image {name} cannot build on itself");
     }
     let text = koje_runtime::images::new_containerfile(&from_line);
     let dir = koje_core::images::create(paths, &name, &text, label)?;
     println!("created {}", dir.join("Containerfile").display());
-    println!("use it in a context with image = \"{name}\" (koje edit <context>)");
+    println!(
+        "use it in a context with image = \"{}\" (koje edit <context>)",
+        koje_core::image::reference(name.as_str(), koje_core::image::FIRST_VERSION)
+    );
     crate::kojed::reload();
     Ok(())
 }
@@ -451,6 +496,24 @@ fn image_list(paths: &Paths) -> Result<()> {
             e.error.map(|err| format!("  ! {err}")).unwrap_or_default()
         );
     }
+    Ok(())
+}
+
+/// `koje image rename`.
+fn image_rename(paths: &Paths, name: &str, new_name: &str) -> Result<()> {
+    let (old, new) = (
+        koje_core::name::ImageName::new(name)?,
+        koje_core::name::ImageName::new(new_name)?,
+    );
+    let moved = koje_core::images::rename(paths, &old, &new)?;
+    println!("renamed image {old} to {new}");
+    for ctx in moved {
+        println!(
+            "  {ctx} now uses it as {}",
+            context::load(paths, &ctx)?.image
+        );
+    }
+    crate::kojed::reload();
     Ok(())
 }
 

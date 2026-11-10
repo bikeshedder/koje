@@ -51,15 +51,17 @@ pub fn pick_color(used: &[Color]) -> Color {
 
 /// Contents of a new `context.toml`: the given values plus commented hints for
 /// the optional keys, so the file is easy to edit by hand.
-pub fn new_config_toml(name: &ContextName, prefix: &str, color: Color) -> String {
+pub fn new_config_toml(name: &ContextName, prefix: &str, color: Color, image: &str) -> String {
+    let image = toml::Value::String(image.to_owned());
     let prefix = toml::Value::String(prefix.to_owned());
     format!(
         r#"name   = "{name}"
 prefix = {prefix}
 color  = "{color}"
-# The image (ADR 0040): a folder in ~/.config/koje/images/<name> or koje's
-# built-in "fedora", a folder's path (~/…), or a registry image (docker.io/…).
-image  = "fedora"
+# The image (ADR 0040, 0067): localhost/koje/<name>:<version> – koje's own
+# (fedora:45, ubuntu:26.04, debian:13) or a folder in ~/.config/koje/images –,
+# a folder's path (~/…), or a registry image (docker.io/…).
+image  = {image}
 
 # Host folders bound into the context at the same path (ADR 0009).
 mounts = []
@@ -151,6 +153,7 @@ pub fn create(
     name: &ContextName,
     prefix: Option<String>,
     color: Option<Color>,
+    image: &str,
 ) -> Result<ContextConfig> {
     if exists(paths, name) {
         return Err(Error::ContextExists(name.clone()));
@@ -161,7 +164,7 @@ pub fn create(
         None => pick_color(&list(paths)?.iter().map(|c| c.color).collect::<Vec<_>>()),
     };
     let path = paths.context_config(name);
-    let text = new_config_toml(name, &prefix, color);
+    let text = new_config_toml(name, &prefix, color, image);
     let cfg = ContextConfig::from_toml(&text, &path)?;
     fsutil::write_atomic(&path, text.as_bytes())?;
     Ok(cfg)
@@ -539,11 +542,14 @@ mod tests {
 
     #[test]
     fn image_is_changed_in_place() {
-        let text = new_config_toml(&n("kp"), "KP", PALETTE[1]);
+        let text = new_config_toml(&n("kp"), "KP", PALETTE[1], "localhost/koje/fedora:45");
         let changed = with_image(&text, "kp").unwrap();
         let cfg = ContextConfig::from_toml(&changed, std::path::Path::new("x")).unwrap();
         assert_eq!(cfg.image, "kp");
-        assert!(changed.contains("# The image (ADR 0040)"), "{changed}");
+        assert!(
+            changed.contains("# The image (ADR 0040, 0067)"),
+            "{changed}"
+        );
         assert!(changed.contains("image  = \"kp\""), "{changed}");
         assert_eq!(changed.lines().count(), text.lines().count());
         let added = with_image("name = \"kp\"\n", "dev").unwrap();
@@ -553,11 +559,11 @@ mod tests {
 
     #[test]
     fn template_parses_and_escapes_prefix() {
-        let text = new_config_toml(&n("kp"), "K\"P", PALETTE[1]);
+        let text = new_config_toml(&n("kp"), "K\"P", PALETTE[1], "localhost/koje/fedora:45");
         let cfg = ContextConfig::from_toml(&text, std::path::Path::new("x")).unwrap();
         assert_eq!(cfg.prefix, "K\"P");
         assert_eq!(cfg.color, PALETTE[1]);
-        assert_eq!(cfg.image, "fedora");
+        assert_eq!(cfg.image, "localhost/koje/fedora:45");
         assert_eq!(cfg.mounts, []);
         assert_eq!(cfg.access, crate::access::AccessConfig::default());
         // The commented [access] example is valid once uncommented.
@@ -576,12 +582,26 @@ mod tests {
     fn create_list_and_refuse_existing() {
         let tmp = tempfile::tempdir().unwrap();
         let paths = temp_paths(&tmp);
-        let a = create(&paths, &n("kunden-portal"), None, None).unwrap();
+        let a = create(
+            &paths,
+            &n("kunden-portal"),
+            None,
+            None,
+            "localhost/koje/fedora:45",
+        )
+        .unwrap();
         assert_eq!((a.prefix.as_str(), a.color), ("KP", PALETTE[0]));
-        let b = create(&paths, &n("shop"), Some("SH".into()), None).unwrap();
+        let b = create(
+            &paths,
+            &n("shop"),
+            Some("SH".into()),
+            None,
+            "localhost/koje/fedora:45",
+        )
+        .unwrap();
         assert_eq!(b.color, PALETTE[1]);
         assert!(matches!(
-            create(&paths, &n("shop"), None, None),
+            create(&paths, &n("shop"), None, None, "localhost/koje/fedora:45"),
             Err(Error::ContextExists(_))
         ));
         let names: Vec<_> = list(&paths).unwrap().into_iter().map(|c| c.name).collect();
@@ -599,7 +619,7 @@ mod tests {
         let path = paths.context_config(&n("kp"));
         fsutil::write_atomic(
             &path,
-            new_config_toml(&n("other"), "O", PALETTE[0]).as_bytes(),
+            new_config_toml(&n("other"), "O", PALETTE[0], "localhost/koje/fedora:45").as_bytes(),
         )
         .unwrap();
         assert!(matches!(
@@ -611,7 +631,13 @@ mod tests {
     #[test]
     fn settings_edit_the_file_keeping_comments() {
         let name = ContextName::new("kp").unwrap();
-        let text = new_config_toml(&name, "KP", "#3584e4".parse().unwrap()).replace(
+        let text = new_config_toml(
+            &name,
+            "KP",
+            "#3584e4".parse().unwrap(),
+            "localhost/koje/fedora:45",
+        )
+        .replace(
             "mounts = []",
             "mounts = [\"~/src\", { path = \"/tmp\", unsafe = true }, \"~/old\"]",
         );
@@ -634,7 +660,10 @@ mod tests {
         assert_eq!(cfg.icon.as_deref(), Some("briefcase-symbolic"));
         assert_eq!(cfg.color.to_string(), "#E01B24");
         assert_eq!(cfg.image, "web");
-        assert!(out.contains("# The image (ADR 0040)"), "its comment stays");
+        assert!(
+            out.contains("# The image (ADR 0040, 0067)"),
+            "its comment stays"
+        );
         assert_eq!(cfg.access.profile, Some(crate::access::Profile::Desktop));
         assert_eq!((cfg.access.gpu, cfg.access.sound), (Some(true), None));
         assert_eq!(cfg.mounts.len(), 3);
@@ -670,7 +699,7 @@ mod tests {
     fn validate_checks_name_and_mounts() {
         let tmp = tempfile::tempdir().unwrap();
         let paths = temp_paths(&tmp);
-        let good = new_config_toml(&n("kp"), "KP", PALETTE[0]);
+        let good = new_config_toml(&n("kp"), "KP", PALETTE[0], "localhost/koje/fedora:45");
         assert!(validate(&paths, &n("kp"), &good).is_ok());
         assert!(matches!(
             validate(&paths, &n("other"), &good),
@@ -690,8 +719,8 @@ mod tests {
     fn remove_deletes_config_states_and_recovery() {
         let tmp = tempfile::tempdir().unwrap();
         let paths = temp_paths(&tmp);
-        create(&paths, &n("kp"), None, None).unwrap();
-        create(&paths, &n("shop"), None, None).unwrap();
+        create(&paths, &n("kp"), None, None, "localhost/koje/fedora:45").unwrap();
+        create(&paths, &n("shop"), None, None, "localhost/koje/fedora:45").unwrap();
         fsutil::write_atomic(&paths.recovery_file(&n("kp")), b"x").unwrap();
         let state = crate::name::StateName::new("default").unwrap();
         fsutil::write_atomic(&paths.state_file(&n("kp"), &state), b"x").unwrap();
@@ -714,7 +743,7 @@ mod tests {
         assert_eq!(list(&paths).unwrap(), []);
         std::fs::create_dir_all(paths.contexts_dir().join("Not A Name")).unwrap();
         std::fs::create_dir_all(paths.contexts_dir().join("no-config")).unwrap();
-        create(&paths, &n("kp"), None, None).unwrap();
+        create(&paths, &n("kp"), None, None, "localhost/koje/fedora:45").unwrap();
         assert_eq!(list(&paths).unwrap().len(), 1);
     }
 
@@ -722,7 +751,7 @@ mod tests {
     fn favorites_are_set_and_removed_comments_stay() {
         let name = ContextName::new("kp").unwrap();
         let text = with_limits(
-            &new_config_toml(&name, "KP", Color::rgb(1, 2, 3)),
+            &new_config_toml(&name, "KP", Color::rgb(1, 2, 3), "localhost/koje/fedora:45"),
             LimitChange::Set(ByteSize(6 << 30)),
             LimitChange::Keep,
         )
@@ -752,7 +781,7 @@ mod tests {
     #[test]
     fn limits_change_and_comments_stay() {
         let name = ContextName::new("kp").unwrap();
-        let text = new_config_toml(&name, "KP", Color::rgb(1, 2, 3));
+        let text = new_config_toml(&name, "KP", Color::rgb(1, 2, 3), "localhost/koje/fedora:45");
         let six = ByteSize(6 << 30);
         let out = with_limits(&text, LimitChange::Set(six), LimitChange::Keep).unwrap();
         assert!(

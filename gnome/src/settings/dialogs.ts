@@ -102,3 +102,47 @@ export function askImage(parent: Gtk.Widget, initial: NewImage, choices: [string
         name.grab_focus();
     });
 }
+
+/**
+ * Ask for a new context's name and image (ADR 0067: there is no default);
+ * `choices` are `[value, title]`; `null` when cancelled.
+ */
+export function askContext(parent: Gtk.Widget, choices: [string, string][]): Promise<{name: string; image: string} | null> {
+    const name = new Gtk.Entry({activates_default: true, placeholder_text: 'Name'});
+    const image = Gtk.DropDown.new_from_strings(choices.map(([, title]) => title));
+    image.hexpand = true;
+    const box = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 12});
+    box.append(name);
+    const imageBox = new Gtk.Box({spacing: 12});
+    imageBox.append(new Gtk.Label({label: 'Image'}));
+    imageBox.append(image);
+    box.append(imageBox);
+    const dialog = new Adw.AlertDialog({
+        heading: 'New Context',
+        body: 'Lowercase letters, digits and -, starting with a letter. The image is where its programs come from; it can be changed later.',
+        extra_child: box,
+        default_response: 'ok',
+        close_response: 'cancel',
+    });
+    dialog.add_response('cancel', 'Cancel');
+    dialog.add_response('ok', 'Create');
+    dialog.set_response_appearance('ok', Adw.ResponseAppearance.SUGGESTED);
+    const check = () => {
+        const ok = validName(name.text) && choices.length > 0;
+        dialog.set_response_enabled('ok', ok);
+        if (ok || name.text === '')
+            name.remove_css_class('error');
+        else
+            name.add_css_class('error');
+    };
+    name.connect('changed', check);
+    check();
+    return new Promise(resolve => {
+        dialog.connect('response', (_d, response) => {
+            const value = choices[image.selected]?.[0];
+            resolve(response === 'ok' && value ? {name: name.text, image: value} : null);
+        });
+        dialog.present(parent);
+        name.grab_focus();
+    });
+}

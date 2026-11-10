@@ -1,0 +1,52 @@
+# koje's built-in image `ubuntu` (ADR 0040, 0067): Ubuntu 26.04 LTS with the
+# programs of koje's other images, nothing about the host user (koje's user
+# layer adds it; it replaces the image's own `ubuntu` user). An image folder
+# of your own builds on it with: FROM localhost/koje/ubuntu:26.04
+FROM docker.io/library/ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Batteries included (ADR 0023): terminal, file manager, tools; graphics
+# (Mesa; NVIDIA via CDI at runtime), sound and printing clients, fonts;
+# nested Podman; the D-Bus session bus; a keyring per context; sudo (ADR 0066).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        foot nautilus xdg-utils git less procps hostname ca-certificates curl gnupg \
+        mesa-vulkan-drivers libgl1-mesa-dri libegl1 \
+        pipewire-bin pulseaudio-utils cups-client \
+        fonts-dejavu-core fonts-noto-core fonts-noto-color-emoji \
+        podman podman-compose fuse-overlayfs slirp4netns passt passwd uidmap libcap2-bin \
+        dbus-daemon dbus-bin gnome-keyring tar gzip sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Firefox from Mozilla's APT repository: Ubuntu's package is a snap, and snaps
+# do not run in a container.
+RUN install -d -m 0755 /etc/apt/keyrings \
+    && curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg \
+        -o /etc/apt/keyrings/packages.mozilla.org.asc \
+    && echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
+        > /etc/apt/sources.list.d/mozilla.list \
+    && printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' \
+        > /etc/apt/preferences.d/mozilla \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends firefox \
+    && rm -rf /var/lib/apt/lists/*
+
+# Starship, the shell prompt: a pinned release, checked against its checksum.
+# Enabled from the user's shell rc (e.g. in a dotfiles preset, ADR 0038):
+# eval "$(starship init bash)".
+ARG STARSHIP_VERSION=1.26.0
+ARG STARSHIP_SHA256=b7c232b0e8249d8e55a40beb79c5c43a7d370f3f9408bd215deb0170daeaadf3
+RUN curl -fsSL -o /tmp/starship.tar.gz \
+        "https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}/starship-x86_64-unknown-linux-musl.tar.gz" \
+    && echo "${STARSHIP_SHA256}  /tmp/starship.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/starship.tar.gz -C /usr/local/bin starship \
+    && rm /tmp/starship.tar.gz \
+    && starship --version
+
+# Links opened in a context go to the context's Firefox.
+RUN mkdir -p /etc/xdg \
+    && printf '[Default Applications]\nx-scheme-handler/http=%s\nx-scheme-handler/https=%s\ntext/html=%s\n' \
+        firefox.desktop firefox.desktop firefox.desktop > /etc/xdg/mimeapps.list
+
+LABEL io.koje.image=ubuntu io.koje.version=26.04

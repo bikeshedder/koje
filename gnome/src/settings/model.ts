@@ -295,12 +295,14 @@ function sameRecord(a: Record<string, boolean>, b: Record<string, boolean>): boo
 /** Sidebar and output keys of images: context names have no `:`. */
 export const IMAGE_KEY = 'image:';
 
-/** What a new image builds on unless chosen otherwise. */
-export const IMAGE_DEFAULT_FROM = 'fedora';
+/** Where koje's images live: `localhost/koje/<name>:<version>` (ADR 0067). */
+export const IMAGE_PREFIX = 'localhost/koje/';
 
 /** An image as `Images` reports it. */
 export interface Image {
     name: string;
+    /** Its tag: koje's release, or the folder's (ADR 0067). */
+    version: string;
     label: string;
     description: string;
     /** `customized`: a folder in koje's own image's place (ADR 0065). */
@@ -315,9 +317,9 @@ export interface Image {
     update: boolean;
 }
 
-export function images(rows: [string, string, string, string, string, string[], boolean, string, boolean][]): Image[] {
-    return rows.map(([name, label, description, kind, file, usedBy, built, error, update]) => ({
-        name, label, description, file, usedBy, built, error, update,
+export function images(rows: [string, string, string, string, string, string, string[], boolean, string, boolean][]): Image[] {
+    return rows.map(([name, version, label, description, kind, file, usedBy, built, error, update]) => ({
+        name, version, label, description, file, usedBy, built, error, update,
         kind: kind === 'builtin' || kind === 'customized' ? kind : 'folder',
     }));
 }
@@ -339,6 +341,28 @@ export function imageOrigin(img: Image): {subtitle: string; actions: OriginActio
     }
 }
 
+/** What `image = …` and `FROM` name: `localhost/koje/<name>:<version>`. */
+export function reference(img: Image): string {
+    return `${IMAGE_PREFIX}${img.name}:${img.version}`;
+}
+
+/**
+ * The koje image `image = …` names, any version: `localhost/koje/web:1`,
+ * and the older `web` and `koje/base:latest` (fedora); `null` for others.
+ */
+export function imageNameOf(value: string): string | null {
+    if (['koje/base:latest', 'koje/base', 'localhost/koje/base:latest'].includes(value))
+        return 'fedora';
+    if (value.startsWith(IMAGE_PREFIX) && !value.startsWith(`${IMAGE_PREFIX}user/`))
+        return value.slice(IMAGE_PREFIX.length).split(':')[0];
+    return /^[a-z][a-z0-9-]*$/.test(value) ? value : null;
+}
+
+/** A version koje takes (a tag, never `latest`). */
+export function validVersion(version: string): boolean {
+    return version !== 'latest' && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(version);
+}
+
 /** An image's name in lists: its label, and its name when that differs. */
 export function imageTitle(img: Image): string {
     return img.label.toLowerCase() === img.name ? img.label : `${img.label} (${img.name})`;
@@ -349,17 +373,18 @@ export function imageTitle(img: Image): string {
  * it is none of them (a registry image or a path).
  */
 export function imageChoices(list: Image[], current: string): [string, string][] {
-    const out: [string, string][] = list.map(i => [i.name, imageTitle(i)]);
-    const legacy = ['koje/base:latest', 'koje/base', 'localhost/koje/base:latest'];
-    if (current !== '' && !legacy.includes(current) && !list.some(i => i.name === current))
+    const out: [string, string][] = list.map(i => [reference(i), imageTitle(i)]);
+    const name = imageNameOf(current);
+    if (current !== '' && !list.some(i => i.name === name))
         out.push([current, current]);
     return out;
 }
 
-/** Which choice `image = …` is (the old base image is `fedora`). */
+/** Which choice `image = …` is: the image it names, in any version or spelling. */
 export function imageChoice(choices: [string, string][], current: string): number {
-    const value = ['koje/base:latest', 'koje/base', 'localhost/koje/base:latest'].includes(current) ? 'fedora' : current;
-    return Math.max(0, choices.findIndex(([v]) => v === value));
+    const name = imageNameOf(current);
+    const i = choices.findIndex(([v]) => v === current || (name !== null && imageNameOf(v) === name));
+    return Math.max(0, i);
 }
 
 /** An image's line in the sidebar and its build row. */
@@ -391,7 +416,7 @@ export function imageRemoval(img: Image): {sensitive: boolean; subtitle: string}
 
 /** A name for a new image made for `context`: its name, else with a number. */
 export function suggestImageName(context: string, list: Image[]): string {
-    const taken = (n: string) => list.some(i => i.name === n) || n === 'fedora';
+    const taken = (n: string) => list.some(i => i.name === n) || ['fedora', 'ubuntu', 'debian'].includes(n);
     if (!taken(context))
         return context;
     for (let i = 2; ; i++) {

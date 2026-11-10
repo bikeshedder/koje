@@ -286,8 +286,18 @@ Adw.ApplicationWindow window {
                     show-apply-button: true;
                   }
 
-                  Adw.ActionRow image_name_row {
+                  Adw.EntryRow image_name_row {
                     title: "Name";
+                    show-apply-button: true;
+                  }
+
+                  Adw.EntryRow image_version_row {
+                    title: "Version";
+                    show-apply-button: true;
+                  }
+
+                  Adw.ActionRow image_ref_row {
+                    title: "Its Name in context.toml and FROM";
                     subtitle-selectable: true;
                   }
                 }
@@ -300,9 +310,17 @@ Adw.ApplicationWindow window {
                     subtitle-selectable: true;
 
                     [suffix]
-                    Button image_edit_button {
-                      label: "Edit…";
+                    Box {
+                      spacing: 6;
                       valign: center;
+
+                      Button image_folder_button {
+                        label: "Open Folder";
+                      }
+
+                      Button image_edit_button {
+                        label: "Edit…";
+                      }
                     }
                   }
 

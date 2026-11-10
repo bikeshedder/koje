@@ -136,13 +136,14 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje shell <context> [--dev [<container>]] [-u <user>]` | shell in the context, or in its (only / named) dev container; `-u root` logs in as root there |
 | `koje settings [<context>]` | open koje Settings (`koje-settings`, ADR 0060), on a context if given |
 | `koje config [--stdin]` | edit `config.toml` in $EDITOR; `--stdin` takes the new file from stdin (the settings app) |
-| `koje new \| edit \| rm <context>`, `koje list` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
+| `koje new \| edit \| rm <context>`, `koje list` | manage contexts; `new --image <image>` chooses its image (asked on a terminal, ADR 0067); `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
 | `koje image build [<image>…] [--no-cache] [--pull]` | build images (default: those contexts use) with what they build on and your user on top (ADR 0040); contexts get them when recreated |
 | `koje image edit <context>` | open the context's Containerfile with `xdg-open`: its image folder's, else a new one of its own made from its image (ADR 0063) |
-| `koje image new <name> [--from <image>] [--label <label>]` | create the image folder `~/.config/koje/images/<name>` with a Containerfile and `image.toml` (ADR 0040, 0064) |
+| `koje image new <name> --from <image> [--label <label>]` | create the image folder `~/.config/koje/images/<name>` with a Containerfile and `image.toml` (ADR 0040, 0064) |
 | `koje image list` | images: koje's own and the image folders, with label and the contexts using them (ADR 0064) |
-| `koje image customize <image>` | copy koje's own image (`fedora`) into its folder, which takes its place (ADR 0065) |
+| `koje image customize <image>` | copy one of koje's own images (`fedora`, `ubuntu`, `debian`) into its folder, which takes its place (ADR 0065) |
+| `koje image rename <name> <new-name>` | rename an image folder; contexts and `FROM` lines follow (ADR 0067) |
 | `koje image reset <image> [--yes]` | back to koje's own image: the customized folder is deleted |
 | `koje image rm <name> [--yes]` | remove an image folder; refused while a context uses it |
 | `koje setup [--dry-run] [--yes]` | after the package (ADR 0045): enable koje's GNOME Shell extension, build koje's image `fedora`, restart an outdated kojed; plan first, asks once |

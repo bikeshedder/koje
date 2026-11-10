@@ -50,12 +50,7 @@ pub fn source(paths: &Paths, value: &str) -> Result<Source> {
 
 fn resolve(paths: &Paths, image: &ImageRef) -> Result<Source> {
     let home = paths.host_dirs()?.home;
-    Ok(image::resolve(
-        image,
-        &paths.images_dir(),
-        &home,
-        Path::is_dir,
-    )?)
+    Ok(koje_core::images::resolve(paths, &home, image)?)
 }
 
 /// The images `src` builds on, resolved.
@@ -65,7 +60,7 @@ fn parents(paths: &Paths, src: &Source) -> Result<Vec<Source>> {
             let file = containerfile(dir)?;
             std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?
         }
-        Source::BuiltIn(name) => built_in(name.as_str())
+        Source::BuiltIn { name, .. } => built_in(name.as_str())
             .and_then(|f| f.iter().find(|(n, _)| *n == "Containerfile"))
             .map(|(_, t)| (*t).to_owned())
             .unwrap_or_default(),
@@ -73,7 +68,7 @@ fn parents(paths: &Paths, src: &Source) -> Result<Vec<Source>> {
     };
     image::parents(&text)
         .into_iter()
-        .map(|name| resolve(paths, &ImageRef::Name(name)))
+        .map(|parent| resolve(paths, &parent))
         .collect()
 }
 
@@ -122,7 +117,7 @@ fn embedded_hash(files: &[(&str, &str)]) -> String {
 fn source_hash(src: &Source) -> Result<Option<String>> {
     Ok(match src {
         Source::Folder { dir, .. } => Some(folder_hash(dir)?),
-        Source::BuiltIn(name) => built_in(name.as_str()).map(embedded_hash),
+        Source::BuiltIn { name, .. } => built_in(name.as_str()).map(embedded_hash),
         Source::Registry(_) => None,
     })
 }
@@ -203,7 +198,7 @@ fn base_image(
                 b.file = Some(&file);
                 podman.build_image(&b, &mut say_line)?;
             }
-            Source::BuiltIn(name) => {
+            Source::BuiltIn { name, .. } => {
                 let files = built_in(name.as_str()).context("no such built-in image")?;
                 let temp = temp_context(files)?;
                 b.dir = temp.path();
@@ -328,6 +323,23 @@ pub fn outdated(paths: &Paths, ctx: &ContextName, value: &str) -> Result<Option<
     })
 }
 
+/// The images contexts use that are not built with your user yet (or
+/// cannot be resolved), as `image = …` names them.
+pub fn not_built(paths: &Paths) -> Result<Vec<String>> {
+    let podman = Podman::new();
+    let mut out = Vec::new();
+    for value in in_use(paths)? {
+        let built = image::parse(&value)
+            .ok()
+            .and_then(|p| resolve(paths, &p.image).ok())
+            .is_some_and(|src| podman.image_exists(&src.user_tag()).unwrap_or(false));
+        if !built {
+            out.push(value);
+        }
+    }
+    Ok(out)
+}
+
 /// The images contexts use, each once (`koje image build` without names).
 pub fn in_use(paths: &Paths) -> Result<Vec<String>> {
     let mut out = BTreeSet::new();
@@ -403,7 +415,8 @@ pub fn own_file(paths: &Paths, ctx: &ContextName) -> Result<OwnFile> {
         // Made before (another context's, or by hand): used as it is.
         containerfile(&dir)?
     };
-    koje_core::context::set_image(paths, ctx, name.as_str())?;
+    let version = koje_core::images::folder_version(&dir);
+    koje_core::context::set_image(paths, ctx, &image::reference(name.as_str(), &version))?;
     Ok(OwnFile {
         file,
         created,
@@ -417,7 +430,8 @@ pub fn new_containerfile(from: &str) -> String {
         "# A koje image (ADR 0040): built by koje when a context that uses it is\n\
          # created (koje up, koje recreate), with your user added on top.\n\
          # Install programs here so they survive a recreate, e.g.\n\
-         #   RUN dnf -y install code && dnf clean all\n\
+         #   RUN dnf -y install htop && dnf clean all          (Fedora)\n\
+         #   RUN apt-get update && apt-get install -y htop     (Ubuntu, Debian)\n\
          # Files next to this one can be copied in with COPY.\n\
          FROM {from}\n"
     )
@@ -462,7 +476,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
         let kp = ContextName::new("kp").unwrap();
-        koje_core::context::create(&p, &kp, None, None).unwrap();
+        koje_core::context::create(&p, &kp, None, None, "localhost/koje/fedora:45").unwrap();
 
         let own = own_file(&p, &kp).unwrap();
         assert_eq!(own.file, p.images_dir().join("kp/Containerfile"));
@@ -470,11 +484,11 @@ mod tests {
         let config = koje_core::images::load_config(&p.images_dir().join("kp")).unwrap();
         assert_eq!(config.label.as_deref(), Some("kp"));
         let text = std::fs::read_to_string(&own.file).unwrap();
-        assert!(
-            text.ends_with("FROM localhost/koje/fedora:latest\n"),
-            "{text}"
+        assert!(text.ends_with("FROM localhost/koje/fedora:45\n"), "{text}");
+        assert_eq!(
+            koje_core::context::load(&p, &kp).unwrap().image,
+            "localhost/koje/kp:1"
         );
-        assert_eq!(koje_core::context::load(&p, &kp).unwrap().image, "kp");
 
         // Edited, then asked again: the same file, nothing changed.
         std::fs::write(&own.file, "FROM localhost/koje/fedora\nRUN true\n").unwrap();
@@ -493,11 +507,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
         let kp = ContextName::new("kp").unwrap();
-        koje_core::context::create(&p, &kp, None, None).unwrap();
+        koje_core::context::create(&p, &kp, None, None, "localhost/koje/fedora:45").unwrap();
         let dev = p.images_dir().join("dev");
         std::fs::create_dir_all(&dev).unwrap();
         std::fs::write(dev.join("Dockerfile"), "FROM localhost/koje/fedora\n").unwrap();
-        koje_core::context::set_image(&p, &kp, "dev").unwrap();
+        koje_core::context::set_image(&p, &kp, "localhost/koje/dev:1").unwrap();
 
         let own = own_file(&p, &kp).unwrap();
         assert_eq!(own.file, dev.join("Dockerfile"));
@@ -510,7 +524,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
         let kp = ContextName::new("kp").unwrap();
-        koje_core::context::create(&p, &kp, None, None).unwrap();
+        koje_core::context::create(&p, &kp, None, None, "localhost/koje/fedora:45").unwrap();
         koje_core::context::set_image(&p, &kp, "docker.io/library/debian:13").unwrap();
         let own = own_file(&p, &kp).unwrap();
         let text = std::fs::read_to_string(&own.file).unwrap();
@@ -527,7 +541,13 @@ mod tests {
         let fedora = koje_core::name::ImageName::default_image();
         let dir = customize(&p, &fedora).unwrap();
         assert!(dir.join("Containerfile").is_file());
-        let entry = || koje_core::images::list(&p).unwrap().remove(0);
+        let entry = || {
+            koje_core::images::list(&p)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.name == fedora)
+                .unwrap()
+        };
         assert!(!koje_has_update(&entry()));
         koje_core::images::keep(&p, &fedora, "an-older-version").unwrap();
         assert!(koje_has_update(&entry()));
@@ -539,14 +559,15 @@ mod tests {
 
     #[test]
     fn new_containerfile_builds_on_the_image() {
-        let text = new_containerfile("localhost/koje/fedora:latest");
-        assert!(
-            text.ends_with("FROM localhost/koje/fedora:latest\n"),
-            "{text}"
-        );
+        let text = new_containerfile("localhost/koje/fedora:45");
+        assert!(text.ends_with("FROM localhost/koje/fedora:45\n"), "{text}");
+        assert!(!text.contains(":latest"), "{text}");
         assert_eq!(
             image::parents(&text),
-            [koje_core::name::ImageName::new("fedora").unwrap()]
+            [ImageRef::Koje {
+                name: koje_core::name::ImageName::new("fedora").unwrap(),
+                version: Some("45".into())
+            }]
         );
     }
 }

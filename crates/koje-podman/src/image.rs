@@ -9,14 +9,31 @@ use koje_core::name::ContextName;
 
 use crate::{Error, Podman, Result, Runner};
 
-/// The images built into koje: name → files of its build context.
-const BUILT_IN: &[(&str, &[(&str, &str)])] = &[(
-    "fedora",
-    &[(
-        "Containerfile",
-        include_str!("../../../assets/images/fedora/Containerfile"),
-    )],
-)];
+/// The images built into koje (ADR 0067): name → files of its build context,
+/// in the release `koje_core::image::BUILT_IN` names.
+const BUILT_IN: &[(&str, &[(&str, &str)])] = &[
+    (
+        "fedora",
+        &[(
+            "Containerfile",
+            include_str!("../../../assets/images/fedora-45/Containerfile"),
+        )],
+    ),
+    (
+        "ubuntu",
+        &[(
+            "Containerfile",
+            include_str!("../../../assets/images/ubuntu-26.04/Containerfile"),
+        )],
+    ),
+    (
+        "debian",
+        &[(
+            "Containerfile",
+            include_str!("../../../assets/images/debian-13/Containerfile"),
+        )],
+    ),
+];
 
 /// koje's user layer (ADR 0040): its build context.
 pub const USER_LAYER: &[(&str, &str)] = &[
@@ -297,14 +314,23 @@ mod tests {
 
     #[test]
     fn embedded_files_are_the_image_sources() {
-        let fedora = built_in("fedora").unwrap();
-        assert!(
-            fedora[0]
-                .1
-                .contains("FROM registry.fedoraproject.org/fedora:44")
-        );
-        assert!(!fedora[0].1.contains("useradd"), "no user in the image");
-        assert!(built_in("debian").is_none());
+        // The releases koje names (ADR 0067), no user in them.
+        for ((name, version), from) in koje_core::image::BUILT_IN.iter().zip([
+            "FROM registry.fedoraproject.org/fedora:45",
+            "FROM docker.io/library/ubuntu:26.04",
+            "FROM docker.io/library/debian:13",
+        ]) {
+            let file = built_in(name).unwrap()[0].1;
+            assert!(file.contains(from), "{name}");
+            assert!(
+                file.contains(&format!("io.koje.version={version}")),
+                "{name}"
+            );
+            assert!(!file.contains("useradd"), "{name}: no user in the image");
+            assert!(!file.contains(":latest"), "{name}: no latest");
+            assert!(file.contains("sudo"), "{name}: sudo (ADR 0066)");
+        }
+        assert!(built_in("arch").is_none());
         let files: BTreeMap<_, _> = USER_LAYER.iter().copied().collect();
         assert!(files["Containerfile"].contains("FROM ${KOJE_IMAGE}"));
         assert!(files["user-layer.sh"].contains("useradd"));

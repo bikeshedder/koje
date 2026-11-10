@@ -64,6 +64,7 @@ fn create(root: &Path, name: &str, color: Color) {
         &ContextName::new(name).unwrap(),
         None,
         Some(color),
+        "localhost/koje/fedora:45",
     )
     .unwrap();
 }
@@ -194,9 +195,9 @@ async fn serves_the_interface_file(conn: &zbus::Connection) {
 /// The settings app's calls (G.23).
 async fn settings_app_calls(conn: &zbus::Connection) {
     let conn = conn.clone();
-    let name: String = call(&conn, "NewContext", &("shop",)).await;
+    let name: String = call(&conn, "NewContext", &("shop", "localhost/koje/fedora:45")).await;
     assert_eq!(name, "shop");
-    let err = call_err(&conn, "NewContext", &("shop",)).await;
+    let err = call_err(&conn, "NewContext", &("shop", "localhost/koje/fedora:45")).await;
     assert!(err.contains("io.koje.Error.InvalidConfig"), "{err}");
     let config: HashMap<String, OwnedValue> = call(&conn, "Config", &("shop",)).await;
     assert_eq!(
@@ -229,32 +230,66 @@ async fn settings_app_calls(conn: &zbus::Connection) {
     assert!(err.contains("io.koje.Error.InvalidConfig"), "{err}");
     let err = call_err(&conn, "Up", &("shop", "", "later", true, true)).await;
     assert!(err.contains("io.koje.Error.InvalidArgs"), "{err}");
-    // Images like contexts (ADR 0064).
-    let name: String = call(&conn, "NewImage", &("web", "fedora", "Web development")).await;
+    image_calls(&conn).await;
+}
+
+/// The settings app's image calls (ADR 0064, 0065, 0067).
+async fn image_calls(conn: &zbus::Connection) {
+    let conn = conn.clone();
+    // Images like contexts (ADR 0064), named with their version (ADR 0067).
+    let fedora = "localhost/koje/fedora:45";
+    let name: String = call(&conn, "NewImage", &("web", fedora, "Web development")).await;
     assert_eq!(name, "web");
-    let err = call_err(&conn, "NewImage", &("web", "fedora", "")).await;
+    let err = call_err(&conn, "NewImage", &("web", fedora, "")).await;
     assert!(err.contains("io.koje.Error.InvalidConfig"), "{err}");
-    let err = call_err(&conn, "NewImage", &("x", "nope", "")).await;
+    let err = call_err(&conn, "NewImage", &("x", "localhost/koje/nope:1", "")).await;
     assert!(err.contains("io.koje.Error.InvalidConfig"), "{err}");
     let change: HashMap<&str, Value<'_>> = [("description", Value::from("Node"))].into();
     let (): () = call(&conn, "SetImage", &("web", change)).await;
-    let use_it: HashMap<&str, Value<'_>> = [("image", Value::from("web"))].into();
+    let use_it: HashMap<&str, Value<'_>> = [("image", Value::from("localhost/koje/web:1"))].into();
     let _: Vec<String> = call(&conn, "SetConfig", &("shop", use_it)).await;
     let images: Vec<ImageRow> = call(&conn, "Images", &()).await;
     let web = images.iter().find(|i| i.0 == "web").unwrap();
     assert_eq!(
-        (web.1.as_str(), web.2.as_str(), web.3.as_str()),
-        ("Web development", "Node", "folder")
+        (
+            web.1.as_str(),
+            web.2.as_str(),
+            web.3.as_str(),
+            web.4.as_str()
+        ),
+        ("1", "Web development", "Node", "folder")
     );
-    assert!(web.4.ends_with("/images/web/Containerfile"), "{}", web.4);
-    assert_eq!(web.5, ["shop"]);
-    assert_eq!(images[0].0, "fedora");
-    assert_eq!(images[0].3, "builtin");
-    let err = call_err(&conn, "RemoveImage", &("web",)).await;
+    assert!(web.5.ends_with("/images/web/Containerfile"), "{}", web.5);
+    assert_eq!(web.6, ["shop"]);
+    let names: Vec<(&str, &str)> = images
+        .iter()
+        .take(3)
+        .map(|i| (i.0.as_str(), i.1.as_str()))
+        .collect();
+    assert_eq!(
+        names,
+        [("fedora", "45"), ("ubuntu", "26.04"), ("debian", "13")]
+    );
+    assert_eq!(images[0].4, "builtin");
+
+    // Renamed, then a new version: shop follows (ADR 0067).
+    let moved: Vec<String> = call(&conn, "RenameImage", &("web", "site")).await;
+    assert_eq!(moved, ["shop"]);
+    let version: HashMap<&str, Value<'_>> = [("version", Value::from("2"))].into();
+    let (): () = call(&conn, "SetImage", &("site", version)).await;
+    let config: HashMap<String, OwnedValue> = call(&conn, "Config", &("shop",)).await;
+    assert_eq!(
+        String::try_from(config["image"].try_clone().unwrap()).unwrap(),
+        "localhost/koje/site:2"
+    );
+    let err = call_err(&conn, "RenameImage", &("fedora", "mine")).await;
+    assert!(err.contains("koje's own image"), "{err}");
+
+    let err = call_err(&conn, "RemoveImage", &("site",)).await;
     assert!(err.contains("used by shop"), "{err}");
-    let back: HashMap<&str, Value<'_>> = [("image", Value::from("fedora"))].into();
+    let back: HashMap<&str, Value<'_>> = [("image", Value::from(fedora))].into();
     let _: Vec<String> = call(&conn, "SetConfig", &("shop", back)).await;
-    let (): () = call(&conn, "RemoveImage", &("web",)).await;
+    let (): () = call(&conn, "RemoveImage", &("site",)).await;
     let err = call_err(
         &conn,
         "SetImage",
@@ -266,24 +301,23 @@ async fn settings_app_calls(conn: &zbus::Connection) {
     // koje's own image, customized and reset (ADR 0065).
     let (): () = call(&conn, "CustomizeImage", &("fedora",)).await;
     let images: Vec<ImageRow> = call(&conn, "Images", &()).await;
-    assert_eq!(
-        (images[0].0.as_str(), images[0].3.as_str()),
-        ("fedora", "customized")
-    );
+    let mine = images.iter().find(|i| i.0 == "fedora").unwrap();
+    assert_eq!((mine.1.as_str(), mine.4.as_str()), ("45", "customized"));
     assert!(
-        images[0].4.ends_with("/images/fedora/Containerfile"),
+        mine.5.ends_with("/images/fedora/Containerfile"),
         "{}",
-        images[0].4
+        mine.5
     );
-    assert!(!images[0].8, "no newer version from koje");
+    assert!(!mine.9, "no newer version from koje");
     let (): () = call(&conn, "KeepImageChanges", &("fedora",)).await;
     let (): () = call(&conn, "ResetImage", &("fedora",)).await;
     let images: Vec<ImageRow> = call(&conn, "Images", &()).await;
-    assert_eq!(images[0].3, "builtin");
+    assert_eq!(images[0].4, "builtin");
 }
 
 /// A row of `Images`.
 type ImageRow = (
+    String,
     String,
     String,
     String,

@@ -183,17 +183,38 @@ fn stdout(out: &Output) -> String {
 #[test]
 fn new_creates_context_with_defaults() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = stdout(&koje(tmp.path(), &["new", "kunden-portal"]));
+    let out = stdout(&koje(
+        tmp.path(),
+        &[
+            "new",
+            "kunden-portal",
+            "--image",
+            "localhost/koje/fedora:45",
+        ],
+    ));
     assert!(out.contains("KP"), "{out}");
     assert!(out.contains("#2E7D5B"), "{out}");
     let file = tmp
         .path()
         .join("config/koje/contexts/kunden-portal/context.toml");
     let text = std::fs::read_to_string(file).unwrap();
-    assert!(text.contains("image  = \"fedora\""), "{text}");
+    assert!(
+        text.contains("image  = \"localhost/koje/fedora:45\""),
+        "{text}"
+    );
 
     // The second context gets the next palette color.
-    let out = stdout(&koje(tmp.path(), &["new", "shop", "--prefix", "SH"]));
+    let out = stdout(&koje(
+        tmp.path(),
+        &[
+            "new",
+            "shop",
+            "--prefix",
+            "SH",
+            "--image",
+            "localhost/koje/fedora:45",
+        ],
+    ));
     assert!(out.contains("SH, #1E88E5"), "{out}");
     let listed = stdout(&koje(tmp.path(), &["list"]));
     assert!(
@@ -205,11 +226,28 @@ fn new_creates_context_with_defaults() {
 #[test]
 fn new_refuses_existing_and_invalid_input() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp", "--color", "#123456"]));
+    stdout(&koje(
+        tmp.path(),
+        &[
+            "new",
+            "kp",
+            "--color",
+            "#123456",
+            "--image",
+            "localhost/koje/fedora:45",
+        ],
+    ));
     for args in [
-        &["new", "kp"][..],
-        &["new", "Bad Name"],
-        &["new", "other", "--color", "red"],
+        &["new", "kp", "--image", "localhost/koje/fedora:45"][..],
+        &["new", "Bad Name", "--image", "localhost/koje/fedora:45"],
+        &[
+            "new",
+            "other",
+            "--color",
+            "red",
+            "--image",
+            "localhost/koje/fedora:45",
+        ],
     ] {
         let out = koje(tmp.path(), args);
         assert!(!out.status.success(), "{args:?}");
@@ -220,7 +258,10 @@ fn new_refuses_existing_and_invalid_input() {
 #[test]
 fn edit_from_stdin_checks_like_the_editor() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let path = config_of(tmp.path(), "kp");
     let text = std::fs::read_to_string(&path).unwrap();
     let changed = text.replace("prefix = \"KP\"", "prefix = \"XY\"");
@@ -268,7 +309,10 @@ fn config_from_stdin_is_checked() {
 #[test]
 fn edit_saves_valid_changes() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let ed = editor(
         tmp.path(),
         r#"sed -i 's/^prefix = "KP"/prefix = "XY"/' "$1""#,
@@ -285,7 +329,10 @@ fn edit_saves_valid_changes() {
 #[test]
 fn edit_keeps_original_when_invalid_and_not_reopened() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let before = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
     let ed = editor(tmp.path(), r#"echo 'mounts = ["relative"]' > "$1""#);
     let out = koje_with(
@@ -304,7 +351,10 @@ fn edit_keeps_original_when_invalid_and_not_reopened() {
 #[test]
 fn edit_reopens_until_valid() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     // First run breaks the file, the second run (marker exists) fixes the prefix.
     let marker = tmp.path().join("marker");
     let ed = editor(
@@ -329,7 +379,10 @@ fn edit_reopens_until_valid() {
 #[test]
 fn rm_asks_unless_yes() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let state = tmp.path().join("data/koje/kp/states/default.toml");
     std::fs::create_dir_all(state.parent().unwrap()).unwrap();
     std::fs::write(&state, "active_layout = \"main\"\n").unwrap();
@@ -347,7 +400,10 @@ fn rm_asks_unless_yes() {
     assert!(!config_of(tmp.path(), "kp").exists());
     assert!(!state.exists());
 
-    stdout(&koje(tmp.path(), &["new", "shop"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "shop", "--image", "localhost/koje/fedora:45"],
+    ));
     stdout(&koje(tmp.path(), &["rm", "shop", "--yes"]));
     assert!(!koje(tmp.path(), &["rm", "shop", "--yes"]).status.success());
 }
@@ -355,7 +411,10 @@ fn rm_asks_unless_yes() {
 #[test]
 fn state_commands_follow_adr_0013() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let listed = stdout(&koje(tmp.path(), &["state", "list", "kp"]));
     assert!(listed.contains("default (not saved yet)"), "{listed}");
     assert!(listed.contains("reserved"), "{listed}");
@@ -398,7 +457,10 @@ fn state_commands_follow_adr_0013() {
 #[test]
 fn list_shows_details() {
     let tmp = tempfile::tempdir().unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     stdout(&koje(
         tmp.path(),
         &["state", "cp", "kp", "empty", "default"],
@@ -423,11 +485,14 @@ fn list_shows_details() {
 fn image_build_runs_podman_build_for_the_user() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
-    let out = command(tmp.path(), &["image", "build", "--no-cache"])
-        .env("PATH", path)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let out = command(
+        tmp.path(),
+        &["image", "build", "--no-cache", "localhost/koje/fedora:45"],
+    )
+    .env("PATH", path)
+    .stdin(Stdio::null())
+    .output()
+    .unwrap();
     assert!(
         out.status.success(),
         "{}",
@@ -437,20 +502,20 @@ fn image_build_runs_podman_build_for_the_user() {
     // koje's image `fedora` (ADR 0040), then a look into it, then the user layer.
     let image = calls
         .lines()
-        .find(|l| l.starts_with("build --tag localhost/koje/fedora:latest "))
+        .find(|l| l.starts_with("build --tag localhost/koje/fedora:45 "))
         .unwrap_or_else(|| panic!("{calls}"));
     assert!(image.contains("--label io.koje.source="), "{image}");
     assert!(image.contains("--no-cache"), "{image}");
     assert!(
-        calls.contains("run --rm --user root --network none --pull never --entrypoint sh localhost/koje/fedora:latest -c"),
+        calls.contains("run --rm --user root --network none --pull never --entrypoint sh localhost/koje/fedora:45 -c"),
         "{calls}"
     );
     let layer = calls
         .lines()
-        .find(|l| l.starts_with("build --tag localhost/koje/user/fedora:latest "))
+        .find(|l| l.starts_with("build --tag localhost/koje/user/fedora:45 "))
         .unwrap_or_else(|| panic!("{calls}"));
     assert!(
-        layer.contains("--build-arg KOJE_IMAGE=localhost/koje/fedora:latest"),
+        layer.contains("--build-arg KOJE_IMAGE=localhost/koje/fedora:45"),
         "{layer}"
     );
     assert!(layer.contains("--build-arg USER_NAME="), "{layer}");
@@ -461,7 +526,7 @@ fn image_build_runs_podman_build_for_the_user() {
     assert!(layer.contains("--pull=never"), "{layer}");
     assert!(
         String::from_utf8_lossy(&out.stdout)
-            .contains("built fedora → localhost/koje/user/fedora:latest")
+            .contains("built localhost/koje/fedora:45 → localhost/koje/user/fedora:45")
     );
 }
 
@@ -572,20 +637,30 @@ fn koje_fake(tmp: &Path, path: &str, args: &[&str]) -> Output {
 #[test]
 fn image_new_creates_a_folder_building_on_its_image() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = stdout(&koje(tmp.path(), &["image", "new", "dev"]));
+    let out = stdout(&koje(
+        tmp.path(),
+        &["image", "new", "dev", "--from", "localhost/koje/fedora:45"],
+    ));
     let file = tmp.path().join("config/koje/images/dev/Containerfile");
     assert!(out.contains(&file.display().to_string()), "{out}");
     let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.ends_with("FROM localhost/koje/fedora:45\n"), "{text}");
     assert!(
-        text.ends_with("FROM localhost/koje/fedora:latest\n"),
-        "{text}"
+        !koje(
+            tmp.path(),
+            &["image", "new", "dev", "--from", "localhost/koje/fedora:45"]
+        )
+        .status
+        .success()
     );
-    assert!(!koje(tmp.path(), &["image", "new", "dev"]).status.success());
 
-    stdout(&koje(tmp.path(), &["image", "new", "web", "--from", "dev"]));
+    stdout(&koje(
+        tmp.path(),
+        &["image", "new", "web", "--from", "localhost/koje/dev:1"],
+    ));
     let web =
         std::fs::read_to_string(tmp.path().join("config/koje/images/web/Containerfile")).unwrap();
-    assert!(web.ends_with("FROM localhost/koje/dev:latest\n"), "{web}");
+    assert!(web.ends_with("FROM localhost/koje/dev:1\n"), "{web}");
     let reg = koje(
         tmp.path(),
         &[
@@ -606,17 +681,42 @@ fn image_new_creates_a_folder_building_on_its_image() {
             .status
             .success()
     );
+}
+
+#[test]
+fn image_list_rm_customize_and_reset() {
+    let tmp = tempfile::tempdir().unwrap();
+    for name in ["dev", "web"] {
+        stdout(&koje(
+            tmp.path(),
+            &["image", "new", name, "--from", "localhost/koje/fedora:45"],
+        ));
+    }
     // Listed like contexts (ADR 0064), with a label and the contexts using it.
     stdout(&koje(
         tmp.path(),
-        &["image", "new", "app", "--label", "App work"],
+        &[
+            "image",
+            "new",
+            "app",
+            "--label",
+            "App work",
+            "--from",
+            "localhost/koje/fedora:45",
+        ],
     ));
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let config = config_of(tmp.path(), "kp");
     let text = std::fs::read_to_string(&config).unwrap();
     std::fs::write(
         &config,
-        text.replace("image  = \"fedora\"", "image  = \"app\""),
+        text.replace(
+            "image  = \"localhost/koje/fedora:45\"",
+            "image  = \"localhost/koje/app:1\"",
+        ),
     )
     .unwrap();
     let list = stdout(&koje(tmp.path(), &["image", "list"]));
@@ -626,7 +726,7 @@ fn image_new_creates_a_folder_building_on_its_image() {
             .unwrap_or_else(|| panic!("{list}"))
             .to_owned()
     };
-    assert!(line("fedora").contains("Fedora (koje's)"), "{list}");
+    assert!(line("fedora").contains("Fedora 45 (koje's)"), "{list}");
     assert!(
         line("app").contains("App work") && line("app").trim_end().ends_with("kp"),
         "{list}"
@@ -638,6 +738,18 @@ fn image_new_creates_a_folder_building_on_its_image() {
     assert!(String::from_utf8_lossy(&used.stderr).contains("used by kp"));
     stdout(&koje(tmp.path(), &["image", "rm", "web", "--yes"]));
     assert!(!tmp.path().join("config/koje/images/web").exists());
+    // Renamed: kp follows (ADR 0067).
+    let out = stdout(&koje(tmp.path(), &["image", "rename", "app", "apps"]));
+    assert!(
+        out.contains("kp now uses it as localhost/koje/apps:1"),
+        "{out}"
+    );
+    assert!(
+        !koje(tmp.path(), &["image", "rename", "fedora", "mine"])
+            .status
+            .success()
+    );
+
     // koje's own image, customized and reset (ADR 0065).
     stdout(&koje(tmp.path(), &["image", "customize", "fedora"]));
     let file = tmp.path().join("config/koje/images/fedora/Containerfile");
@@ -647,7 +759,7 @@ fn image_new_creates_a_folder_building_on_its_image() {
             .contains("FROM registry.fedoraproject.org/fedora")
     );
     let list = stdout(&koje(tmp.path(), &["image", "list"]));
-    assert!(list.contains("Fedora (customized)"), "{list}");
+    assert!(list.contains("Fedora 45 (customized)"), "{list}");
     assert!(
         !koje(tmp.path(), &["image", "customize", "app"])
             .status
@@ -673,7 +785,10 @@ fn image_edit_makes_the_contexts_own_and_opens_it() {
         bin.display(),
         std::env::var("PATH").unwrap_or_default()
     );
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
 
     let out = stdout(&koje_fake(tmp.path(), &path, &["image", "edit", "kp"]));
     let file = tmp.path().join("config/koje/images/kp/Containerfile");
@@ -681,13 +796,16 @@ fn image_edit_makes_the_contexts_own_and_opens_it() {
         out.contains(&format!("created {}", file.display())),
         "{out}"
     );
-    assert!(out.contains("kp now uses image \"kp\""), "{out}");
+    assert!(
+        out.contains("kp now uses image \"localhost/koje/kp:1\""),
+        "{out}"
+    );
     assert_eq!(
         std::fs::read_to_string(&opened).unwrap(),
         format!("{}\n", file.display())
     );
     let text = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
-    assert!(text.contains("image  = \"kp\""), "{text}");
+    assert!(text.contains("image  = \"localhost/koje/kp:1\""), "{text}");
 
     // Again: the same file, opened, not made anew.
     let out = stdout(&koje_fake(tmp.path(), &path, &["image", "edit", "kp"]));
@@ -700,13 +818,22 @@ fn up_builds_an_image_folder_after_what_it_builds_on() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
-    stdout(&koje(tmp.path(), &["image", "new", "dev"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
+    stdout(&koje(
+        tmp.path(),
+        &["image", "new", "dev", "--from", "localhost/koje/fedora:45"],
+    ));
     let config = config_of(tmp.path(), "kp");
     let text = std::fs::read_to_string(&config).unwrap();
     std::fs::write(
         &config,
-        text.replace("image  = \"fedora\"", "image  = \"dev\""),
+        text.replace(
+            "image  = \"localhost/koje/fedora:45\"",
+            "image  = \"localhost/koje/dev:1\"",
+        ),
     )
     .unwrap();
 
@@ -721,9 +848,9 @@ fn up_builds_an_image_folder_after_what_it_builds_on() {
     assert_eq!(
         builds,
         [
-            "localhost/koje/fedora:latest",
-            "localhost/koje/dev:latest",
-            "localhost/koje/user/dev:latest"
+            "localhost/koje/fedora:45",
+            "localhost/koje/dev:1",
+            "localhost/koje/user/dev:1"
         ],
         "{calls}"
     );
@@ -733,7 +860,7 @@ fn up_builds_an_image_folder_after_what_it_builds_on() {
         "{calls}"
     );
     assert!(
-        calls.contains(" localhost/koje/user/dev:latest dbus-daemon"),
+        calls.contains(" localhost/koje/user/dev:1 dbus-daemon"),
         "{calls}"
     );
 }
@@ -743,18 +870,21 @@ fn up_creates_once_then_starts_and_down_stops() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
 
     let out = stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     assert!(out.contains("started kp (container created)"), "{out}");
     let calls = podman_log(tmp.path());
     // The first `up` builds koje's image with your user and runs it.
     assert!(
-        calls.contains("build --tag localhost/koje/user/fedora:latest "),
+        calls.contains("build --tag localhost/koje/user/fedora:45 "),
         "{calls}"
     );
     assert!(
-        calls.contains(" localhost/koje/user/fedora:latest dbus-daemon --session"),
+        calls.contains(" localhost/koje/user/fedora:45 dbus-daemon --session"),
         "{calls}"
     );
     assert!(
@@ -793,7 +923,10 @@ fn shell_needs_a_running_context_and_execs_into_it() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let out = s.koje(&["shell", "kp"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp -s empty"));
@@ -826,7 +959,10 @@ fn open_passes_urls_and_mounted_files_only() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     // A mounted folder (an absolute path outside any protected dir) with a file.
     let shared = tmp.path().join("shared");
     std::fs::create_dir_all(&shared).unwrap();
@@ -873,7 +1009,10 @@ fn sleep_and_wake() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     assert!(!s.koje(&["sleep", "kp"]).status.success());
     stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     assert!(stdout(&s.koje(&["sleep", "kp"])).contains("kp is asleep"));
@@ -895,7 +1034,10 @@ fn rm_removes_container_and_home_volume() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     stdout(&s.koje(&["up", "kp", "-s", "empty"]));
 
     // The question lists the container (running) and the home volume; "n" keeps all.
@@ -962,7 +1104,10 @@ fn up_starts_proxy_and_forwarder_down_stops_the_proxy() {
     let forwarder = tmp.path().join("koje-forward");
     std::fs::write(&forwarder, "").unwrap();
     let run = tmp.path().join("run");
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     // kojed runs `up`: the forwarder and the host bus are kojed's.
     let s = Session::start_with(
         tmp.path(),
@@ -1034,7 +1179,10 @@ fn up_falls_back_to_empty_and_restores_through_kojed() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     assert!(!s.koje(&["up", "nope", "-s", "empty"]).status.success());
     assert_eq!(podman_log(tmp.path()), "", "nothing reached podman");
 
@@ -1071,7 +1219,10 @@ fn up_with_wayland_needs_the_session_socket() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     std::fs::remove_file(tmp.path().join("config/koje/config.toml")).unwrap();
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     // No kojed: nothing to run it.
     let out = koje_fake(tmp.path(), &path, &["up", "kp", "-s", "empty"]);
     assert!(!out.status.success());
@@ -1094,7 +1245,10 @@ fn save_needs_a_running_context_and_a_writable_state() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let save = |args: &[&str]| s.koje(args);
     let out = save(&["save", "kp", "-s", "empty"]);
     assert!(!out.status.success());
@@ -1116,7 +1270,14 @@ fn focus_needs_the_context_and_kojed() {
         String::from_utf8_lossy(&out.stderr).contains("kp"),
         "unknown context named"
     );
-    assert!(koje(tmp.path(), &["new", "kp"]).status.success());
+    assert!(
+        koje(
+            tmp.path(),
+            &["new", "kp", "--image", "localhost/koje/fedora:45"]
+        )
+        .status
+        .success()
+    );
     // The test's session bus points nowhere.
     let out = koje(tmp.path(), &["focus", "kp"]);
     assert!(!out.status.success());
@@ -1187,7 +1348,7 @@ fn setup_installs_then_has_nothing_to_do() {
         out.contains("+ GNOME Shell extension koje@koje.io: enable"),
         "{out}"
     );
-    assert!(out.contains("= image: fedora"), "{out}");
+    assert!(out.contains("= images of the contexts"), "{out}");
     assert!(out.contains("dry run – nothing changed"), "{out}");
     assert!(!t.join("extension.on").exists());
 
@@ -1231,7 +1392,10 @@ fn run_starts_a_program_in_the_running_context() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let shared = tmp.path().join("shared");
     std::fs::create_dir_all(&shared).unwrap();
     let cfg = config_of(tmp.path(), "kp");
@@ -1279,7 +1443,10 @@ fn up_after_a_crash_keeps_or_takes_the_recovery_file() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let recovery = tmp.path().join("state/koje/kp/recovery.toml");
     std::fs::create_dir_all(recovery.parent().unwrap()).unwrap();
     std::fs::write(
@@ -1318,7 +1485,10 @@ fn up_prepares_live_mounts() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     let log = podman_log(tmp.path());
     let data = tmp.path().join("podman.status.voldata");
@@ -1339,7 +1509,10 @@ fn recreate_asks_and_keeps_the_home() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     // No container yet: nothing to recreate, and no error (koje Settings
     // showed one as a failure).
     let out = stdout(&s.koje(&["recreate", "kp", "--yes"]));
@@ -1368,7 +1541,10 @@ fn up_notices_changed_settings() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     let log = podman_log(tmp.path());
     let label = log
@@ -1398,7 +1574,10 @@ fn up_notices_changed_settings() {
 fn stats_and_limit() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
-    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(
+        tmp.path(),
+        &["new", "kp", "--image", "localhost/koje/fedora:45"],
+    ));
     let out = stdout(&koje_fake(tmp.path(), &path, &["stats"]));
     assert!(out.contains("kp") && out.contains("not created"), "{out}");
     let kp = out.lines().find(|l| l.starts_with("kp ")).unwrap();

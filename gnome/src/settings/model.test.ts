@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {
     type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
     memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
-    LOG_LINES, SWITCHES, adjustments, imageChoice, imageChoices, imageOrigin, imageRemoval, imageStatus, images,
+    LOG_LINES, SWITCHES, adjustments, imageChoice, imageChoices, imageNameOf, imageOrigin, imageRemoval, reference, validVersion, imageStatus, images,
     logEnded, logLine, logStarted, logTitle, profileSummary, profiles, recreateRow, states, statusLabel,
     suggestImageName, usedBy, validName, withProfile, withSwitch,
 } from './model.js';
@@ -79,23 +79,33 @@ describe('the recreate row', () => {
 
 describe('images', () => {
     const list = images([
-        ['fedora', 'Fedora', 'koje\'s image', 'builtin', '', ['kp'], true, '', false],
-        ['web', 'Web development', '', 'folder', '/c/koje/images/web/Containerfile', [], false, '', false],
-        ['kp', 'kp', '', 'folder', '/c/koje/images/kp/Containerfile', ['kp', 'shop'], true, '', false],
+        ['fedora', '45', 'Fedora 45', 'koje\'s image', 'builtin', '', ['kp'], true, '', false],
+        ['web', '1', 'Web development', '', 'folder', '/c/koje/images/web/Containerfile', [], false, '', false],
+        ['kp', '3', 'kp', '', 'folder', '/c/koje/images/kp/Containerfile', ['kp', 'shop'], true, '', false],
     ]);
     it('read the rows', () => {
         expect(list[0].kind).toBe('builtin');
         expect(list[1].usedBy).toEqual([]);
     });
     it('are the context\'s choices, with a registry image as written', () => {
-        expect(imageChoices(list, 'web')).toEqual([
-            ['fedora', 'Fedora'], ['web', 'Web development (web)'], ['kp', 'kp'],
+        const choices = imageChoices(list, 'localhost/koje/web:1');
+        expect(choices).toEqual([
+            ['localhost/koje/fedora:45', 'Fedora 45 (fedora)'],
+            ['localhost/koje/web:1', 'Web development (web)'],
+            ['localhost/koje/kp:3', 'kp'],
         ]);
+        expect(imageChoice(choices, 'localhost/koje/web:1')).toBe(1);
         const reg = imageChoices(list, 'docker.io/library/debian:13');
         expect(reg.at(-1)).toEqual(['docker.io/library/debian:13', 'docker.io/library/debian:13']);
         expect(imageChoice(reg, 'docker.io/library/debian:13')).toBe(3);
-        expect(imageChoices(list, 'koje/base:latest')).toHaveLength(3);
-        expect(imageChoice(imageChoices(list, 'koje/base:latest'), 'koje/base:latest')).toBe(0);
+        // Older spellings are the image they name.
+        for (const old of ['koje/base:latest', 'fedora', 'localhost/koje/fedora:44']) {
+            expect(imageChoices(list, old), old).toHaveLength(3);
+            expect(imageChoice(imageChoices(list, old), old), old).toBe(0);
+        }
+        expect(reference(list[2])).toBe('localhost/koje/kp:3');
+        expect(imageNameOf('localhost/koje/user/fedora:45')).toBeNull();
+        expect(validVersion('26.04') && validVersion('1') && !validVersion('latest') && !validVersion('a b')).toBe(true);
     });
     it('say whether they are built and who uses them', () => {
         expect(imageStatus(list[0], false)).toBe('Built');
@@ -177,9 +187,9 @@ describe('the context form', () => {
     });
     it('sends only what changed', () => {
         expect(changes(f, f)).toEqual({});
-        const edited = {...f, label: 'Kundenportal', image: 'web', memoryHard: '8G', mounts: ['~/src', '~/docs']};
+        const edited = {...f, label: 'Kundenportal', image: 'localhost/koje/web:1', memoryHard: '8G', mounts: ['~/src', '~/docs']};
         expect(changes(f, edited)).toEqual({
-            label: 'Kundenportal', image: 'web', memory_hard: 8 * 2 ** 30, mounts: ['~/src', '~/docs'],
+            label: 'Kundenportal', image: 'localhost/koje/web:1', memory_hard: 8 * 2 ** 30, mounts: ['~/src', '~/docs'],
         });
         expect(changes(f, {...f, access: {}})).toEqual({access: {}});
     });

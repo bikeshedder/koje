@@ -1317,7 +1317,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let paths = Paths::with_roots(root.join("c"), root.join("d"), root.join("s"));
-        koje_core::context::create(&paths, &ctx("work"), None, Some(red())).unwrap();
+        koje_core::context::create(
+            &paths,
+            &ctx("work"),
+            None,
+            Some(red()),
+            "localhost/koje/fedora:45",
+        )
+        .unwrap();
         let runtime = FakeRuntime::default();
         runtime.pids.lock().unwrap().insert(10, ctx("work"));
         Setup {
@@ -1437,7 +1444,14 @@ mod tests {
         comp.take();
 
         let blue = Color::rgb(0, 0, 0xff);
-        koje_core::context::create(&s.paths, &ctx("new"), None, Some(blue)).unwrap();
+        koje_core::context::create(
+            &s.paths,
+            &ctx("new"),
+            None,
+            Some(blue),
+            "localhost/koje/fedora:45",
+        )
+        .unwrap();
         s.runtime.pids.lock().unwrap().insert(20, ctx("new"));
         comp.open("0xn", 20);
         d.handle(CompositorEvent::WindowOpened {
@@ -1809,7 +1823,14 @@ term = { monitor = "DP-1", x = 10, y = 20, w = 300, h = 200 }
     #[tokio::test(flavor = "current_thread")]
     async fn running_contexts() {
         let s = setup();
-        koje_core::context::create(&s.paths, &ctx("home"), None, None).unwrap();
+        koje_core::context::create(
+            &s.paths,
+            &ctx("home"),
+            None,
+            None,
+            "localhost/koje/fedora:45",
+        )
+        .unwrap();
         let comp = FakeCompositor::default();
         let mut d = Daemon::new(&comp, s.runtime.clone(), s.paths.clone());
         d.handle(CompositorEvent::Connected).await.unwrap();

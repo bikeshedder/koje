@@ -381,12 +381,14 @@ fn follow(
     notes
 }
 
-/// One row of `Images` (ADR 0064, 0065): name, label, description, kind
-/// (`builtin`, `folder`, `customized`), Containerfile (`""` for built-in
-/// images), the contexts using it, whether it is built with your user, why
-/// it is not usable (`""` when it is), and whether koje ships another
-/// version of a customized one.
+/// One row of `Images` (ADR 0064, 0065, 0067): name, version, label,
+/// description, kind (`builtin`, `folder`, `customized`), Containerfile
+/// (`""` for built-in images), the contexts using it, whether it is built
+/// with your user, why it is not usable (`""` when it is), and whether koje
+/// ships another version of a customized one. What `image = …` names is
+/// `localhost/koje/<name>:<version>`.
 pub type ImageRow = (
+    String,
     String,
     String,
     String,
@@ -416,17 +418,26 @@ pub fn images(paths: &Paths) -> Result<Vec<ImageRow>> {
                     },
                     Source::Folder {
                         name: e.name.to_string(),
+                        version: e.version.clone(),
                         dir: dir.clone(),
                     },
                     koje_core::image::containerfile(dir, std::path::Path::is_file)
                         .map(|f| f.display().to_string())
                         .unwrap_or_default(),
                 ),
-                _ => ("builtin", Source::BuiltIn(e.name.clone()), String::new()),
+                _ => (
+                    "builtin",
+                    Source::BuiltIn {
+                        name: e.name.clone(),
+                        version: e.version.clone(),
+                    },
+                    String::new(),
+                ),
             };
             let built = podman.image_exists(&source.user_tag()).unwrap_or(false);
             (
                 e.name.to_string(),
+                e.version,
                 e.label,
                 e.description,
                 kind.to_owned(),
@@ -449,7 +460,10 @@ pub fn new_image(paths: &Paths, name: &str, from: &str, label: &str) -> Result<S
     let name = image_name(name)?;
     let from_line =
         koje_runtime::images::from_line(paths, from).map_err(|e| Invalid(format!("{e:#}")))?;
-    if koje_core::image::parents(&format!("FROM {from_line}")).contains(&name) {
+    if koje_core::image::parents(&format!("FROM {from_line}"))
+        .iter()
+        .any(|p| p.koje_name() == Some(&name))
+    {
         bail!(Invalid(format!("image {name} cannot build on itself")));
     }
     let text = koje_runtime::images::new_containerfile(&from_line);
@@ -462,7 +476,7 @@ pub fn new_image(paths: &Paths, name: &str, from: &str, label: &str) -> Result<S
 pub fn set_image(paths: &Paths, name: &str, dict: &HashMap<String, OwnedValue>) -> Result<()> {
     if let Some(key) = dict
         .keys()
-        .find(|k| !["label", "description"].contains(&k.as_str()))
+        .find(|k| !["label", "description", "version"].contains(&k.as_str()))
     {
         bail!(Invalid(format!("{key} cannot be set")));
     }
@@ -470,7 +484,19 @@ pub fn set_image(paths: &Paths, name: &str, dict: &HashMap<String, OwnedValue>) 
     let label = get::<&str>(dict, "label")?;
     let description = get::<&str>(dict, "description")?;
     koje_core::images::set(paths, &name, label, description).map_err(|e| Invalid(e.to_string()))?;
+    // A new version moves the contexts and FROM lines along (ADR 0067).
+    if let Some(version) = get::<&str>(dict, "version")? {
+        koje_core::images::set_version(paths, &name, version)
+            .map_err(|e| Invalid(e.to_string()))?;
+    }
     Ok(())
+}
+
+/// `RenameImage` (ADR 0067): the contexts that use it now under its new name.
+pub fn rename_image(paths: &Paths, old: &str, new: &str) -> Result<Vec<String>> {
+    let (old, new) = (image_name(old)?, image_name(new)?);
+    let moved = koje_core::images::rename(paths, &old, &new).map_err(|e| Invalid(e.to_string()))?;
+    Ok(moved.iter().map(ToString::to_string).collect())
 }
 
 /// `CustomizeImage`, `ResetImage`, `KeepImageChanges` (ADR 0065).
@@ -501,10 +527,13 @@ pub fn remove_image(paths: &Paths, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// `NewContext`: a fresh `context.toml` as `koje new` writes it.
-pub fn new_context(paths: &Paths, name: &str) -> Result<String> {
+/// `NewContext`: a fresh `context.toml` as `koje new` writes it, with the
+/// image chosen (ADR 0067).
+pub fn new_context(paths: &Paths, name: &str, image: &str) -> Result<String> {
     let name = ContextName::new(name).map_err(|e| Invalid(e.to_string()))?;
-    let cfg = context::create(paths, &name, None, None).map_err(|e| Invalid(e.to_string()))?;
+    koje_runtime::images::source(paths, image).map_err(|e| Invalid(format!("image: {e:#}")))?;
+    let cfg =
+        context::create(paths, &name, None, None, image).map_err(|e| Invalid(e.to_string()))?;
     Ok(cfg.name.to_string())
 }
 
@@ -532,7 +561,7 @@ mod tests {
     fn favorites_set_kept_and_unset() {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
-        new_context(&p, "kp").unwrap();
+        new_context(&p, "kp", "localhost/koje/fedora:45").unwrap();
         let kp = ContextName::new("kp").unwrap();
         assert_eq!(favorites(&p, &kp).unwrap(), None);
         let ids = ["firefox.desktop".to_owned(), "foot.desktop".to_owned()];
@@ -552,8 +581,8 @@ mod tests {
     fn contexts_with_look_and_status() {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
-        new_context(&p, "kp").unwrap();
-        new_context(&p, "shop").unwrap();
+        new_context(&p, "kp", "localhost/koje/fedora:45").unwrap();
+        new_context(&p, "shop", "localhost/koje/fedora:45").unwrap();
         let broken = p.context_config(&ContextName::new("zz").unwrap());
         std::fs::create_dir_all(broken.parent().unwrap()).unwrap();
         std::fs::write(&broken, "name = 1\n").unwrap();
@@ -578,7 +607,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
         let kp = ContextName::new("kp").unwrap();
-        new_context(&p, "kp").unwrap();
+        new_context(&p, "kp", "localhost/koje/fedora:45").unwrap();
         let c = config(&p, &kp).unwrap();
         assert_eq!(
             String::try_from(c["prefix"].try_clone().unwrap()).unwrap(),
@@ -639,7 +668,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
         let kp = ContextName::new("kp").unwrap();
-        new_context(&p, "kp").unwrap();
+        new_context(&p, "kp", "localhost/koje/fedora:45").unwrap();
         let default = state_name("default").unwrap();
         states::copy(&p, &kp, &state_name("empty").unwrap(), &default).unwrap();
         let rows = states(&p, &kp, Some(&default)).unwrap();

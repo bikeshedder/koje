@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::fsutil;
-use crate::image::{self, BUILT_IN, ImageRef};
+use crate::image::{self, ImageRef, Source, is_built_in};
 use crate::name::{ContextName, ImageName};
 use crate::paths::Paths;
 
@@ -25,6 +25,10 @@ pub struct ImageConfig {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The image's version (ADR 0067): its tag, `localhost/koje/<name>:<version>`.
+    /// Unset: `1`. A customized koje image has koje's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// A customized built-in image (ADR 0065): the hash of koje's files it
     /// was copied from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -32,11 +36,23 @@ pub struct ImageConfig {
 }
 
 /// What koje says about its built-in images.
-const BUILT_IN_TEXT: &[(&str, &str, &str)] = &[(
-    "fedora",
-    "Fedora",
-    "koje's image: Fedora with Firefox, foot, Nautilus, Podman and fonts",
-)];
+const BUILT_IN_TEXT: &[(&str, &str, &str)] = &[
+    (
+        "fedora",
+        "Fedora 45",
+        "koje's image: Fedora with Firefox, foot, Nautilus, Podman and fonts",
+    ),
+    (
+        "ubuntu",
+        "Ubuntu 26.04 LTS",
+        "koje's image: Ubuntu with Firefox, foot, Nautilus, Podman and fonts",
+    ),
+    (
+        "debian",
+        "Debian 13",
+        "koje's image: Debian with Firefox ESR, foot, Nautilus, Podman and fonts",
+    ),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -56,6 +72,8 @@ pub struct Entry {
     pub description: String,
     /// The folder of an image folder.
     pub dir: Option<PathBuf>,
+    /// Its version: koje's release, or the folder's (ADR 0067).
+    pub version: String,
     /// Contexts whose `image = …` names it.
     pub used_by: Vec<ContextName>,
     /// Why its `image.toml` or Containerfile is not usable.
@@ -102,9 +120,7 @@ pub fn list(paths: &Paths) -> Result<Vec<Entry>> {
     let used_by = |name: &ImageName| -> Vec<ContextName> {
         contexts
             .iter()
-            .filter(|c| {
-                image::parse(&c.image).is_ok_and(|p| p.image == ImageRef::Name(name.clone()))
-            })
+            .filter(|c| image::parse(&c.image).is_ok_and(|p| p.image.koje_name() == Some(name)))
             .map(|c| c.name.clone())
             .collect()
     };
@@ -117,6 +133,9 @@ pub fn list(paths: &Paths) -> Result<Vec<Entry>> {
         if !folders.contains(&name) {
             out.push(Entry {
                 used_by: used_by(&name),
+                version: image::built_in_version(name.as_str())
+                    .unwrap_or(image::FIRST_VERSION)
+                    .to_owned(),
                 name,
                 kind: Kind::BuiltIn,
                 label: (*label).to_owned(),
@@ -149,6 +168,15 @@ pub fn list(paths: &Paths) -> Result<Vec<Entry>> {
             } else {
                 Kind::Folder
             },
+            version: image::built_in_version(name.as_str()).map_or_else(
+                || {
+                    config
+                        .version
+                        .clone()
+                        .unwrap_or_else(|| image::FIRST_VERSION.to_owned())
+                },
+                str::to_owned,
+            ),
             name,
             dir: Some(dir),
             error,
@@ -156,6 +184,33 @@ pub fn list(paths: &Paths) -> Result<Vec<Entry>> {
         });
     }
     Ok(out)
+}
+
+impl Entry {
+    /// What `image = …` and `FROM` name: `localhost/koje/<name>:<version>`.
+    pub fn reference(&self) -> String {
+        image::reference(self.name.as_str(), &self.version)
+    }
+}
+
+/// An image folder's version: `image.toml`'s, else `1`.
+pub fn folder_version(dir: &Path) -> String {
+    load_config(dir)
+        .ok()
+        .and_then(|c| c.version)
+        .unwrap_or_else(|| image::FIRST_VERSION.to_owned())
+}
+
+/// Where `image` comes from (ADR 0040, 0067): koje's images, the folders,
+/// paths and registries; `home` expands `~/`.
+pub fn resolve(paths: &Paths, home: &Path, image: &ImageRef) -> Result<Source> {
+    image::resolve(
+        image,
+        &paths.images_dir(),
+        home,
+        Path::is_dir,
+        folder_version,
+    )
 }
 
 /// Create the image folder `name` with `containerfile` and an `image.toml`;
@@ -167,7 +222,7 @@ pub fn create(
     containerfile: &str,
     label: Option<&str>,
 ) -> Result<PathBuf> {
-    if BUILT_IN.contains(&name.as_str()) {
+    if is_built_in(name.as_str()) {
         return Err(Error::Image {
             value: name.to_string(),
             reason: "is koje's own image – choose another name".into(),
@@ -185,6 +240,7 @@ pub fn create(
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .map(str::to_owned),
+        version: Some(image::FIRST_VERSION.to_owned()),
         ..ImageConfig::default()
     };
     fsutil::write_atomic(&dir.join("Containerfile"), containerfile.as_bytes())?;
@@ -199,6 +255,7 @@ fn write_config(dir: &Path, config: &ImageConfig) -> Result<()> {
         "# A koje image (ADR 0064); its programs are in the Containerfile.\n\
          # label = \"…\"        shown instead of the folder's name\n\
          # description = \"…\"\n\
+         # version = \"1\"      its tag: localhost/koje/<name>:<version>\n\
          # from_koje = \"…\"    a customized koje image: the version it was copied from\n{body}"
     );
     fsutil::write_atomic(&dir.join(IMAGE_TOML), text.as_bytes())
@@ -209,7 +266,7 @@ fn folder(paths: &Paths, name: &ImageName) -> Result<PathBuf> {
     let dir = paths.images_dir().join(name.as_str());
     if dir.is_dir() {
         Ok(dir)
-    } else if BUILT_IN.contains(&name.as_str()) {
+    } else if is_built_in(name.as_str()) {
         Err(Error::Image {
             value: name.to_string(),
             reason: "is koje's own image and cannot be changed – make a new one from it".into(),
@@ -295,6 +352,7 @@ pub fn customize(
         &ImageConfig {
             label: Some((*label).to_owned()),
             description: Some(format!("{description} (customized)")),
+            version: None,
             from_koje: Some(version.to_owned()),
         },
     )?;
@@ -305,7 +363,7 @@ pub fn customize(
 /// while contexts use it, since koje's image takes its place.
 pub fn reset(paths: &Paths, name: &ImageName) -> Result<()> {
     let dir = paths.images_dir().join(name.as_str());
-    if !BUILT_IN.contains(&name.as_str()) || !dir.is_dir() {
+    if !is_built_in(name.as_str()) || !dir.is_dir() {
         return Err(Error::Image {
             value: name.to_string(),
             reason: "is no customized koje image".into(),
@@ -316,7 +374,7 @@ pub fn reset(paths: &Paths, name: &ImageName) -> Result<()> {
 
 /// Keep a customized image over koje's newer `version`: the mark goes.
 pub fn keep(paths: &Paths, name: &ImageName, version: &str) -> Result<()> {
-    if !BUILT_IN.contains(&name.as_str()) {
+    if !is_built_in(name.as_str()) {
         return Err(Error::Image {
             value: name.to_string(),
             reason: "is no customized koje image".into(),
@@ -332,9 +390,91 @@ pub fn keep(paths: &Paths, name: &ImageName, version: &str) -> Result<()> {
     fsutil::write_atomic(&path, doc.to_string().as_bytes())
 }
 
+/// Point everything that names koje image `old` (any version) at `new`
+/// (a reference): the contexts' `image = …` and the `FROM` lines of the
+/// other image folders (ADR 0067). The contexts changed.
+fn move_references(paths: &Paths, old: &ImageName, new: &str) -> Result<Vec<ContextName>> {
+    let mut moved = Vec::new();
+    for cfg in crate::context::list(paths)? {
+        if image::parse(&cfg.image).is_ok_and(|p| p.image.koje_name() == Some(old)) {
+            crate::context::set_image(paths, &cfg.name, new)?;
+            moved.push(cfg.name);
+        }
+    }
+    for name in folders(paths)? {
+        let dir = paths.images_dir().join(name.as_str());
+        if let Some(file) = image::containerfile(&dir, Path::is_file) {
+            let text = std::fs::read_to_string(&file).map_err(|source| Error::Read {
+                path: file.clone(),
+                source,
+            })?;
+            let changed = image::with_from(&text, old, new);
+            if changed != text {
+                fsutil::write_atomic(&file, changed.as_bytes())?;
+            }
+        }
+    }
+    Ok(moved)
+}
+
+/// Rename an image folder (ADR 0067); contexts and `FROM` lines follow.
+/// The contexts that use it now under its new name.
+pub fn rename(paths: &Paths, old: &ImageName, new: &ImageName) -> Result<Vec<ContextName>> {
+    if is_built_in(old.as_str()) {
+        return Err(Error::Image {
+            value: old.to_string(),
+            reason: "is koje's own image and keeps its name".into(),
+        });
+    }
+    if is_built_in(new.as_str()) {
+        return Err(Error::Image {
+            value: new.to_string(),
+            reason: "is koje's own image – choose another name".into(),
+        });
+    }
+    let from = folder(paths, old)?;
+    let to = paths.images_dir().join(new.as_str());
+    if to.exists() {
+        return Err(Error::Image {
+            value: new.to_string(),
+            reason: format!("{} exists already", to.display()),
+        });
+    }
+    std::fs::rename(&from, &to).map_err(|source| Error::Write {
+        path: to.clone(),
+        source,
+    })?;
+    move_references(
+        paths,
+        old,
+        &image::reference(new.as_str(), &folder_version(&to)),
+    )
+}
+
+/// Give an image folder another version (ADR 0067); contexts and `FROM`
+/// lines follow. The contexts that use it.
+pub fn set_version(paths: &Paths, name: &ImageName, version: &str) -> Result<Vec<ContextName>> {
+    image::check_version(version)?;
+    if is_built_in(name.as_str()) {
+        return Err(Error::Image {
+            value: name.to_string(),
+            reason: "is koje's own image and has koje's version".into(),
+        });
+    }
+    let dir = folder(paths, name)?;
+    let path = dir.join(IMAGE_TOML);
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| Error::InvalidEdit(e.to_string()))?;
+    doc["version"] = toml_edit::value(version);
+    fsutil::write_atomic(&path, doc.to_string().as_bytes())?;
+    move_references(paths, name, &image::reference(name.as_str(), version))
+}
+
 /// Remove an image folder; refused while a context uses it.
 pub fn remove(paths: &Paths, name: &ImageName) -> Result<()> {
-    if BUILT_IN.contains(&name.as_str()) {
+    if is_built_in(name.as_str()) {
         return Err(Error::Image {
             value: name.to_string(),
             reason: "is koje's own image – a customized one is reset instead".into(),
@@ -376,8 +516,8 @@ mod tests {
         let p = paths(tmp.path());
         let kp = ContextName::new("kp").unwrap();
         let shop = ContextName::new("shop").unwrap();
-        crate::context::create(&p, &kp, None, None).unwrap();
-        crate::context::create(&p, &shop, None, None).unwrap();
+        crate::context::create(&p, &kp, None, None, "localhost/koje/fedora:45").unwrap();
+        crate::context::create(&p, &shop, None, None, "localhost/koje/fedora:45").unwrap();
         create(
             &p,
             &n("web"),
@@ -385,7 +525,7 @@ mod tests {
             Some("Web development"),
         )
         .unwrap();
-        crate::context::set_image(&p, &shop, "web").unwrap();
+        crate::context::set_image(&p, &shop, "localhost/koje/web:1").unwrap();
         // A folder without image.toml is an image too; a broken one is shown.
         let bare = p.images_dir().join("bare");
         std::fs::create_dir_all(&bare).unwrap();
@@ -397,26 +537,34 @@ mod tests {
 
         let all = list(&p).unwrap();
         let names: Vec<&str> = all.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, ["fedora", "bare", "broken", "web"]);
+        assert_eq!(
+            names,
+            ["fedora", "ubuntu", "debian", "bare", "broken", "web"]
+        );
         let fedora = &all[0];
         assert_eq!(
             (fedora.kind, fedora.label.as_str()),
-            (Kind::BuiltIn, "Fedora")
+            (Kind::BuiltIn, "Fedora 45")
         );
+        assert_eq!(fedora.reference(), "localhost/koje/fedora:45");
         assert_eq!(fedora.used_by, [kp]);
-        let web = &all[3];
+        assert_eq!(all[1].reference(), "localhost/koje/ubuntu:26.04");
+        assert_eq!(all[2].reference(), "localhost/koje/debian:13");
+        let web = &all[5];
         assert_eq!(web.label, "Web development");
+        assert_eq!(web.reference(), "localhost/koje/web:1");
         assert_eq!(web.used_by, [shop]);
         assert_eq!(
             web.dir.as_deref(),
             Some(p.images_dir().join("web").as_path())
         );
-        assert_eq!(all[1].label, "bare");
-        assert_eq!(all[1].error, None);
+        assert_eq!(all[3].label, "bare");
+        assert_eq!(all[3].error, None);
+        assert_eq!(all[3].version, "1");
         assert!(
-            all[2].error.as_deref().unwrap().contains("colour"),
+            all[4].error.as_deref().unwrap().contains("colour"),
             "{:?}",
-            all[2].error
+            all[4].error
         );
     }
 
@@ -428,8 +576,12 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("Containerfile"), "FROM x\n").unwrap();
         let all = list(&p).unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].kind, Kind::Customized);
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[2].name.as_str(), "fedora");
+        assert_eq!(
+            (all[2].kind, all[2].version.as_str()),
+            (Kind::Customized, "45")
+        );
         // But koje does not make one.
         assert!(create(&p, &n("fedora"), "FROM x\n", None).is_err());
     }
@@ -456,11 +608,11 @@ mod tests {
         assert!(set(&p, &n("nope"), Some("x"), None).is_err());
 
         let kp = ContextName::new("kp").unwrap();
-        crate::context::create(&p, &kp, None, None).unwrap();
-        crate::context::set_image(&p, &kp, "web").unwrap();
+        crate::context::create(&p, &kp, None, None, "localhost/koje/fedora:45").unwrap();
+        crate::context::set_image(&p, &kp, "localhost/koje/web:1").unwrap();
         let err = remove(&p, &n("web")).unwrap_err();
         assert!(err.to_string().contains("used by kp"), "{err}");
-        crate::context::set_image(&p, &kp, "fedora").unwrap();
+        crate::context::set_image(&p, &kp, "localhost/koje/fedora:45").unwrap();
         remove(&p, &n("web")).unwrap();
         assert!(!dir.exists());
         assert!(remove(&p, &n("fedora")).is_err());
@@ -471,7 +623,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = paths(tmp.path());
         let kp = ContextName::new("kp").unwrap();
-        crate::context::create(&p, &kp, None, None).unwrap();
+        crate::context::create(&p, &kp, None, None, "localhost/koje/fedora:45").unwrap();
         let files = [(
             "Containerfile",
             "FROM registry.fedoraproject.org/fedora:44\n",
@@ -485,16 +637,21 @@ mod tests {
             files[0].1
         );
         let all = list(&p).unwrap();
-        assert_eq!(all.len(), 1);
-        let fedora = &all[0];
+        assert_eq!(all.len(), 3);
+        let fedora = all.iter().find(|e| e.name.as_str() == "fedora").unwrap();
         assert_eq!(fedora.kind, Kind::Customized);
-        assert_eq!(fedora.label, "Fedora");
+        assert_eq!(fedora.label, "Fedora 45");
+        assert_eq!(fedora.version, "45");
         assert_eq!(fedora.from_koje.as_deref(), Some("v1"));
         assert_eq!(fedora.used_by, [kp]);
         // Edited like any image; kept over a newer version; never removed.
         set(&p, &n("fedora"), Some("My Fedora"), None).unwrap();
         keep(&p, &n("fedora"), "v2").unwrap();
-        let fedora = list(&p).unwrap().remove(0);
+        let fedora = list(&p)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.name.as_str() == "fedora")
+            .unwrap();
         assert_eq!(
             (fedora.label.as_str(), fedora.from_koje.as_deref()),
             ("My Fedora", Some("v2"))
@@ -505,6 +662,60 @@ mod tests {
         assert!(!dir.exists());
         assert_eq!(list(&p).unwrap()[0].kind, Kind::BuiltIn);
         assert!(reset(&p, &n("fedora")).is_err());
+    }
+
+    #[test]
+    fn renames_and_new_versions_move_contexts_and_from_lines() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(tmp.path());
+        let kp = ContextName::new("kp").unwrap();
+        let shop = ContextName::new("shop").unwrap();
+        crate::context::create(&p, &kp, None, None, "localhost/koje/web:1").unwrap();
+        crate::context::create(&p, &shop, None, None, "localhost/koje/fedora:45").unwrap();
+        create(&p, &n("web"), "FROM localhost/koje/fedora:45\n", None).unwrap();
+        create(
+            &p,
+            &n("app"),
+            "FROM localhost/koje/web:1 AS base\nRUN true\n",
+            None,
+        )
+        .unwrap();
+
+        let moved = rename(&p, &n("web"), &n("site")).unwrap();
+        assert_eq!(moved, std::slice::from_ref(&kp));
+        assert!(!p.images_dir().join("web").exists());
+        assert_eq!(
+            crate::context::load(&p, &kp).unwrap().image,
+            "localhost/koje/site:1"
+        );
+        assert_eq!(
+            crate::context::load(&p, &shop).unwrap().image,
+            "localhost/koje/fedora:45",
+            "others stay"
+        );
+        let app = p.images_dir().join("app/Containerfile");
+        assert_eq!(
+            std::fs::read_to_string(&app).unwrap(),
+            "FROM localhost/koje/site:1 AS base\nRUN true\n"
+        );
+
+        set_version(&p, &n("site"), "2").unwrap();
+        assert_eq!(
+            crate::context::load(&p, &kp).unwrap().image,
+            "localhost/koje/site:2"
+        );
+        assert!(
+            std::fs::read_to_string(&app)
+                .unwrap()
+                .starts_with("FROM localhost/koje/site:2 ")
+        );
+        assert_eq!(folder_version(&p.images_dir().join("site")), "2");
+        assert!(set_version(&p, &n("site"), "latest").is_err());
+
+        assert!(rename(&p, &n("site"), &n("app")).is_err(), "taken");
+        assert!(rename(&p, &n("site"), &n("debian")).is_err(), "koje's name");
+        assert!(rename(&p, &n("fedora"), &n("x")).is_err(), "koje's image");
+        assert!(set_version(&p, &n("fedora"), "46").is_err());
     }
 
     #[test]

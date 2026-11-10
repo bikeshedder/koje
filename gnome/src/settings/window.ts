@@ -9,12 +9,13 @@ import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk?version=4.0';
 
 import {Kojed, KojedError} from '../api/kojed.js';
-import {ask, askImage, askName} from './dialogs.js';
+import {ask, askContext, askImage, askName} from './dialogs.js';
 import * as model from './model.js';
 import {OutputWindow} from './output.js';
 
 Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish');
 Gio._promisify(Gtk.FileLauncher.prototype, 'launch', 'launch_finish');
+Gio._promisify(Gtk.FileLauncher.prototype, 'open_containing_folder', 'open_containing_folder_finish');
 
 const MEMORY = '';
 const IMAGE = model.IMAGE_KEY;
@@ -369,7 +370,7 @@ export class SettingsWindow {
         const header = new Gtk.Box({spacing: 6, margin_top: 18, margin_start: 12, margin_end: 6});
         header.append(new Gtk.Label({label: 'Images', xalign: 0, hexpand: true, css_classes: ['heading', 'dim-label']}));
         const add = new Gtk.Button({icon_name: 'list-add-symbolic', tooltip_text: 'New Image', css_classes: ['flat']});
-        add.connect('clicked', () => void this.#newImage(model.IMAGE_DEFAULT_FROM));
+        add.connect('clicked', () => void this.#newImage(this.#images[0] ? model.reference(this.#images[0]) : ''));
         header.append(add);
         row.set_header(header);
     }
@@ -613,11 +614,11 @@ export class SettingsWindow {
     }
 
     async #newContext(): Promise<void> {
-        const name = await askName(this.#window, 'New Context', 'Create');
-        if (!name)
+        const answer = await askContext(this.#window, model.imageChoices(this.#images, ''));
+        if (!answer)
             return;
         try {
-            const [created] = await this.#kojed.call('NewContext', name);
+            const [created] = await this.#kojed.call('NewContext', answer.name, answer.image);
             await this.#refresh();
             this.#select(created);
         } catch (e) {
@@ -663,15 +664,19 @@ export class SettingsWindow {
                 this.#edit({image: value});
         });
         this.#get<Gtk.Button>('new_image_button').connect('clicked', () => void this.#newImageForContext());
-        for (const [id, key] of [['image_label_row', 'label'], ['image_description_row', 'description']] as const) {
+        for (const [id, key] of [
+            ['image_label_row', 'label'], ['image_description_row', 'description'], ['image_version_row', 'version'],
+        ] as const) {
             this.#get<Adw.EntryRow>(id).connect('apply', row => void this.#setImage(key, row.text));
         }
+        this.#get<Adw.EntryRow>('image_name_row').connect('apply', row => void this.#renameImage(row.text));
+        this.#get<Gtk.Button>('image_folder_button').connect('clicked', () => void this.#openFolder());
         this.#get<Gtk.Button>('image_edit_button').connect('clicked', () => void this.#editContainerfile());
         this.#get<Gtk.Button>('image_build_button').connect('clicked', () => void this.#buildImage());
         this.#get<Gtk.Button>('image_derive_button').connect('clicked', () => {
             const img = this.#currentImage();
             if (img)
-                void this.#newImage(img.name);
+                void this.#newImage(model.reference(img));
         });
         this.#get<Gtk.Button>('image_remove_button').connect('clicked', () => void this.#removeImage());
     }
@@ -684,7 +689,7 @@ export class SettingsWindow {
         const row = this.#get<Adw.ComboRow>('image_choice_row');
         row.model = Gtk.StringList.new(this.#imageChoices.map(([, title]) => title));
         row.selected = model.imageChoice(this.#imageChoices, current);
-        const img = this.#images.find(i => i.name === current);
+        const img = this.#images.find(i => i.name === model.imageNameOf(current));
         row.subtitle = img?.description || (img ? '' : 'A registry image or a folder, as written in context.toml');
         this.#filling = filling;
     }
@@ -694,20 +699,29 @@ export class SettingsWindow {
         const own = img.kind !== 'builtin';
         const label = this.#get<Adw.EntryRow>('image_label_row');
         const description = this.#get<Adw.EntryRow>('image_description_row');
+        const name = this.#get<Adw.EntryRow>('image_name_row');
+        const version = this.#get<Adw.EntryRow>('image_version_row');
         if (this.#imageFilled !== img.name) {
             label.text = img.label;
             description.text = img.description;
+            name.text = img.name;
+            version.text = img.version;
             this.#imageFilled = img.name;
         }
         label.sensitive = own;
         description.sensitive = own;
-        this.#get<Adw.ActionRow>('image_name_row').subtitle = `image = "${img.name}" in a context's context.toml`;
+        // koje's own images keep koje's name and release (ADR 0065, 0067).
+        name.sensitive = img.kind === 'folder';
+        version.sensitive = img.kind === 'folder';
+        this.#get<Adw.ActionRow>('image_ref_row').subtitle = GLib.markup_escape_text(
+            `image = "${model.reference(img)}" · FROM ${model.reference(img)}`, -1);
         const file = this.#get<Adw.ActionRow>('image_file_row');
         const home = GLib.get_home_dir();
         file.subtitle = GLib.markup_escape_text(own
             ? (img.file.startsWith(`${home}/`) ? `~${img.file.slice(home.length)}` : img.file) || img.error
             : 'Built into koje – customize it to change it', -1);
         this.#get<Gtk.Button>('image_edit_button').visible = own && img.file !== '';
+        this.#get<Gtk.Button>('image_folder_button').visible = own && img.file !== '';
         const building = this.#busy.has(IMAGE + img.name);
         this.#get<Adw.ActionRow>('image_build_row').subtitle = GLib.markup_escape_text(model.imageStatus(img, building), -1);
         this.#get<Gtk.Button>('image_build_button').sensitive = !building && (!own || img.file !== '');
@@ -791,15 +805,54 @@ export class SettingsWindow {
         }
     }
 
-    async #setImage(key: 'label' | 'description', text: string): Promise<void> {
+    async #setImage(key: 'label' | 'description' | 'version', text: string): Promise<void> {
         const img = this.#currentImage();
         if (!img)
             return;
+        if (key === 'version' && !model.validVersion(text)) {
+            this.#toast('A version is letters, digits, _, . and -, and never latest');
+            return;
+        }
         try {
             await this.#kojed.call('SetImage', img.name, {[key]: new GLib.Variant('s', text)});
             this.#imageFilled = '';
         } catch (e) {
             this.#error(e);
+        }
+    }
+
+    /** Rename the image (ADR 0067); its contexts and FROM lines follow. */
+    async #renameImage(text: string): Promise<void> {
+        const img = this.#currentImage();
+        if (!img || text === img.name)
+            return;
+        if (!model.validName(text)) {
+            this.#toast('A name is lowercase letters, digits and -, starting with a letter');
+            return;
+        }
+        try {
+            const [moved] = await this.#kojed.call('RenameImage', img.name, text);
+            await this.#refreshImages();
+            this.#select(IMAGE + text);
+            this.#toast(moved.length
+                ? `Renamed to ${text} – ${moved.join(', ')} use it under its new name`
+                : `Renamed to ${text}`);
+        } catch (e) {
+            this.#error(e);
+        }
+    }
+
+    /** Its folder in the file manager, with the Containerfile selected. */
+    async #openFolder(): Promise<void> {
+        const img = this.#currentImage();
+        if (!img?.file)
+            return;
+        try {
+            const launcher = new Gtk.FileLauncher({file: Gio.File.new_for_path(img.file)});
+            await launcher.open_containing_folder(this.#window, null);
+        } catch (e) {
+            if (!(e instanceof GLib.Error && e.matches(Gtk.DialogError, Gtk.DialogError.DISMISSED)))
+                this.#error(e);
         }
     }
 
@@ -879,13 +932,15 @@ export class SettingsWindow {
             return;
         try {
             const [name] = await this.#kojed.call('NewImage', answer.name, answer.from, answer.label);
-            await this.#kojed.call('SetConfig', context, {image: new GLib.Variant('s', name)});
+            // A new image has version 1 (ADR 0067).
+            const image = `${model.IMAGE_PREFIX}${name}:1`;
+            await this.#kojed.call('SetConfig', context, {image: new GLib.Variant('s', image)});
             if (context !== this.#selected || !this.#form || !this.#original)
                 return;
-            this.#original = {...this.#original, image: name};
-            this.#form = {...this.#form, image: name};
+            this.#original = {...this.#original, image};
+            this.#form = {...this.#form, image};
             await this.#refreshImages();
-            this.#fillImageChoices(name);
+            this.#fillImageChoices(image);
             this.#formChanged();
             this.#toast(`${context} now uses image ${name} – edit it on its page; Recreate applies it`);
         } catch (e) {
@@ -1079,7 +1134,7 @@ export class SettingsWindow {
             row.subtitle = name in f.access ? 'Changed from the profile' : '';
         }
         this.#get<Adw.ComboRow>('profile_row').subtitle = model.profileSummary(c.bases, f.profile);
-        const img = this.#images.find(i => i.name === f.image);
+        const img = this.#images.find(i => i.name === model.imageNameOf(f.image));
         this.#get<Adw.ComboRow>('image_choice_row').subtitle =
             img?.description || (img ? '' : 'A registry image or a folder, as written in context.toml');
         this.#get<Adw.ExpanderRow>('switches_row').subtitle = model.adjustments(f);

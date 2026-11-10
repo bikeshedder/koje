@@ -178,6 +178,10 @@ pub enum Command {
         /// Short label for bars and menus (default: derived from the name).
         #[arg(long)]
         prefix: Option<String>,
+        /// Its image, e.g. localhost/koje/fedora:45 (`koje image list`);
+        /// asked for on a terminal (ADR 0067).
+        #[arg(long)]
+        image: Option<String>,
     },
     /// Open koje's settings app, on a context if one is given.
     Settings {
@@ -264,8 +268,8 @@ pub enum ImageCmd {
     /// Containerfile; use it with `image = "<name>"` in a context.
     New {
         name: String,
-        /// The image it builds on (default: fedora).
-        #[arg(long, default_value = koje_core::image::DEFAULT)]
+        /// The image it builds on, e.g. localhost/koje/fedora:45.
+        #[arg(long)]
         from: String,
         /// Shown instead of the name (image.toml).
         #[arg(long)]
@@ -274,7 +278,7 @@ pub enum ImageCmd {
     /// List images: koje's own and the image folders, with the contexts
     /// using them.
     List,
-    /// Customize koje's own image (`fedora`): its files are copied into
+    /// Customize one of koje's own images: its files are copied into
     /// ~/.config/koje/images/<image>, which takes its place (ADR 0065).
     Customize { image: String },
     /// Back to koje's own image: the customized folder is removed.
@@ -284,6 +288,9 @@ pub enum ImageCmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Rename an image folder; the contexts using it and the FROM lines
+    /// naming it follow (ADR 0067).
+    Rename { name: String, new_name: String },
     /// Remove an image folder; refused while a context uses it.
     Rm {
         name: String,

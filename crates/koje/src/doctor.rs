@@ -179,14 +179,20 @@ fn wayland_globals() -> Check {
 }
 
 fn image() -> Check {
-    let fedora = koje_core::image::Source::BuiltIn(koje_core::name::ImageName::default_image());
-    match koje_podman::Podman::new().image_exists(&fedora.user_tag()) {
-        Ok(true) => Check::ok("image fedora"),
-        Ok(false) => Check::warn(
-            "image fedora: not built (the first koje up builds it)",
-            "koje image build fedora",
+    let paths = match koje_core::paths::Paths::from_env() {
+        Ok(p) => p,
+        Err(e) => return Check::fail(format!("images: {e}"), ""),
+    };
+    match koje_runtime::images::not_built(&paths) {
+        Ok(missing) if missing.is_empty() => Check::ok("images of the contexts built"),
+        Ok(missing) => Check::warn(
+            format!(
+                "images not built yet (a context's first start builds its own): {}",
+                missing.join(", ")
+            ),
+            "koje image build",
         ),
-        Err(e) => Check::fail(format!("Podman: {e}"), ""),
+        Err(e) => Check::fail(format!("images: {e:#}"), ""),
     }
 }
 

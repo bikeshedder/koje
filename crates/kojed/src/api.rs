@@ -352,6 +352,8 @@ impl Api {
         let (paths, name) = (self.paths.clone(), name.to_owned());
         blocking(move || crate::manage::set_image(&paths, &name, &settings)).await?;
         let _ = Self::images_changed(&emitter).await;
+        // A new version moved contexts (ADR 0067).
+        let _ = Self::contexts_changed(&emitter).await;
         Ok(())
     }
 
@@ -391,6 +393,21 @@ impl Api {
         blocking(move || crate::manage::keep_image_changes(&paths, &name)).await?;
         let _ = Self::images_changed(&emitter).await;
         Ok(())
+    }
+
+    /// Rename an image folder (ADR 0067); contexts and `FROM` lines follow.
+    /// Returns the contexts that use it under its new name.
+    async fn rename_image(
+        &self,
+        name: &str,
+        new_name: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<Vec<String>, Error> {
+        let (paths, name, new_name) = (self.paths.clone(), name.to_owned(), new_name.to_owned());
+        let moved = blocking(move || crate::manage::rename_image(&paths, &name, &new_name)).await?;
+        let _ = Self::images_changed(&emitter).await;
+        let _ = Self::contexts_changed(&emitter).await;
+        Ok(moved)
     }
 
     /// Remove an image folder; refused while a context uses it.
@@ -508,11 +525,12 @@ impl Api {
     async fn new_context(
         &self,
         name: &str,
+        image: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<String, Error> {
         let paths = self.paths.clone();
-        let name = name.to_owned();
-        let created = blocking(move || crate::manage::new_context(&paths, &name)).await?;
+        let (name, image) = (name.to_owned(), image.to_owned());
+        let created = blocking(move || crate::manage::new_context(&paths, &name, &image)).await?;
         let reloaded = self.daemon.lock().await.reload().await;
         let _ = Self::contexts_changed(&emitter).await;
         reloaded?;

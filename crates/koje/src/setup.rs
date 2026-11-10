@@ -106,17 +106,14 @@ pub fn plan() -> Vec<Step> {
     ]
 }
 
-/// Whether koje's default image with your user exists; `None` without Podman.
+/// Whether the images contexts use are built; `None` without Podman.
 fn image_exists() -> Option<bool> {
     on_path("podman").then(|| {
-        koje_podman::Podman::new()
-            .image_exists(&default_image().user_tag())
-            .unwrap_or(false)
+        koje_core::paths::Paths::from_env()
+            .ok()
+            .and_then(|paths| koje_runtime::images::not_built(&paths).ok())
+            .is_none_or(|missing| missing.is_empty())
     })
-}
-
-fn default_image() -> koje_core::image::Source {
-    koje_core::image::Source::BuiltIn(koje_core::name::ImageName::default_image())
 }
 
 fn execute(action: &Action) -> Result<()> {
@@ -128,15 +125,18 @@ fn execute(action: &Action) -> Result<()> {
             let built = koje_core::paths::Paths::from_env()
                 .map_err(anyhow::Error::from)
                 .and_then(|paths| {
-                    koje_runtime::images::ensure(
-                        &paths,
-                        koje_core::image::DEFAULT,
-                        koje_runtime::images::Options::default(),
-                    )
+                    for image in koje_runtime::images::not_built(&paths)? {
+                        koje_runtime::images::ensure(
+                            &paths,
+                            &image,
+                            koje_runtime::images::Options::default(),
+                        )?;
+                    }
+                    Ok(())
                 });
             if let Err(e) = built {
                 eprintln!(
-                    "warning: koje's image was not built ({e:#}) – retry with: koje image build"
+                    "warning: the contexts' images were not built ({e:#}) – retry with: koje image build"
                 );
             }
         }

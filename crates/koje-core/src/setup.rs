@@ -63,22 +63,23 @@ pub fn outdated(exe: &Path, binary: &str) -> bool {
     exe != Path::new(crate::paths::BIN_DIR).join(binary)
 }
 
-/// koje's default image `fedora` with your user (ADR 0040): built when missing.
+/// The images the contexts use, with your user (ADR 0040, 0067): built when
+/// missing.
 pub fn image(exists: Option<bool>) -> Step {
     match exists {
         Some(true) => Step {
             mark: Mark::Unchanged,
-            what: "image: fedora (rebuild with: koje image build)".into(),
+            what: "images of the contexts (rebuild with: koje image build)".into(),
             action: Action::Nothing,
         },
         Some(false) => Step {
             mark: Mark::New,
-            what: "image: fedora (built with Podman, takes a few minutes)".into(),
+            what: "images of the contexts (built with Podman, takes a few minutes)".into(),
             action: Action::BuildImage,
         },
         None => Step {
             mark: Mark::Skipped,
-            what: "image: Podman is not installed".into(),
+            what: "images: Podman is not installed".into(),
             action: Action::Nothing,
         },
     }
@@ -157,6 +158,6 @@ mod tests {
         assert_eq!(image(Some(true)).mark, Mark::Unchanged);
         assert_eq!(image(None).mark, Mark::Skipped);
         assert!(image(Some(false)).mark.changes());
-        assert_eq!(image(None).to_string(), "- image: Podman is not installed");
+        assert_eq!(image(None).to_string(), "- images: Podman is not installed");
     }
 }

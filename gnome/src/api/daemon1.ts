@@ -14,15 +14,16 @@ export interface Methods {
     Focus: {in: [string]; out: []};
     Favorites: {in: [string]; out: [boolean, string[]]};
     SetFavorites: {in: [string, boolean, string[]]; out: []};
-    Images: {in: []; out: [[string, string, string, string, string, string[], boolean, string, boolean][]]};
+    Images: {in: []; out: [[string, string, string, string, string, string, string[], boolean, string, boolean][]]};
     CustomizeImage: {in: [string]; out: []};
     ResetImage: {in: [string]; out: []};
     KeepImageChanges: {in: [string]; out: []};
     NewImage: {in: [string, string, string]; out: [string]};
     SetImage: {in: [string, Record<string, GLib.Variant>]; out: []};
+    RenameImage: {in: [string, string]; out: [string[]]};
     RemoveImage: {in: [string]; out: []};
     BuildImage: {in: [string]; out: []};
-    NewContext: {in: [string]; out: [string]};
+    NewContext: {in: [string, string]; out: [string]};
     Config: {in: [string]; out: [Record<string, unknown>]};
     SetConfig: {in: [string, Record<string, GLib.Variant>]; out: [string[]]};
     Up: {in: [string, string, string, boolean, boolean]; out: []};
@@ -52,15 +53,16 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     Focus: ['(s)', '()'],
     Favorites: ['(s)', '(bas)'],
     SetFavorites: ['(sbas)', '()'],
-    Images: ['()', '(a(sssssasbsb))'],
+    Images: ['()', '(a(ssssssasbsb))'],
     CustomizeImage: ['(s)', '()'],
     ResetImage: ['(s)', '()'],
     KeepImageChanges: ['(s)', '()'],
     NewImage: ['(sss)', '(s)'],
     SetImage: ['(sa{sv})', '()'],
+    RenameImage: ['(ss)', '(as)'],
     RemoveImage: ['(s)', '()'],
     BuildImage: ['(s)', '()'],
-    NewContext: ['(s)', '(s)'],
+    NewContext: ['(ss)', '(s)'],
     Config: ['(s)', '(a{sv})'],
     SetConfig: ['(sa{sv})', '(as)'],
     Up: ['(sssbb)', '()'],
