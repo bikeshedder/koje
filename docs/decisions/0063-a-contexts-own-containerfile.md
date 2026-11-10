@@ -1,6 +1,6 @@
 # 0063. A context's own Containerfile, opened with xdg-open
 
-- Status: Accepted
+- Status: Accepted (its settings app part superseded by ADR 0064)
 - Date: 2026-11-10
 - Source: discussion (user, 2026-11-10: "easily create a Dockerfile for a
   context and edit it in the user's preferred editor"); ADR 0040; plan G.37
