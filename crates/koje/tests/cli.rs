@@ -84,8 +84,8 @@ fn fake_podman(tmp: &Path) -> String {
 printf '%s\n' "$*" >> {log}
 case "$1" in
   container) if [ ! -f {status} ]; then echo "Error: no such container" >&2; exit 125; fi
-    case "$*" in *io.koje.config*) cat {status}.fp 2>/dev/null || echo "<no value>" ;; *Labels*) echo "<no value>" ;; *) cat {status} ;; esac ;;
-  image) exit 0 ;;
+    case "$*" in *io.koje.config*) cat {status}.fp 2>/dev/null || echo "<no value>" ;; *Labels*) echo "<no value>" ;; *.Image*) echo sha256:fake ;; *) cat {status} ;; esac ;;
+  image) case "$*" in *inspect*.Id*) echo sha256:fake ;; esac ;;
   volume) case "$2" in exists) test -f {status}.volume ;; rm) rm -f {status}.volume ;; create) touch {status}.volume ;; inspect) echo {status}.voldata ;; esac ;;
   rm) rm -f {status} ;;
   create) echo exited > {status}; touch {status}.volume ;;
@@ -434,12 +434,35 @@ fn image_build_runs_podman_build_for_the_user() {
         String::from_utf8_lossy(&out.stderr)
     );
     let calls = podman_log(tmp.path());
+    // koje's image `fedora` (ADR 0040), then a look into it, then the user layer.
+    let image = calls
+        .lines()
+        .find(|l| l.starts_with("build --tag localhost/koje/fedora:latest "))
+        .unwrap_or_else(|| panic!("{calls}"));
+    assert!(image.contains("--label io.koje.source="), "{image}");
+    assert!(image.contains("--no-cache"), "{image}");
     assert!(
-        calls.starts_with("build --tag localhost/koje/base:latest --build-arg USER_NAME="),
+        calls.contains("run --rm --user root --network none --pull never --entrypoint sh localhost/koje/fedora:latest -c"),
         "{calls}"
     );
-    assert!(calls.contains("--no-cache"), "{calls}");
-    assert!(String::from_utf8_lossy(&out.stdout).contains("built koje/base:latest"));
+    let layer = calls
+        .lines()
+        .find(|l| l.starts_with("build --tag localhost/koje/user/fedora:latest "))
+        .unwrap_or_else(|| panic!("{calls}"));
+    assert!(
+        layer.contains("--build-arg KOJE_IMAGE=localhost/koje/fedora:latest"),
+        "{layer}"
+    );
+    assert!(layer.contains("--build-arg USER_NAME="), "{layer}");
+    assert!(
+        layer.contains("--label io.koje.gbm-dir=/usr/lib64/gbm"),
+        "{layer}"
+    );
+    assert!(layer.contains("--pull=never"), "{layer}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout)
+            .contains("built fedora → localhost/koje/user/fedora:latest")
+    );
 }
 
 /// A private session bus with kojed on it (G.29: kojed runs `up`, `down`,
@@ -547,6 +570,88 @@ fn koje_fake(tmp: &Path, path: &str, args: &[&str]) -> Output {
 }
 
 #[test]
+fn image_new_creates_a_folder_building_on_its_image() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = stdout(&koje(tmp.path(), &["image", "new", "dev"]));
+    let file = tmp.path().join("config/koje/images/dev/Containerfile");
+    assert!(out.contains(&file.display().to_string()), "{out}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.ends_with("FROM localhost/koje/fedora:latest\n"),
+        "{text}"
+    );
+    assert!(!koje(tmp.path(), &["image", "new", "dev"]).status.success());
+
+    stdout(&koje(tmp.path(), &["image", "new", "web", "--from", "dev"]));
+    let web =
+        std::fs::read_to_string(tmp.path().join("config/koje/images/web/Containerfile")).unwrap();
+    assert!(web.ends_with("FROM localhost/koje/dev:latest\n"), "{web}");
+    let reg = koje(
+        tmp.path(),
+        &[
+            "image",
+            "new",
+            "deb",
+            "--from",
+            "docker.io/library/debian:13",
+        ],
+    );
+    assert!(reg.status.success());
+    let deb =
+        std::fs::read_to_string(tmp.path().join("config/koje/images/deb/Containerfile")).unwrap();
+    assert!(deb.ends_with("FROM docker.io/library/debian:13\n"), "{deb}");
+    // An image folder that does not exist cannot be built on.
+    assert!(
+        !koje(tmp.path(), &["image", "new", "x", "--from", "nope"])
+            .status
+            .success()
+    );
+}
+
+#[test]
+fn up_builds_an_image_folder_after_what_it_builds_on() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = fake_podman(tmp.path());
+    let s = Session::start(tmp.path(), &path);
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    stdout(&koje(tmp.path(), &["image", "new", "dev"]));
+    let config = config_of(tmp.path(), "kp");
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(
+        &config,
+        text.replace("image  = \"fedora\"", "image  = \"dev\""),
+    )
+    .unwrap();
+
+    let out = stdout(&s.koje(&["up", "kp", "-s", "empty"]));
+    assert!(out.contains("started kp (container created)"), "{out}");
+    let calls = podman_log(tmp.path());
+    let builds: Vec<&str> = calls
+        .lines()
+        .filter_map(|l| l.strip_prefix("build --tag "))
+        .map(|l| l.split(' ').next().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        builds,
+        [
+            "localhost/koje/fedora:latest",
+            "localhost/koje/dev:latest",
+            "localhost/koje/user/dev:latest"
+        ],
+        "{calls}"
+    );
+    let dev = tmp.path().join("config/koje/images/dev");
+    assert!(
+        calls.contains(&format!("--file {}/Containerfile", dev.display())),
+        "{calls}"
+    );
+    assert!(
+        calls.contains(" localhost/koje/user/dev:latest dbus-daemon"),
+        "{calls}"
+    );
+}
+
+#[test]
 fn up_creates_once_then_starts_and_down_stops() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());
@@ -556,8 +661,13 @@ fn up_creates_once_then_starts_and_down_stops() {
     let out = stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     assert!(out.contains("started kp (container created)"), "{out}");
     let calls = podman_log(tmp.path());
+    // The first `up` builds koje's image with your user and runs it.
     assert!(
-        calls.contains("image exists localhost/koje/base:latest"),
+        calls.contains("build --tag localhost/koje/user/fedora:latest "),
+        "{calls}"
+    );
+    assert!(
+        calls.contains(" localhost/koje/user/fedora:latest dbus-daemon --session"),
         "{calls}"
     );
     assert!(
@@ -984,7 +1094,7 @@ fn setup_installs_then_has_nothing_to_do() {
         out.contains("+ GNOME Shell extension koje@koje.io: enable"),
         "{out}"
     );
-    assert!(out.contains("= base image: koje/base"), "{out}");
+    assert!(out.contains("= image: fedora"), "{out}");
     assert!(out.contains("dry run – nothing changed"), "{out}");
     assert!(!t.join("extension.on").exists());
 

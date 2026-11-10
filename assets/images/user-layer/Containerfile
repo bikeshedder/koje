@@ -1,0 +1,14 @@
+# koje's user layer (ADR 0040): added on top of every image before a context
+# runs it. Everything about the host user is here, so images stay shareable.
+# Built by koje with --build-arg KOJE_IMAGE=<image> and the user's name, uid
+# and home; the work is in user-layer.sh (POSIX sh, any distribution).
+ARG KOJE_IMAGE
+FROM ${KOJE_IMAGE}
+USER root
+ARG USER_NAME
+ARG USER_UID
+ARG USER_HOME
+COPY user-layer.sh containers.conf /tmp/koje-user-layer/
+RUN sh /tmp/koje-user-layer/user-layer.sh && rm -rf /tmp/koje-user-layer
+# koje runs the context's own command (its session bus) with --init.
+ENTRYPOINT []

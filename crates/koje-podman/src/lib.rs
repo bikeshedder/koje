@@ -55,6 +55,17 @@ pub trait Runner {
     /// Run with the terminal attached (long builds show their progress);
     /// returns whether podman succeeded.
     fn run_attached(&self, args: &[&str]) -> std::io::Result<bool>;
+    /// Run and hand each line of output (stdout and stderr as they come) to
+    /// `on_line`: long builds show their progress in the CLI and in kojed's
+    /// operations; returns whether podman succeeded.
+    fn run_lines(&self, args: &[&str], on_line: &mut dyn FnMut(&str)) -> std::io::Result<bool> {
+        let out = self.run(args)?;
+        out.stdout
+            .lines()
+            .chain(out.stderr.lines())
+            .for_each(&mut *on_line);
+        Ok(out.success)
+    }
 }
 
 /// The real `podman` binary.
@@ -75,6 +86,27 @@ impl Runner for Cli {
     fn run_attached(&self, args: &[&str]) -> std::io::Result<bool> {
         tracing::debug!(?args, "podman (attached)");
         Ok(Command::new(&self.program).args(args).status()?.success())
+    }
+
+    fn run_lines(&self, args: &[&str], on_line: &mut dyn FnMut(&str)) -> std::io::Result<bool> {
+        use std::io::BufRead as _;
+        tracing::debug!(?args, "podman (lines)");
+        let (reader, writer) = std::io::pipe()?;
+        let mut child = {
+            let mut cmd = Command::new(&self.program);
+            cmd.args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(writer.try_clone()?)
+                .stderr(writer);
+            cmd.spawn()?
+            // `cmd` and its ends of the pipe are dropped here: the reader
+            // ends when podman does.
+        };
+        // Lossy: a build's output is not always UTF-8.
+        for line in std::io::BufReader::new(reader).split(b'\n') {
+            on_line(String::from_utf8_lossy(&line?).trim_end());
+        }
+        Ok(child.wait()?.success())
     }
 
     fn run(&self, args: &[&str]) -> std::io::Result<RunOutput> {
@@ -768,6 +800,7 @@ pub(crate) mod tests {
             &ContextInputs {
                 name: &name,
                 image: "koje/base:latest",
+                gbm_dir: koje_core::spec::DEFAULT_GBM_DIR,
                 access: Profile::Full.access(),
                 limits: &limits,
                 mounts: &["/home/mj/src/kp".into()],

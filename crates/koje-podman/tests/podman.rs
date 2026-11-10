@@ -165,6 +165,7 @@ fn create_from_spec_keeps_uid_and_isolates_network() {
         &ContextInputs {
             name: &ctx,
             image: "docker.io/library/alpine",
+            gbm_dir: koje_core::spec::DEFAULT_GBM_DIR,
             access: Profile::Isolated.access(),
             limits: &limits,
             mounts: &[],
@@ -225,17 +226,16 @@ fn create_from_spec_keeps_uid_and_isolates_network() {
 }
 
 #[test]
-#[ignore = "needs rootless Podman and koje/base (koje image build) on the host"]
+#[ignore = "needs rootless Podman and koje's image with your user (koje image build fedora) on the host"]
 fn base_image_runs_the_session_bus() {
     use koje_core::access::Profile;
     use koje_core::config::Limits;
     use koje_core::spec::{ContextInputs, build};
 
+    const IMAGE: &str = "localhost/koje/user/fedora:latest";
     let podman = Podman::new();
     assert!(
-        podman
-            .image_exists(koje_podman::image::BASE_IMAGE)
-            .expect("image exists"),
+        podman.image_exists(IMAGE).expect("image exists"),
         "build it first: koje image build"
     );
     let ctx = ContextName::new(format!("kojebase-{}", std::process::id())).expect("valid name");
@@ -244,7 +244,8 @@ fn base_image_runs_the_session_bus() {
     let mut spec = build(
         &ContextInputs {
             name: &ctx,
-            image: koje_podman::image::BASE_IMAGE,
+            image: IMAGE,
+            gbm_dir: koje_core::spec::DEFAULT_GBM_DIR,
             access: Profile::Isolated.access(),
             limits: &limits,
             mounts: &[],

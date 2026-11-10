@@ -220,7 +220,8 @@ pub enum Command {
         #[arg(long)]
         yes: bool,
     },
-    /// Manage koje's base image `koje/base`.
+    /// Build and create images (ADR 0040): koje's built-in `fedora`, image
+    /// folders in ~/.config/koje/images, registry images.
     #[command(subcommand)]
     Image(ImageCmd),
     /// List contexts.
@@ -242,11 +243,26 @@ pub enum Command {
 
 #[derive(Debug, Subcommand)]
 pub enum ImageCmd {
-    /// Build `koje/base` for the current user with Podman (a few minutes).
+    /// Build images with what they build on and your user on top (default:
+    /// the images contexts use). Contexts get a new build when recreated.
     Build {
+        /// Images as `image = …` names them: `fedora`, a folder's name or
+        /// path, a registry image.
+        images: Vec<String>,
         /// Rebuild every layer, e.g. to pick up distribution updates.
         #[arg(long)]
         no_cache: bool,
+        /// Pull newer base and registry images.
+        #[arg(long)]
+        pull: bool,
+    },
+    /// Create the image folder ~/.config/koje/images/<name> with a
+    /// Containerfile; use it with `image = "<name>"` in a context.
+    New {
+        name: String,
+        /// The image it builds on (default: fedora).
+        #[arg(long, default_value = koje_core::image::DEFAULT)]
+        from: String,
     },
 }
 
@@ -434,7 +450,7 @@ mod tests {
     fn image_build() {
         assert!(matches!(
             parse(&["image", "build", "--no-cache"]).unwrap().command,
-            Command::Image(ImageCmd::Build { no_cache: true })
+            Command::Image(ImageCmd::Build { no_cache: true, .. })
         ));
     }
 

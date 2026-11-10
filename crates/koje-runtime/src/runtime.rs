@@ -16,7 +16,6 @@ use koje_core::spec::{Built, ContextInputs, build};
 use koje_podman::Podman;
 
 use crate::host::Host;
-use koje_podman::image::BASE_IMAGE;
 
 /// The flags of `koje up`.
 #[derive(Debug, Clone, Copy)]
@@ -83,7 +82,7 @@ pub fn up(
         bail!("{name} is paused – resume it with: koje wake {name}");
     }
     let fingerprint = koje_core::container::fingerprint(&cfg.image, &access);
-    note_if_changed(&podman, &name, plan, &fingerprint);
+    note_if_changed(paths, &podman, &cfg, plan, &fingerprint);
     let host = prepare_host(kojed, &podman, &name, &access, plan)?;
     // Folders below the home: mounted live into the shared home, before the
     // container starts (ADR 0033).
@@ -92,8 +91,14 @@ pub fn up(
     }
     match plan {
         UpPlan::CreateAndStart => {
-            ensure_image(&podman, &cfg)?;
-            let mut built = spec(paths, &cfg, &global, access, &host)?;
+            // The image as it is now: built or pulled when missing or changed
+            // (ADR 0040, 0063).
+            let image =
+                crate::images::ensure(paths, &cfg.image, crate::images::Options::default())?;
+            for warning in koje_core::image::warnings(&image.missing, &access) {
+                crate::say!("note: {warning}");
+            }
+            let mut built = spec(paths, &cfg, &global, access, &host, &image)?;
             print_notes(&built);
             // What only a new container applies (M5.11): checked at every `up`.
             built.spec.labels.insert(
@@ -182,7 +187,14 @@ fn show_workspace(name: &ContextName) {
 /// The container was made with other settings (image, access) than
 /// the config has now (M5.11): says how they apply. `koje up` offers to
 /// recreate a stopped one first ([`config_changed`]).
-fn note_if_changed(podman: &Podman, name: &ContextName, plan: UpPlan, fingerprint: &str) {
+fn note_if_changed(
+    paths: &Paths,
+    podman: &Podman,
+    cfg: &ContextConfig,
+    plan: UpPlan,
+    fingerprint: &str,
+) {
+    let name = &cfg.name;
     if !matches!(plan, UpPlan::Start | UpPlan::AlreadyRunning) {
         return;
     }
@@ -193,6 +205,15 @@ fn note_if_changed(podman: &Podman, name: &ContextName, plan: UpPlan, fingerprin
         ),
         Ok(false) => {}
         Err(e) => tracing::debug!("comparing {name}'s container with its config: {e:#}"),
+    }
+    // A build never changes a container (ADR 0040): a recreate builds and applies it.
+    match crate::images::outdated(paths, name, &cfg.image) {
+        Ok(Some(why)) => crate::say!(
+            "note: {name}'s image is not what its container runs ({why}) – \
+             build and apply it with: koje recreate {name}"
+        ),
+        Ok(None) => {}
+        Err(e) => tracing::debug!("comparing {name}'s container with its image: {e:#}"),
     }
 }
 
@@ -213,7 +234,8 @@ pub fn config_changed(paths: &Paths, context: &ContextName) -> Result<bool> {
         return Ok(false);
     }
     let fingerprint = koje_core::container::fingerprint(&cfg.image, &cfg.effective_access(&global));
-    changed_since_created(&podman, context, &fingerprint)
+    Ok(changed_since_created(&podman, context, &fingerprint)?
+        || crate::images::outdated(paths, context, &cfg.image)?.is_some())
 }
 
 /// What the context gets from the host, prepared before its container
@@ -728,32 +750,6 @@ pub fn sleep(kojed: &dyn Host, paths: &Paths, context: &str) -> Result<()> {
     Ok(())
 }
 
-/// The image the container runs. Until image folders are built (M3.20),
-/// `fedora` is `koje/base`.
-fn container_image(cfg: &ContextConfig) -> String {
-    let parsed = cfg.image_ref();
-    if let Some(hint) = &parsed.hint {
-        crate::say!("note: {hint}");
-    }
-    match parsed.image {
-        koje_core::image::ImageRef::Name(n) if n.as_str() == koje_core::image::DEFAULT => {
-            BASE_IMAGE.to_owned()
-        }
-        _ => cfg.image.clone(),
-    }
-}
-
-/// Build `koje/base` on first use (ADR 0023).
-fn ensure_image(podman: &Podman, cfg: &ContextConfig) -> Result<()> {
-    if container_image(cfg) != BASE_IMAGE || podman.image_exists(BASE_IMAGE)? {
-        return Ok(());
-    }
-    crate::say!("{BASE_IMAGE} is missing – building it first (a few minutes)");
-    let user = koje_podman::host::image_user().context("finding the current user")?;
-    podman.build_base(&user, false)?;
-    Ok(())
-}
-
 /// The container spec from the context's config, the global defaults and the host.
 fn spec(
     paths: &Paths,
@@ -761,14 +757,15 @@ fn spec(
     global: &GlobalConfig,
     access: koje_core::access::Access,
     host: &koje_core::spec::HostEnv,
+    image: &crate::images::Ready,
 ) -> Result<Built> {
     let mounts = koje_podman::host::resolve_mounts(cfg, &paths.host_dirs()?)?;
     let limits = cfg.effective_limits(global)?;
-    let image = container_image(cfg);
     Ok(build(
         &ContextInputs {
             name: &cfg.name,
-            image: &image,
+            image: &image.tag,
+            gbm_dir: &image.gbm_dir,
             access,
             limits: &limits,
             mounts: &mounts,

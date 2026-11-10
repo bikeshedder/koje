@@ -138,8 +138,9 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje config [--stdin]` | edit `config.toml` in $EDITOR; `--stdin` takes the new file from stdin (the settings app) |
 | `koje new \| edit \| rm <context>`, `koje list` | manage contexts; `edit --stdin` takes the new `context.toml` from stdin (the settings app) |
 | `koje recreate <context> [--yes]` | new container from the current config; saves and restores the windows; loses what was installed in the old one outside the home |
-| `koje image build [--no-cache]` | build the base image `koje/base` for the current user (ADR 0023) |
-| `koje setup [--dry-run] [--yes]` | after the package (ADR 0045): enable koje's GNOME Shell extension, build the base image, restart an outdated kojed; plan first, asks once |
+| `koje image build [<image>…] [--no-cache] [--pull]` | build images (default: those contexts use) with what they build on and your user on top (ADR 0040); contexts get them when recreated |
+| `koje image new <name> [--from <image>]` | create the image folder `~/.config/koje/images/<name>` with a Containerfile (ADR 0040) |
+| `koje setup [--dry-run] [--yes]` | after the package (ADR 0045): enable koje's GNOME Shell extension, build koje's image `fedora`, restart an outdated kojed; plan first, asks once |
 | `koje doctor` | check the package, packages, GNOME Shell and the extension, Mutter's Wayland globals, kojed, image, forwarder, sub-ids, NVIDIA |
 
 Hyprland-only commands (`layout`, `stash`, `unstash`, `snap`, `overlay`,
@@ -167,6 +168,7 @@ windows get the sleep overlay. Memory stays allocated (can be swapped out).
 |---|---|
 | `~/.config/koje/config.toml` | global: default limits, default access; older Hyprland tables (`zones`, `overlay`, `workspace`, `bar`, `desktop`) are ignored (ADR 0061) |
 | `~/.config/koje/contexts/<context>/context.toml` | hand-written: name, prefix, color, image, mounts, limits, state roles |
+| `~/.config/koje/images/<name>/` | an image folder (ADR 0040): `Containerfile` and what it copies; `image = "<name>"` uses it |
 | `~/.config/koje/integrations/*.toml` | user integrations |
 | `~/.local/share/koje/<context>/states/<state>.toml` | states incl. layouts |
 | `~/.local/state/koje/<context>/recovery.toml` | crash recovery |
@@ -176,7 +178,7 @@ windows get the sleep overlay. Memory stays allocated (can be swapped out).
 | Crate | Role |
 |---|---|
 | `koje-core` | domain types and pure logic; ports (traits) for the compositor and Podman |
-| `koje-podman` | adapter: rootless Podman (`ContainerRuntime`), base image |
+| `koje-podman` | adapter: rootless Podman (`ContainerRuntime`), images: built-in ones, the user layer, build/pull |
 | `koje-gnome` | adapter: koje's GNOME Shell extension over D-Bus (`Compositor`, ADR 0059) |
 | `koje-forward` | static D-Bus forwarder that runs inside every context (ADR 0025) |
 | `kojed` | service: windows and their contexts, colors, states, recovery, memory; D-Bus API `io.koje.Daemon1` (ADR 0027, 0060) |

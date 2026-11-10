@@ -15,8 +15,10 @@ use crate::container::{LABEL_CONTEXT, container_name, home_volume};
 use crate::name::ContextName;
 use crate::size::ByteSize;
 
-/// Where the image's (Fedora) GBM looks for backends (ADR 0016).
-pub const IMAGE_GBM_DIR: &str = "/usr/lib64/gbm";
+/// Where Fedora's GBM looks for backends (ADR 0016): an image's own
+/// directory is its `io.koje.gbm-dir` label (ADR 0040); this one is for
+/// images without it.
+pub const DEFAULT_GBM_DIR: &str = "/usr/lib64/gbm";
 
 /// Where the forwarder is mounted inside every context (ADR 0025).
 pub const FORWARDER_IN_CONTEXT: &str = "/usr/local/libexec/koje/koje-forward";
@@ -137,6 +139,8 @@ pub struct Built {
 pub struct ContextInputs<'a> {
     pub name: &'a ContextName,
     pub image: &'a str,
+    /// Where the image's GBM looks for backends (ADR 0016, 0040).
+    pub gbm_dir: &'a str,
     /// Effective access (ADR 0017).
     pub access: Access,
     /// Effective limits (context over global defaults).
@@ -159,6 +163,7 @@ fn bind(source: &Path, target: impl Into<PathBuf>, read_only: bool) -> SpecMount
 /// The parts of a spec that access switches add to, plus notes.
 struct Parts<'h> {
     host: &'h HostEnv,
+    gbm_dir: &'h str,
     run: PathBuf,
     env: BTreeMap<String, String>,
     mounts: Vec<SpecMount>,
@@ -297,7 +302,7 @@ impl Parts<'_> {
                 self.devices.push("nvidia.com/gpu=all".to_owned());
                 match &nvidia.gbm {
                     Some(gbm) => {
-                        let target = Path::new(IMAGE_GBM_DIR).join("nvidia-drm_gbm.so");
+                        let target = Path::new(self.gbm_dir).join("nvidia-drm_gbm.so");
                         self.mounts.push(bind(gbm, target, true));
                     }
                     None => self
@@ -333,6 +338,7 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
     let a = ctx.access;
     let mut p = Parts {
         host,
+        gbm_dir: ctx.gbm_dir,
         run: run.clone(),
         env: BTreeMap::new(),
         mounts: vec![
@@ -457,6 +463,7 @@ mod tests {
             &ContextInputs {
                 name: &name,
                 image: "koje/base:latest",
+                gbm_dir: DEFAULT_GBM_DIR,
                 access,
                 limits,
                 mounts,
@@ -470,6 +477,28 @@ mod tests {
             .iter()
             .map(|m| m.target.display().to_string())
             .collect()
+    }
+
+    #[test]
+    fn nvidia_gbm_goes_where_the_image_looks() {
+        let name = kp();
+        let b = build(
+            &ContextInputs {
+                name: &name,
+                image: "localhost/koje/user/debian:latest",
+                gbm_dir: "/usr/lib/x86_64-linux-gnu/gbm",
+                access: Profile::Full.access(),
+                limits: &Limits::default(),
+                mounts: &[],
+            },
+            &host(),
+        );
+        assert!(
+            targets(&b.spec)
+                .contains(&"/usr/lib/x86_64-linux-gnu/gbm/nvidia-drm_gbm.so".to_owned()),
+            "{:?}",
+            targets(&b.spec)
+        );
     }
 
     #[test]

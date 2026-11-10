@@ -179,9 +179,13 @@ fn wayland_globals() -> Check {
 }
 
 fn image() -> Check {
-    match koje_podman::Podman::new().image_exists(koje_podman::image::BASE_IMAGE) {
-        Ok(true) => Check::ok("base image koje/base"),
-        Ok(false) => Check::warn("base image koje/base: not built", "koje image build"),
+    let fedora = koje_core::image::Source::BuiltIn(koje_core::name::ImageName::default_image());
+    match koje_podman::Podman::new().image_exists(&fedora.user_tag()) {
+        Ok(true) => Check::ok("image fedora"),
+        Ok(false) => Check::warn(
+            "image fedora: not built (the first koje up builds it)",
+            "koje image build fedora",
+        ),
         Err(e) => Check::fail(format!("Podman: {e}"), ""),
     }
 }

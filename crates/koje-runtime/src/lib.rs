@@ -6,6 +6,7 @@
 pub mod dotfiles;
 pub mod host;
 pub mod hostbus;
+pub mod images;
 pub mod kojed;
 pub mod memory;
 pub mod mounts;

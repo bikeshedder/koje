@@ -1,7 +1,8 @@
-# koje's base image `koje/base` (ADR 0023). Built locally per user by
-# `koje image build`; contexts run it with --userns=keep-id and mount the home
-# volume at the host's home path, so the user exists here with the same name,
-# uid and home. Requirements come from the M2 spikes (ADR 0014–0016, 0019).
+# koje's built-in image `fedora` (ADR 0023, 0040): a distribution and its
+# programs, nothing about the host user. koje adds its user layer on top
+# (assets/images/user-layer) before a context runs it. Requirements come from
+# the M2 spikes (ADR 0014–0016, 0019). An image folder of your own builds on
+# it with: FROM localhost/koje/fedora
 FROM registry.fedoraproject.org/fedora:44
 
 # Batteries included (ADR 0023): browser, terminal, file manager, tools.
@@ -29,37 +30,9 @@ RUN curl -fsSL -o /tmp/starship.tar.gz \
     && rm /tmp/starship.tar.gz \
     && starship --version
 
-# newuidmap/newgidmap need their file capabilities for nested Podman; setuid
-# does not work (M2.5).
-RUN rpm --restore shadow-utils && getcap /usr/bin/newuidmap /usr/bin/newgidmap
-
-# The host user, with sub-ids for nested Podman: everything up to 65535 except
-# the user's own uid (M2.5).
-ARG USER_NAME
-ARG USER_UID
-ARG USER_HOME
-RUN test -n "${USER_NAME}" && test -n "${USER_UID}" && test -n "${USER_HOME}" \
-    && useradd --uid "${USER_UID}" --home-dir "${USER_HOME}" --no-create-home "${USER_NAME}" \
-    && printf '%s:1:%s\n%s:%s:%s\n' \
-        "${USER_NAME}" "$((USER_UID - 1))" \
-        "${USER_NAME}" "$((USER_UID + 1))" "$((65535 - USER_UID))" \
-        | tee /etc/subuid > /etc/subgid
-
 # Links opened in a context go to the context's Firefox.
 RUN mkdir -p /etc/xdg \
     && printf '[Default Applications]\nx-scheme-handler/http=firefox.desktop\nx-scheme-handler/https=firefox.desktop\ntext/html=firefox.desktop\n' \
         > /etc/xdg/mimeapps.list
 
-# Inner Podman (ADR 0014): fuse-overlayfs storage, settings in containers.conf.
-COPY containers.conf /etc/containers/containers.conf
-RUN printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
-        > /etc/containers/storage.conf
-
-# The image's own portal must not be D-Bus activated on the context bus: koje's
-# forwarder owns org.freedesktop.portal.Desktop there and talks to the host's
-# portal (ADR 0019; M2.4 found the image's portal activated first).
-RUN rm -f /usr/share/dbus-1/services/org.freedesktop.portal.Desktop.service \
-          /usr/share/dbus-1/services/org.freedesktop.impl.portal.*.service
-
-ARG KOJE_IMAGE_VERSION=1
-LABEL io.koje.image=base io.koje.image-version="${KOJE_IMAGE_VERSION}"
+LABEL io.koje.image=fedora

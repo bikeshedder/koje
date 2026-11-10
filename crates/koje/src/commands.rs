@@ -33,7 +33,12 @@ pub fn run(command: &Command) -> Result<()> {
         Command::Rm { ctx, yes } => rm(&paths, ctx, *yes),
 
         Command::State(cmd) => state(&paths, cmd),
-        Command::Image(ImageCmd::Build { no_cache }) => image_build(*no_cache),
+        Command::Image(ImageCmd::Build {
+            images,
+            no_cache,
+            pull,
+        }) => image_build(&paths, images, *no_cache, *pull),
+        Command::Image(ImageCmd::New { name, from }) => image_new(&paths, name, from),
 
         Command::Up {
             ctx,
@@ -344,18 +349,49 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
     Ok(())
 }
 
-/// `koje image build`: build `koje/base` for the current user (ADR 0023).
-pub fn image_build(no_cache: bool) -> Result<()> {
-    let user = koje_podman::host::image_user().context("finding the current user")?;
-    println!(
-        "building {} for {} (uid {}, home {}) – this takes a few minutes",
-        koje_podman::image::BASE_IMAGE,
-        user.name,
-        user.uid,
-        user.home.display()
-    );
-    koje_podman::Podman::new().build_base(&user, no_cache)?;
-    println!("built {}", koje_podman::image::BASE_IMAGE);
+/// `koje image build`: build images and the user layer (ADR 0040); without
+/// names, the images contexts use (or koje's default one).
+pub fn image_build(paths: &Paths, images: &[String], no_cache: bool, pull: bool) -> Result<()> {
+    let mut images = images.to_vec();
+    if images.is_empty() {
+        images = koje_runtime::images::in_use(paths)?;
+    }
+    if images.is_empty() {
+        images.push(koje_core::image::DEFAULT.to_owned());
+    }
+    let opts = koje_runtime::images::Options {
+        force: true,
+        no_cache,
+        pull,
+    };
+    for image in &images {
+        let ready = koje_runtime::images::ensure(paths, image, opts)
+            .with_context(|| format!("building image {image}"))?;
+        println!("built {image} → {}", ready.tag);
+    }
+    println!("contexts get the new build when they are recreated: koje recreate <context>");
+    Ok(())
+}
+
+/// `koje image new`: an image folder with a Containerfile building on `from`.
+fn image_new(paths: &Paths, name: &str, from: &str) -> Result<()> {
+    let name = koje_core::name::ImageName::new(name)?;
+    let dir = paths.images_dir().join(name.as_str());
+    if dir.exists() {
+        bail!("{} exists already", dir.display());
+    }
+    let from_line = koje_runtime::images::from_line(paths, from)?;
+    if koje_core::image::parents(&format!("FROM {from_line}")).contains(&name) {
+        bail!("image {name} cannot build on itself");
+    }
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    let file = dir.join("Containerfile");
+    koje_core::fsutil::write_atomic(
+        &file,
+        koje_runtime::images::new_containerfile(&from_line).as_bytes(),
+    )?;
+    println!("created {}", file.display());
+    println!("use it in a context with image = \"{name}\" (koje edit <context>)");
     Ok(())
 }
 

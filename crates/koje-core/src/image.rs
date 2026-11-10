@@ -42,6 +42,99 @@ pub const LABEL_USER_LAYER: &str = "io.koje.user-layer";
 /// layer is built.
 pub const LABEL_GBM_DIR: &str = "io.koje.gbm-dir";
 
+/// Label: the tools the probe did not find in the image, `,`-separated.
+pub const LABEL_MISSING: &str = "io.koje.missing";
+
+/// What koje runs in an image before it adds the user layer (as root, `sh`):
+/// one `missing <tool>` line per tool it lacks, and `gbm <dir>`, where its
+/// GBM looks for backends.
+pub const PROBE: &str = r#"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+for t in useradd dbus-daemon podman fuse-overlayfs newuidmap newgidmap setcap; do
+  command -v "$t" >/dev/null 2>&1 || echo "missing $t"
+done
+for d in /usr/lib64/gbm /usr/lib/x86_64-linux-gnu/gbm /usr/lib/aarch64-linux-gnu/gbm /usr/lib/gbm; do
+  if [ -d "$d" ]; then echo "gbm $d"; exit 0; fi
+done
+if [ -d /usr/lib64 ]; then echo "gbm /usr/lib64/gbm"
+elif [ -d /usr/lib/x86_64-linux-gnu ]; then echo "gbm /usr/lib/x86_64-linux-gnu/gbm"
+else echo "gbm /usr/lib/gbm"; fi
+"#;
+
+/// [`PROBE`]'s findings.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Probe {
+    pub missing: BTreeSet<String>,
+    pub gbm_dir: Option<String>,
+}
+
+/// Read [`PROBE`]'s output.
+pub fn read_probe(out: &str) -> Probe {
+    let mut probe = Probe::default();
+    for line in out.lines() {
+        if let Some(tool) = line.strip_prefix("missing ") {
+            probe.missing.insert(tool.trim().to_owned());
+        } else if let Some(dir) = line.strip_prefix("gbm ") {
+            probe.gbm_dir = Some(dir.trim().to_owned());
+        }
+    }
+    probe
+}
+
+/// Tools without which no context runs on an image: the user layer needs
+/// `useradd`, every context runs `dbus-daemon` as its main process.
+const REQUIRED: &[(&str, &str)] = &[
+    ("useradd", "koje adds your user with it"),
+    ("dbus-daemon", "it runs every context's session bus"),
+];
+
+/// Tools an access switch needs (ADR 0014: nested Podman).
+const BY_SWITCH: &[(&str, &[&str])] = &[(
+    "nested",
+    &[
+        "podman",
+        "fuse-overlayfs",
+        "newuidmap",
+        "newgidmap",
+        "setcap",
+    ],
+)];
+
+/// Why an image cannot be a context's image; empty when it can.
+pub fn blockers(missing: &BTreeSet<String>) -> Vec<String> {
+    REQUIRED
+        .iter()
+        .filter(|(tool, _)| missing.contains(*tool))
+        .map(|(tool, why)| format!("the image has no {tool}: {why}"))
+        .collect()
+}
+
+/// What a context with `access` lacks in an image that misses `missing`.
+pub fn warnings(missing: &BTreeSet<String>, access: &crate::access::Access) -> Vec<String> {
+    let on: BTreeSet<&str> = access
+        .switches()
+        .into_iter()
+        .filter(|(_, on)| *on)
+        .map(|(n, _)| n)
+        .collect();
+    BY_SWITCH
+        .iter()
+        .filter(|(switch, _)| on.contains(switch))
+        .filter_map(|(switch, tools)| {
+            let lacking: Vec<&str> = tools
+                .iter()
+                .copied()
+                .filter(|t| missing.contains(*t))
+                .collect();
+            (!lacking.is_empty()).then(|| {
+                format!(
+                    "{switch}: the image has no {} – install them in the image or turn {switch} off",
+                    lacking.join(", ")
+                )
+            })
+        })
+        .collect()
+}
+
 /// `image = …` as written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageRef {
@@ -72,7 +165,7 @@ pub fn parse(value: &str) -> Result<Parsed> {
     }
     if LEGACY.contains(&v) {
         return Ok(Parsed {
-            image: ImageRef::Name(ImageName::new(DEFAULT)?),
+            image: ImageRef::Name(ImageName::default_image()),
             hint: Some(format!(
                 "image = {v:?} is read as {DEFAULT:?}, koje's image now – write that instead"
             )),
@@ -472,6 +565,25 @@ mod tests {
         assert_ne!(h, source_hash(std::slice::from_ref(&a)));
         let changed = ("conf/x.toml".to_owned(), b"z".to_vec());
         assert_ne!(h, source_hash(&[a, changed]));
+    }
+
+    #[test]
+    fn reads_the_probe_and_warns_per_switch() {
+        let p = read_probe("missing podman\nmissing setcap\ngbm /usr/lib/x86_64-linux-gnu/gbm\n");
+        assert_eq!(p.gbm_dir.as_deref(), Some("/usr/lib/x86_64-linux-gnu/gbm"));
+        assert_eq!(blockers(&p.missing), Vec::<String>::new());
+        let full = crate::access::Profile::Full.access();
+        assert_eq!(
+            warnings(&p.missing, &full),
+            [
+                "nested: the image has no podman, setcap – install them in the image or turn nested off"
+            ]
+        );
+        let isolated = crate::access::Profile::Isolated.access();
+        assert_eq!(warnings(&p.missing, &isolated), Vec::<String>::new());
+        let bare = read_probe("missing useradd\nmissing dbus-daemon\n");
+        assert_eq!(blockers(&bare.missing).len(), 2);
+        assert_eq!(bare.gbm_dir, None);
     }
 
     #[test]

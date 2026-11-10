@@ -106,13 +106,17 @@ pub fn plan() -> Vec<Step> {
     ]
 }
 
-/// Whether koje's base image exists; `None` without Podman.
+/// Whether koje's default image with your user exists; `None` without Podman.
 fn image_exists() -> Option<bool> {
     on_path("podman").then(|| {
         koje_podman::Podman::new()
-            .image_exists(koje_podman::image::BASE_IMAGE)
+            .image_exists(&default_image().user_tag())
             .unwrap_or(false)
     })
+}
+
+fn default_image() -> koje_core::image::Source {
+    koje_core::image::Source::BuiltIn(koje_core::name::ImageName::default_image())
 }
 
 fn execute(action: &Action) -> Result<()> {
@@ -121,9 +125,18 @@ fn execute(action: &Action) -> Result<()> {
         Action::EnableGnomeExtension => enable_gnome_extension()?,
         Action::BuildImage => {
             // Last step; a failure does not undo the rest.
-            if let Err(e) = crate::commands::image_build(false) {
+            let built = koje_core::paths::Paths::from_env()
+                .map_err(anyhow::Error::from)
+                .and_then(|paths| {
+                    koje_runtime::images::ensure(
+                        &paths,
+                        koje_core::image::DEFAULT,
+                        koje_runtime::images::Options::default(),
+                    )
+                });
+            if let Err(e) = built {
                 eprintln!(
-                    "warning: the base image was not built ({e:#}) – retry with: koje image build"
+                    "warning: koje's image was not built ({e:#}) – retry with: koje image build"
                 );
             }
         }

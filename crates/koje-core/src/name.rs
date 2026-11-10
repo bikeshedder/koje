@@ -119,6 +119,13 @@ name_type!(
     "image"
 );
 
+impl ImageName {
+    /// koje's default image (`fedora`, ADR 0040).
+    pub fn default_image() -> Self {
+        Self(crate::image::DEFAULT.to_owned())
+    }
+}
+
 impl StateName {
     /// The reserved, virtual, read-only state that starts no windows.
     pub const EMPTY: &'static str = "empty";
