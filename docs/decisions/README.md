@@ -68,4 +68,5 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0061 | [koje runs on GNOME only; the Hyprland path is removed](0061-remove-the-hyprland-path.md) | Accepted |
 | 0062 | [GNOME's dash shows the current context only](0062-dash-per-context-on-gnome.md) | Accepted |
 | 0063 | [A context's own Containerfile, opened with xdg-open](0063-a-contexts-own-containerfile.md) | Accepted (settings app part superseded by 0064) |
-| 0064 | [Images are managed like contexts](0064-images-managed-like-contexts.md) | Accepted |
+| 0064 | [Images are managed like contexts](0064-images-managed-like-contexts.md) | Accepted (built-in images: amended by 0065) |
+| 0065 | [koje's own images can be customized](0065-koje-images-customized-on-demand.md) | Accepted |

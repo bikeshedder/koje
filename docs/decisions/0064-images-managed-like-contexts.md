@@ -1,6 +1,6 @@
 # 0064. Images are managed like contexts
 
-- Status: Accepted
+- Status: Accepted (built-in images read-only: amended by ADR 0065)
 - Date: 2026-11-10
 - Source: discussion (user, 2026-11-10: "koje images should be managed similar
   to the koje contexts … configured once and visible in the koje settings
