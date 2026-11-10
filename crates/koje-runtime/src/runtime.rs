@@ -511,7 +511,11 @@ pub fn recreate(kojed: &dyn Host, paths: &Paths, context: &str) -> Result<()> {
     let podman = Podman::new();
     let status = podman.status(&name)?;
     if status == ContainerStatus::Missing {
-        bail!("{name} has no container yet – koje up {name} creates it");
+        // Nothing to throw away: the first start creates it as asked.
+        crate::say!(
+            "{name} has no container yet – its first start creates one from the current settings"
+        );
+        return Ok(());
     }
     let running = matches!(status, ContainerStatus::Running | ContainerStatus::Paused);
     // Where `down` saves – and what comes back afterwards.

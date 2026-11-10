@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {
     type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
     memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
-    SWITCHES, adjustments, imageRow, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
+    SWITCHES, adjustments, imageRow, recreateRow, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
 } from './model.js';
 
 const config: Config = {
@@ -13,7 +13,7 @@ const config: Config = {
     effective: {gpu: true, sound: false},
     bases: {'': {gpu: true, sound: true}, desktop: {gpu: false, sound: true}},
     mounts: ['~/src'], memory_soft: 6 * 2 ** 30, memory_hard: 0,
-    image_file: '', image_outdated: '',
+    container: true, image_file: '', image_outdated: '',
 };
 
 describe('contexts', () => {
@@ -61,6 +61,17 @@ describe('sizes as koje writes them', () => {
         expect(memoryFraction(2 ** 30, 2 ** 30, 4 * 2 ** 30)).toBe(0.25);
         expect(memoryFraction(3, 2, 0)).toBe(1);
         expect(memoryFraction(3, 0, 0)).toBe(0);
+    });
+});
+
+describe('the recreate row', () => {
+    it('needs a container', () => {
+        expect(recreateRow(config).sensitive).toBe(true);
+        const none = recreateRow({...config, container: false});
+        expect(none).toEqual({
+            sensitive: false,
+            subtitle: 'No container yet: its first start creates one from the current settings.',
+        });
     });
 });
 

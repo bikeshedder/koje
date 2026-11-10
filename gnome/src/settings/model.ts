@@ -190,6 +190,8 @@ export interface Config {
     mounts: string[];
     memory_soft: number;
     memory_hard: number;
+    /** Whether it has a container: Recreate needs one. */
+    container: boolean;
     /** Its image folder's Containerfile; `''` for koje's and registry images. */
     image_file: string;
     /** Why its container does not run its image as it is now; `''` when it does. */
@@ -293,6 +295,19 @@ export function imageRow(c: Config, home: string): {subtitle: string; button: st
         subtitle: c.image_outdated ? `${where}\nChanged (${c.image_outdated}) – Recreate builds and applies it` : where,
         button: c.image_file ? 'Edit Containerfile…' : 'Create Containerfile…',
     };
+}
+
+/** The Recreate row: only a context with a container can be recreated. */
+export function recreateRow(c: Config): {sensitive: boolean; subtitle: string} {
+    return c.container
+        ? {
+            sensitive: true,
+            subtitle: 'A new container from the current settings. Everything installed in it outside your home is lost; the windows come back.',
+        }
+        : {
+            sensitive: false,
+            subtitle: 'No container yet: its first start creates one from the current settings.',
+        };
 }
 
 /** A folder as `context.toml` writes it: `~/…` below the home; `null` outside it (ADR 0034). */

@@ -1285,9 +1285,14 @@ fn recreate_asks_and_keeps_the_home() {
     let path = fake_podman(tmp.path());
     let s = Session::start(tmp.path(), &path);
     stdout(&koje(tmp.path(), &["new", "kp"]));
-    let out = s.koje(&["recreate", "kp", "--yes"]);
-    assert!(!out.status.success(), "no container yet");
-    assert!(String::from_utf8_lossy(&out.stderr).contains("koje up kp"));
+    // No container yet: nothing to recreate, and no error (koje Settings
+    // showed one as a failure).
+    let out = stdout(&s.koje(&["recreate", "kp", "--yes"]));
+    assert!(
+        out.contains("kp has no container yet – its first start creates one"),
+        "{out}"
+    );
+    assert!(!podman_log(tmp.path()).lines().any(|l| l.starts_with("rm ")));
 
     stdout(&s.koje(&["up", "kp", "-s", "empty"]));
     stdout(&s.koje(&["down", "kp", "--no-save"]));

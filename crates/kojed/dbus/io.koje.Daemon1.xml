@@ -94,6 +94,7 @@
         mounts           as     host folders as written in context.toml
         memory_soft      t      bytes, 0 for none
         memory_hard      t      bytes, 0 for none
+        container        b      whether it has a container (Recreate needs one)
         image_file       s      its image folder's Containerfile, "" for koje's and registry images
         image_outdated   s      why its container does not run its image as it is now, "" when it does
     -->

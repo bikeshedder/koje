@@ -123,7 +123,7 @@ export class SettingsWindow {
             if (operation === 'remove')
                 this.#toast(`Removed ${context}`);
             else if (context === this.#selected)
-                void this.#refreshImage();
+                void this.#refreshContainer();
             this.#scheduleRefresh();
         });
         this.#kojed.connect('OperationFailed', (context, operation, error, message) => {
@@ -422,11 +422,14 @@ export class SettingsWindow {
         }
     }
 
-    /** The image row from the config. */
-    #fillImage(c: model.Config): void {
+    /** The Container group from the config: the image and Recreate rows. */
+    #fillContainer(c: model.Config): void {
         const row = model.imageRow(c, GLib.get_home_dir());
         this.#get<Adw.ActionRow>('image_row').subtitle = GLib.markup_escape_text(row.subtitle, -1);
         this.#get<Gtk.Button>('image_button').label = row.button;
+        const recreate = model.recreateRow(c);
+        this.#get<Adw.ActionRow>('recreate_row').subtitle = recreate.subtitle;
+        this.#get<Gtk.Button>('recreate_button').sensitive = recreate.sensitive;
     }
 
     /**
@@ -453,11 +456,11 @@ export class SettingsWindow {
             if (!(e instanceof GLib.Error && e.matches(Gtk.DialogError, Gtk.DialogError.DISMISSED)))
                 this.#error(e);
         }
-        await this.#refreshImage();
+        await this.#refreshContainer();
     }
 
-    /** Only the image's part of the config: a form being edited stays. */
-    async #refreshImage(): Promise<void> {
+    /** Only the Container group's part of the config (image, Recreate): a form being edited stays. */
+    async #refreshContainer(): Promise<void> {
         const context = this.#selected;
         if (context === MEMORY || !this.#config)
             return;
@@ -466,8 +469,14 @@ export class SettingsWindow {
             if (context !== this.#selected || !this.#config)
                 return;
             const fresh = dict as unknown as model.Config;
-            this.#config = {...this.#config, image: fresh.image, image_file: fresh.image_file, image_outdated: fresh.image_outdated};
-            this.#fillImage(this.#config);
+            this.#config = {
+                ...this.#config,
+                container: fresh.container,
+                image: fresh.image,
+                image_file: fresh.image_file,
+                image_outdated: fresh.image_outdated,
+            };
+            this.#fillContainer(this.#config);
         } catch (e) {
             this.#error(e);
         }
@@ -570,7 +579,7 @@ export class SettingsWindow {
         profileRow.model = Gtk.StringList.new(profiles.map(([, label]) => label));
         profileRow.selected = Math.max(0, profiles.findIndex(([p]) => p === f.profile));
         this.#get<Adw.ExpanderRow>('switches_row').expanded = false;
-        this.#fillImage(c);
+        this.#fillContainer(c);
         this.#fillMounts();
         this.#filling = false;
         this.#formChanged();

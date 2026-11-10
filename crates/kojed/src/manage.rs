@@ -137,6 +137,7 @@ fn switches(access: &Access) -> HashMap<String, bool> {
 ///   every profile's switches by name, `config.toml`'s under `""`,
 /// - `mounts`: `as`, paths as written,
 /// - `memory_soft`, `memory_hard`: `t`, bytes, 0 for none,
+/// - `container`: `b`, whether it has a container (Recreate needs one),
 /// - `image_file`: `s`, the Containerfile of its image folder, empty for
 ///   koje's and registry images; `image_outdated`: `s`, why its container
 ///   does not run its image as it is now (ADR 0063), empty when it does.
@@ -180,6 +181,10 @@ pub fn config(paths: &Paths, ctx: &ContextName) -> Result<HashMap<String, OwnedV
     put("mounts", value(s.mounts));
     put("memory_soft", value(s.memory_soft.map_or(0, |b| b.0)));
     put("memory_hard", value(s.memory_hard.map_or(0, |b| b.0)));
+    let container = koje_podman::Podman::new()
+        .status(ctx)
+        .is_ok_and(|s| s != ContainerStatus::Missing);
+    put("container", value(container));
     // Shown, not refused: a broken image folder is the user's to fix.
     let file = koje_runtime::images::folder_file(paths, &cfg.image)
         .ok()
