@@ -44,7 +44,7 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0037 | [koje ships a complete Hyprland session](0037-koje-ships-the-session.md) | Superseded by 0061 |
 | 0038 | [Dotfiles presets: shared, read-only configuration for contexts](0038-dotfiles-presets.md) | Accepted |
 | 0039 | [Title bars from the hyprbars plugin](0039-title-bars-with-hyprbars.md) | Superseded by 0061 |
-| 0040 | [Context images: image folders, registry images, a koje layer and kept versions](0040-context-images.md) | Proposed |
+| 0040 | [Context images: image folders, registry images, a koje layer and kept versions](0040-context-images.md) | Accepted |
 | 0041 | [Volume, brightness and media keys through `koje media`, with an OSD](0041-volume-brightness-and-media-keys.md) | Superseded by 0061 |
 | 0042 | [The koje shell: an own bar, and GTK4 for all of koje's UI](0042-koje-shell.md) | Superseded by 0061 |
 | 0043 | [GNOME's look and feel, with libadwaita](0043-gnome-look-and-feel.md) | Superseded by 0061 |
@@ -67,3 +67,4 @@ New ones: copy [template.md](template.md) or use the `record-decision` skill.
 | 0060 | [koje's UI in TypeScript on GJS; kojed's API is D-Bus](0060-ui-in-typescript-api-on-d-bus.md) | Accepted |
 | 0061 | [koje runs on GNOME only; the Hyprland path is removed](0061-remove-the-hyprland-path.md) | Accepted |
 | 0062 | [GNOME's dash shows the current context only](0062-dash-per-context-on-gnome.md) | Accepted |
+| 0063 | [A context's own Containerfile, opened with xdg-open](0063-a-contexts-own-containerfile.md) | Accepted |

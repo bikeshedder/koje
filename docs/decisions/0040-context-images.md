@@ -1,6 +1,6 @@
 # 0040. Context images: image folders, registry images, a koje layer and kept versions
 
-- Status: Proposed
+- Status: Accepted (2026-11-10; a context's own image folder: ADR 0063)
 - Date: 2026-10-24
 - Source: discussion (how to install VS Code and other programs in contexts), ADR 0023
 
