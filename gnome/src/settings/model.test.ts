@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {
     type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
     memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
-    SWITCHES, adjustments, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
+    SWITCHES, adjustments, imageRow, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
 } from './model.js';
 
 const config: Config = {
@@ -13,6 +13,7 @@ const config: Config = {
     effective: {gpu: true, sound: false},
     bases: {'': {gpu: true, sound: true}, desktop: {gpu: false, sound: true}},
     mounts: ['~/src'], memory_soft: 6 * 2 ** 30, memory_hard: 0,
+    image_file: '', image_outdated: '',
 };
 
 describe('contexts', () => {
@@ -60,6 +61,22 @@ describe('sizes as koje writes them', () => {
         expect(memoryFraction(2 ** 30, 2 ** 30, 4 * 2 ** 30)).toBe(0.25);
         expect(memoryFraction(3, 2, 0)).toBe(1);
         expect(memoryFraction(3, 0, 0)).toBe(0);
+    });
+});
+
+describe('the image row', () => {
+    it('offers to create a Containerfile for koje\'s image', () => {
+        expect(imageRow(config, '/home/mj')).toEqual({subtitle: 'koje/base', button: 'Create Containerfile…'});
+    });
+    it('names the folder and says when Recreate would change the container', () => {
+        const own = {...config, image: 'kp', image_file: '/home/mj/.config/koje/images/kp/Containerfile'};
+        expect(imageRow(own, '/home/mj/')).toEqual({
+            subtitle: 'kp · ~/.config/koje/images/kp/Containerfile', button: 'Edit Containerfile…',
+        });
+        expect(imageRow(own, '/home/other').subtitle).toBe('kp · /home/mj/.config/koje/images/kp/Containerfile');
+        const changed = imageRow({...own, image_outdated: 'a folder changed'}, '/home/mj');
+        expect(changed.subtitle).toBe(
+            'kp · ~/.config/koje/images/kp/Containerfile\nChanged (a folder changed) – Recreate builds and applies it');
     });
 });
 

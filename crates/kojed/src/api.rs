@@ -312,6 +312,23 @@ impl Api {
         Ok(notes)
     }
 
+    /// The Containerfile of a context's image folder, as `koje image edit`
+    /// finds it (ADR 0063): the folder it uses, else its own, made from its
+    /// image and set as its image. The caller opens it.
+    async fn image_file(
+        &self,
+        context: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<String, Error> {
+        let ctx = context_name(context)?;
+        let paths = self.paths.clone();
+        let file = blocking(move || crate::manage::image_file(&paths, &ctx)).await?;
+        let reloaded = self.daemon.lock().await.reload().await;
+        let _ = Self::contexts_changed(&emitter).await;
+        reloaded?;
+        Ok(file)
+    }
+
     /// Create a context as `koje new` does (a color of its own); returns its
     /// name.
     async fn new_context(

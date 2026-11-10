@@ -364,6 +364,36 @@ pub fn with_settings(text: &str, s: &ContextSettings) -> Result<String> {
     Ok(doc.to_string())
 }
 
+/// `text` with `image = value`, comments and layout kept.
+pub fn with_image(text: &str, value: &str) -> Result<String> {
+    crate::image::parse(value)?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| Error::InvalidEdit(e.to_string()))?;
+    match doc.get_mut("image").and_then(toml_edit::Item::as_value_mut) {
+        // In place: the comments around it stay.
+        Some(v) => {
+            let decor = v.decor().clone();
+            *v = toml_edit::Value::from(value);
+            *v.decor_mut() = decor;
+        }
+        None => {
+            doc.insert("image", toml_edit::value(value));
+        }
+    }
+    Ok(doc.to_string())
+}
+
+/// Set a context's image (ADR 0063) in `context.toml` (validated, atomic).
+pub fn set_image(paths: &Paths, name: &ContextName, value: &str) -> Result<ContextConfig> {
+    let path = paths.context_config(name);
+    let text = std::fs::read_to_string(&path).map_err(|source| Error::Read {
+        path: path.clone(),
+        source,
+    })?;
+    replace_config(paths, name, &with_image(&text, value)?)
+}
+
 /// `koje favorites`: change the dash's favorites in `context.toml`.
 pub fn set_favorites(
     paths: &Paths,
@@ -492,6 +522,20 @@ mod tests {
         assert_eq!(pick_color(&all), PALETTE[0]);
         all.push(PALETTE[0]);
         assert_eq!(pick_color(&all), PALETTE[1]);
+    }
+
+    #[test]
+    fn image_is_changed_in_place() {
+        let text = new_config_toml(&n("kp"), "KP", PALETTE[1]);
+        let changed = with_image(&text, "kp").unwrap();
+        let cfg = ContextConfig::from_toml(&changed, std::path::Path::new("x")).unwrap();
+        assert_eq!(cfg.image, "kp");
+        assert!(changed.contains("# The image (ADR 0040)"), "{changed}");
+        assert!(changed.contains("image  = \"kp\""), "{changed}");
+        assert_eq!(changed.lines().count(), text.lines().count());
+        let added = with_image("name = \"kp\"\n", "dev").unwrap();
+        assert!(added.contains("image = \"dev\""), "{added}");
+        assert!(with_image(&text, " ").is_err());
     }
 
     #[test]

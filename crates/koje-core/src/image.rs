@@ -135,6 +135,18 @@ pub fn warnings(missing: &BTreeSet<String>, access: &crate::access::Access) -> V
         .collect()
 }
 
+/// The image folder a context gets as its own (ADR 0063): named after it,
+/// unless that is a built-in image's name, which it would take the place
+/// of for every context.
+pub fn own_image(ctx: &crate::name::ContextName) -> Result<ImageName> {
+    let name = ctx.as_str();
+    if BUILT_IN.contains(&name) {
+        ImageName::new(format!("{name}-own"))
+    } else {
+        ImageName::new(name)
+    }
+}
+
 /// `image = …` as written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageRef {
@@ -584,6 +596,16 @@ mod tests {
         let bare = read_probe("missing useradd\nmissing dbus-daemon\n");
         assert_eq!(blockers(&bare.missing).len(), 2);
         assert_eq!(bare.gbm_dir, None);
+    }
+
+    #[test]
+    fn a_contexts_own_image_is_named_after_it() {
+        let ctx = |s: &str| crate::name::ContextName::new(s).unwrap();
+        assert_eq!(
+            own_image(&ctx("kundenportal")).unwrap(),
+            name("kundenportal")
+        );
+        assert_eq!(own_image(&ctx("fedora")).unwrap(), name("fedora-own"));
     }
 
     #[test]

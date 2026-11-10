@@ -609,6 +609,44 @@ fn image_new_creates_a_folder_building_on_its_image() {
 }
 
 #[test]
+fn image_edit_makes_the_contexts_own_and_opens_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let opened = tmp.path().join("opened");
+    write_tool(
+        &bin,
+        "xdg-open",
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> {}\n", opened.display()),
+    );
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+
+    let out = stdout(&koje_fake(tmp.path(), &path, &["image", "edit", "kp"]));
+    let file = tmp.path().join("config/koje/images/kp/Containerfile");
+    assert!(
+        out.contains(&format!("created {}", file.display())),
+        "{out}"
+    );
+    assert!(out.contains("kp now uses image \"kp\""), "{out}");
+    assert_eq!(
+        std::fs::read_to_string(&opened).unwrap(),
+        format!("{}\n", file.display())
+    );
+    let text = std::fs::read_to_string(config_of(tmp.path(), "kp")).unwrap();
+    assert!(text.contains("image  = \"kp\""), "{text}");
+
+    // Again: the same file, opened, not made anew.
+    let out = stdout(&koje_fake(tmp.path(), &path, &["image", "edit", "kp"]));
+    assert!(!out.contains("created /"), "{out}");
+    assert_eq!(std::fs::read_to_string(&opened).unwrap().lines().count(), 2);
+}
+
+#[test]
 fn up_builds_an_image_folder_after_what_it_builds_on() {
     let tmp = tempfile::tempdir().unwrap();
     let path = fake_podman(tmp.path());

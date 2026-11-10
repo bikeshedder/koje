@@ -68,6 +68,15 @@
     <signal name="FavoritesChanged">
       <arg name="context" type="s"/>
     </signal>
+    <!--
+      The Containerfile of a context's image folder, as `koje image edit`
+      finds it (ADR 0063): the folder it uses, else its own, made from its
+      image and set as its image. The caller opens it.
+    -->
+    <method name="ImageFile">
+      <arg name="context" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
     <!-- Create a context as `koje new` does, with a color of its own; returns its name. -->
     <method name="NewContext">
       <arg name="name" type="s" direction="in"/>
@@ -85,6 +94,8 @@
         mounts           as     host folders as written in context.toml
         memory_soft      t      bytes, 0 for none
         memory_hard      t      bytes, 0 for none
+        image_file       s      its image folder's Containerfile, "" for koje's and registry images
+        image_outdated   s      why its container does not run its image as it is now, "" when it does
     -->
     <method name="Config">
       <arg name="context" type="s" direction="in"/>

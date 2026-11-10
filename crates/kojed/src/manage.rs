@@ -136,7 +136,10 @@ fn switches(access: &Access) -> HashMap<String, bool> {
 ///   `a{sb}`, every switch as the context gets it; `bases`: `a{sa{sb}}`,
 ///   every profile's switches by name, `config.toml`'s under `""`,
 /// - `mounts`: `as`, paths as written,
-/// - `memory_soft`, `memory_hard`: `t`, bytes, 0 for none.
+/// - `memory_soft`, `memory_hard`: `t`, bytes, 0 for none,
+/// - `image_file`: `s`, the Containerfile of its image folder, empty for
+///   koje's and registry images; `image_outdated`: `s`, why its container
+///   does not run its image as it is now (ADR 0063), empty when it does.
 pub fn config(paths: &Paths, ctx: &ContextName) -> Result<HashMap<String, OwnedValue>> {
     let cfg = context::load(paths, ctx)?;
     let global = GlobalConfig::load(&paths.global_config())?;
@@ -177,6 +180,17 @@ pub fn config(paths: &Paths, ctx: &ContextName) -> Result<HashMap<String, OwnedV
     put("mounts", value(s.mounts));
     put("memory_soft", value(s.memory_soft.map_or(0, |b| b.0)));
     put("memory_hard", value(s.memory_hard.map_or(0, |b| b.0)));
+    // Shown, not refused: a broken image folder is the user's to fix.
+    let file = koje_runtime::images::folder_file(paths, &cfg.image)
+        .ok()
+        .flatten()
+        .map(|f| f.display().to_string());
+    put("image_file", value(file.unwrap_or_default()));
+    let outdated = koje_runtime::images::outdated(paths, ctx, &cfg.image).unwrap_or_else(|e| {
+        tracing::debug!(context = %ctx, "comparing the container with its image: {e:#}");
+        None
+    });
+    put("image_outdated", value(outdated.unwrap_or_default()));
     Ok(out)
 }
 
@@ -347,6 +361,12 @@ fn follow(
         notes.push(format!("dotfiles not linked: {e:#}"));
     }
     notes
+}
+
+/// `ImageFile`: the context's Containerfile, made if it has none (ADR 0063).
+pub fn image_file(paths: &Paths, ctx: &ContextName) -> Result<String> {
+    let own = koje_runtime::images::own_file(paths, ctx).map_err(|e| Invalid(format!("{e:#}")))?;
+    Ok(own.file.display().to_string())
 }
 
 /// `NewContext`: a fresh `context.toml` as `koje new` writes it.

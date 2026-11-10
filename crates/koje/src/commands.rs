@@ -39,6 +39,7 @@ pub fn run(command: &Command) -> Result<()> {
             pull,
         }) => image_build(&paths, images, *no_cache, *pull),
         Command::Image(ImageCmd::New { name, from }) => image_new(&paths, name, from),
+        Command::Image(ImageCmd::Edit(ctx)) => image_edit(&paths, ctx),
 
         Command::Up {
             ctx,
@@ -370,6 +371,32 @@ pub fn image_build(paths: &Paths, images: &[String], no_cache: bool, pull: bool)
         println!("built {image} → {}", ready.tag);
     }
     println!("contexts get the new build when they are recreated: koje recreate <context>");
+    Ok(())
+}
+
+/// `koje image edit`: the context's Containerfile, opened with `xdg-open`.
+fn image_edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
+    let name = context_name(ctx)?;
+    let own = koje_runtime::images::own_file(paths, &name)?;
+    if own.created {
+        println!("created {}", own.file.display());
+    }
+    if own.image_set {
+        let image = koje_core::context::load(paths, &name)?.image;
+        println!("{name} now uses image {image:?}");
+        crate::kojed::reload();
+    }
+    let status = std::process::Command::new("xdg-open")
+        .arg(&own.file)
+        .status()
+        .context("starting xdg-open")?;
+    if !status.success() {
+        bail!(
+            "xdg-open could not open {} ({status}) – open it in your editor",
+            own.file.display()
+        );
+    }
+    println!("{name} gets the changes when recreated: koje recreate {name}");
     Ok(())
 }
 

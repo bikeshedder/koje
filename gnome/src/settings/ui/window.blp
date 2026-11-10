@@ -188,6 +188,13 @@ Adw.ApplicationWindow window {
 
                       Adw.ActionRow image_row {
                         title: "Image";
+                        subtitle-selectable: true;
+
+                        [suffix]
+                        Button image_button {
+                          label: "Edit Containerfile…";
+                          valign: center;
+                        }
                       }
 
                       Adw.ActionRow {

@@ -13,6 +13,7 @@ import {ask, askName} from './dialogs.js';
 import * as model from './model.js';
 
 Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish');
+Gio._promisify(Gtk.FileLauncher.prototype, 'launch', 'launch_finish');
 
 const MEMORY = '';
 
@@ -105,6 +106,7 @@ export class SettingsWindow {
         get<Gtk.Button>('save_as').connect('clicked', () => void this.#saveAs());
         get<Gtk.Button>('recreate_button').connect('clicked', () => void this.#recreate());
         get<Gtk.Button>('remove_button').connect('clicked', () => void this.#remove());
+        get<Gtk.Button>('image_button').connect('clicked', () => void this.#editImage());
 
         for (const signal of ['ContextsChanged', 'MemoryChanged'] as const)
             this.#kojed.connect(signal, () => this.#scheduleRefresh());
@@ -120,6 +122,8 @@ export class SettingsWindow {
             this.#busy.delete(context);
             if (operation === 'remove')
                 this.#toast(`Removed ${context}`);
+            else if (context === this.#selected)
+                void this.#refreshImage();
             this.#scheduleRefresh();
         });
         this.#kojed.connect('OperationFailed', (context, operation, error, message) => {
@@ -418,6 +422,57 @@ export class SettingsWindow {
         }
     }
 
+    /** The image row from the config. */
+    #fillImage(c: model.Config): void {
+        const row = model.imageRow(c, GLib.get_home_dir());
+        this.#get<Adw.ActionRow>('image_row').subtitle = GLib.markup_escape_text(row.subtitle, -1);
+        this.#get<Gtk.Button>('image_button').label = row.button;
+    }
+
+    /**
+     * The context's Containerfile in the desktop's editor (ADR 0063): kojed
+     * finds or makes it; a new one is asked for first.
+     */
+    async #editImage(): Promise<void> {
+        const context = this.#selected;
+        const c = this.#config;
+        if (!c)
+            return;
+        if (!c.image_file) {
+            const answer = await ask(this.#window, `Give ${context} Its Own Image?`,
+                `A Containerfile building on ${c.image} is created in koje's image folder and becomes ${context}'s image. Install programs there; Recreate builds and applies it.`,
+                [['create', 'Create and Open', Adw.ResponseAppearance.SUGGESTED]]);
+            if (answer !== 'create')
+                return;
+        }
+        try {
+            const [path] = await this.#kojed.call('ImageFile', context);
+            const launcher = new Gtk.FileLauncher({file: Gio.File.new_for_path(path)});
+            await launcher.launch(this.#window, null);
+        } catch (e) {
+            if (!(e instanceof GLib.Error && e.matches(Gtk.DialogError, Gtk.DialogError.DISMISSED)))
+                this.#error(e);
+        }
+        await this.#refreshImage();
+    }
+
+    /** Only the image's part of the config: a form being edited stays. */
+    async #refreshImage(): Promise<void> {
+        const context = this.#selected;
+        if (context === MEMORY || !this.#config)
+            return;
+        try {
+            const [dict] = await this.#kojed.call('Config', context);
+            if (context !== this.#selected || !this.#config)
+                return;
+            const fresh = dict as unknown as model.Config;
+            this.#config = {...this.#config, image: fresh.image, image_file: fresh.image_file, image_outdated: fresh.image_outdated};
+            this.#fillImage(this.#config);
+        } catch (e) {
+            this.#error(e);
+        }
+    }
+
     // ----- The selected context -----
 
     async #loadContext(): Promise<void> {
@@ -515,7 +570,7 @@ export class SettingsWindow {
         profileRow.model = Gtk.StringList.new(profiles.map(([, label]) => label));
         profileRow.selected = Math.max(0, profiles.findIndex(([p]) => p === f.profile));
         this.#get<Adw.ExpanderRow>('switches_row').expanded = false;
-        this.#get<Adw.ActionRow>('image_row').subtitle = c.image;
+        this.#fillImage(c);
         this.#fillMounts();
         this.#filling = false;
         this.#formChanged();

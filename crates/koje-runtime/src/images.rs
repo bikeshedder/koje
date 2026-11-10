@@ -337,6 +337,59 @@ pub fn in_use(paths: &Paths) -> Result<Vec<String>> {
     Ok(out.into_iter().collect())
 }
 
+/// The Containerfile of the image folder `value` names; `None` for koje's
+/// and registry images.
+pub fn folder_file(paths: &Paths, value: &str) -> Result<Option<PathBuf>> {
+    let src = resolve(paths, &image::parse(value)?.image)?;
+    Ok(match src {
+        Source::Folder { dir, .. } => Some(containerfile(&dir)?),
+        _ => None,
+    })
+}
+
+/// A context's own Containerfile (ADR 0063).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnFile {
+    pub file: PathBuf,
+    /// The image folder was made now.
+    pub created: bool,
+    /// `image = …` was changed to it now.
+    pub image_set: bool,
+}
+
+/// The Containerfile of `ctx`'s image folder: the one it uses, else its own
+/// (`images/<context>/`), made `FROM` its current image when missing and set
+/// as its image.
+pub fn own_file(paths: &Paths, ctx: &ContextName) -> Result<OwnFile> {
+    let cfg = koje_core::context::load(paths, ctx)?;
+    if let Source::Folder { dir, .. } = source(paths, &cfg.image)? {
+        return Ok(OwnFile {
+            file: containerfile(&dir)?,
+            created: false,
+            image_set: false,
+        });
+    }
+    let name = image::own_image(ctx)?;
+    let dir = paths.images_dir().join(name.as_str());
+    let created = !dir.exists();
+    let file = if created {
+        let text = new_containerfile(&from_line(paths, &cfg.image)?);
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        let file = dir.join("Containerfile");
+        koje_core::fsutil::write_atomic(&file, text.as_bytes())?;
+        file
+    } else {
+        // Made before (another context's, or by hand): used as it is.
+        containerfile(&dir)?
+    };
+    koje_core::context::set_image(paths, ctx, name.as_str())?;
+    Ok(OwnFile {
+        file,
+        created,
+        image_set: true,
+    })
+}
+
 /// The `Containerfile` of a new image folder that builds on `from`.
 pub fn new_containerfile(from: &str) -> String {
     format!(
@@ -377,6 +430,71 @@ mod tests {
         assert_ne!(second, first);
         std::fs::write(dir.join("conf/a"), "2").unwrap();
         assert_ne!(folder_hash(dir).unwrap(), second);
+    }
+
+    fn paths(tmp: &Path) -> Paths {
+        Paths::with_roots(tmp.join("c"), tmp.join("d"), tmp.join("s"))
+    }
+
+    #[test]
+    fn a_context_gets_its_own_containerfile_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(tmp.path());
+        let kp = ContextName::new("kp").unwrap();
+        koje_core::context::create(&p, &kp, None, None).unwrap();
+
+        let own = own_file(&p, &kp).unwrap();
+        assert_eq!(own.file, p.images_dir().join("kp/Containerfile"));
+        assert!(own.created && own.image_set);
+        let text = std::fs::read_to_string(&own.file).unwrap();
+        assert!(
+            text.ends_with("FROM localhost/koje/fedora:latest\n"),
+            "{text}"
+        );
+        assert_eq!(koje_core::context::load(&p, &kp).unwrap().image, "kp");
+
+        // Edited, then asked again: the same file, nothing changed.
+        std::fs::write(&own.file, "FROM localhost/koje/fedora\nRUN true\n").unwrap();
+        let again = own_file(&p, &kp).unwrap();
+        assert_eq!(again.file, own.file);
+        assert!(!again.created && !again.image_set);
+        assert!(
+            std::fs::read_to_string(&own.file)
+                .unwrap()
+                .contains("RUN true")
+        );
+    }
+
+    #[test]
+    fn a_context_on_a_shared_folder_edits_that_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(tmp.path());
+        let kp = ContextName::new("kp").unwrap();
+        koje_core::context::create(&p, &kp, None, None).unwrap();
+        let dev = p.images_dir().join("dev");
+        std::fs::create_dir_all(&dev).unwrap();
+        std::fs::write(dev.join("Dockerfile"), "FROM localhost/koje/fedora\n").unwrap();
+        koje_core::context::set_image(&p, &kp, "dev").unwrap();
+
+        let own = own_file(&p, &kp).unwrap();
+        assert_eq!(own.file, dev.join("Dockerfile"));
+        assert!(!own.created && !own.image_set);
+        assert!(!p.images_dir().join("kp").exists());
+    }
+
+    #[test]
+    fn a_registry_image_is_kept_as_the_base() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(tmp.path());
+        let kp = ContextName::new("kp").unwrap();
+        koje_core::context::create(&p, &kp, None, None).unwrap();
+        koje_core::context::set_image(&p, &kp, "docker.io/library/debian:13").unwrap();
+        let own = own_file(&p, &kp).unwrap();
+        let text = std::fs::read_to_string(&own.file).unwrap();
+        assert!(
+            text.ends_with("FROM docker.io/library/debian:13\n"),
+            "{text}"
+        );
     }
 
     #[test]

@@ -14,6 +14,7 @@ export interface Methods {
     Focus: {in: [string]; out: []};
     Favorites: {in: [string]; out: [boolean, string[]]};
     SetFavorites: {in: [string, boolean, string[]]; out: []};
+    ImageFile: {in: [string]; out: [string]};
     NewContext: {in: [string]; out: [string]};
     Config: {in: [string]; out: [Record<string, unknown>]};
     SetConfig: {in: [string, Record<string, GLib.Variant>]; out: [string[]]};
@@ -44,6 +45,7 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     Focus: ['(s)', '()'],
     Favorites: ['(s)', '(bas)'],
     SetFavorites: ['(sbas)', '()'],
+    ImageFile: ['(s)', '(s)'],
     NewContext: ['(s)', '(s)'],
     Config: ['(s)', '(a{sv})'],
     SetConfig: ['(sa{sv})', '(as)'],

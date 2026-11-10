@@ -190,6 +190,10 @@ export interface Config {
     mounts: string[];
     memory_soft: number;
     memory_hard: number;
+    /** Its image folder's Containerfile; `''` for koje's and registry images. */
+    image_file: string;
+    /** Why its container does not run its image as it is now; `''` when it does. */
+    image_outdated: string;
 }
 
 export function form(c: Config): Form {
@@ -278,6 +282,17 @@ export function changes(before: Form, after: Form): Record<string, string | numb
 function sameRecord(a: Record<string, boolean>, b: Record<string, boolean>): boolean {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
     return [...keys].every(k => a[k] === b[k]);
+}
+
+/** The image row (ADR 0063): what the image is, and whether Recreate would change it. */
+export function imageRow(c: Config, home: string): {subtitle: string; button: string} {
+    const h = home.replace(/\/+$/, '');
+    const file = c.image_file.startsWith(`${h}/`) ? `~${c.image_file.slice(h.length)}` : c.image_file;
+    const where = file ? `${c.image} · ${file}` : c.image;
+    return {
+        subtitle: c.image_outdated ? `${where}\nChanged (${c.image_outdated}) – Recreate builds and applies it` : where,
+        button: c.image_file ? 'Edit Containerfile…' : 'Create Containerfile…',
+    };
 }
 
 /** A folder as `context.toml` writes it: `~/…` below the home; `null` outside it (ADR 0034). */

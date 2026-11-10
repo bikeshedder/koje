@@ -256,6 +256,10 @@ pub enum ImageCmd {
         #[arg(long)]
         pull: bool,
     },
+    /// Open a context's Containerfile with your desktop's editor (xdg-open):
+    /// the image folder it uses, else its own, made from its current image
+    /// and set as its image (ADR 0063). Applied when recreated.
+    Edit(Ctx),
     /// Create the image folder ~/.config/koje/images/<name> with a
     /// Containerfile; use it with `image = "<name>"` in a context.
     New {
