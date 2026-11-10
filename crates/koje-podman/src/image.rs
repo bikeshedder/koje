@@ -62,6 +62,8 @@ pub fn built_in(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
 pub struct ImageUser {
     pub name: String,
     pub uid: u32,
+    /// Its primary group, created in the image with this gid.
+    pub gid: u32,
     pub home: PathBuf,
 }
 
@@ -71,6 +73,7 @@ impl ImageUser {
         BTreeMap::from([
             ("USER_NAME".to_owned(), self.name.clone()),
             ("USER_UID".to_owned(), self.uid.to_string()),
+            ("USER_GID".to_owned(), self.gid.to_string()),
             ("USER_HOME".to_owned(), self.home.display().to_string()),
         ])
     }
@@ -334,6 +337,9 @@ mod tests {
         let files: BTreeMap<_, _> = USER_LAYER.iter().copied().collect();
         assert!(files["Containerfile"].contains("FROM ${KOJE_IMAGE}"));
         assert!(files["user-layer.sh"].contains("useradd"));
+        // The host's group, and the user as the image's USER.
+        assert!(files["user-layer.sh"].contains("groupadd --gid \"$USER_GID\""));
+        assert!(files["Containerfile"].ends_with("USER ${USER_UID}:${USER_GID}\n"));
         assert!(!files["user-layer.sh"].contains("rpm "), "portable");
         assert!(files["containers.conf"].contains("volumes = [\"/proc:/proc\"]"));
     }

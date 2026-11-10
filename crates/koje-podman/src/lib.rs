@@ -346,6 +346,9 @@ pub fn create_args(spec: &ContainerSpec) -> Vec<String> {
     // --init: a real PID 1 that forwards SIGTERM and reaps (ADR 0015);
     // keep-id: the user keeps its uid, files keep their owner (ADR 0014).
     a.extend(["--init".into(), "--userns=keep-id".into()]);
+    // The host user, not the image's USER: `exec` (koje run, shell) and the
+    // session bus run as it too.
+    a.extend(["--user".into(), spec.user.clone()]);
     for (k, v) in &spec.labels {
         a.extend(["--label".into(), format!("{k}={v}")]);
     }
@@ -791,6 +794,7 @@ pub(crate) mod tests {
         use koje_core::spec::{ContextInputs, HostEnv, build};
         let host = HostEnv {
             uid: 1000,
+            gid: 1000,
             home: "/home/mj".into(),
             wayland_socket: Some("/run/user/1000/koje/kp/wayland/wayland-0".into()),
             pipewire_socket: Some("/run/user/1000/pipewire-0".into()),
@@ -822,7 +826,9 @@ pub(crate) mod tests {
     fn create_args_match_the_m2_3_flags() {
         let args = create_args(&spec()).join(" ");
         for part in [
-            "create --name koje-kp --hostname kp --init --userns=keep-id",
+            // As the host user, not the image's USER (regression: the user
+            // layer's `USER root` made `koje run` and the bus run as root).
+            "create --name koje-kp --hostname kp --init --userns=keep-id --user 1000:1000 ",
             "--label io.koje.context=kp",
             "--security-opt label=disable --security-opt unmask=/proc/sys",
             "--env PULSE_SERVER=unix:/run/user/1000/koje-sound/pulse-native",

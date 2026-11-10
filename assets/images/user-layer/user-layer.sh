@@ -4,6 +4,7 @@ set -eu
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 here=$(dirname "$0")
 : "${USER_NAME:?}" "${USER_UID:?}" "${USER_HOME:?}"
+USER_GID=${USER_GID:-$USER_UID}
 
 # The host user with the same name, uid and home: contexts run with
 # --userns=keep-id and mount the home at the host's path (ADR 0014). A user
@@ -12,14 +13,22 @@ other=$(cut -d: -f1,3 /etc/passwd | grep ":${USER_UID}\$" | cut -d: -f1 || true)
 if [ -n "$other" ] && [ "$other" != "$USER_NAME" ]; then
     userdel "$other"
 fi
+# The user's group with the host's gid, so files keep their group: a group
+# the image has with that gid is used; else one named after the user.
+group=$(cut -d: -f1,3 /etc/group | grep ":${USER_GID}\$" | cut -d: -f1 || true)
+if [ -z "$group" ]; then
+    if cut -d: -f1 /etc/group | grep -qx "$USER_NAME"; then
+        groupmod --gid "$USER_GID" "$USER_NAME"
+    else
+        groupadd --gid "$USER_GID" "$USER_NAME"
+    fi
+    group=$USER_NAME
+fi
 if cut -d: -f1 /etc/passwd | grep -qx "$USER_NAME"; then
-    usermod --uid "$USER_UID" --home "$USER_HOME" "$USER_NAME"
-elif cut -d: -f1 /etc/group | grep -qx "$USER_NAME"; then
-    useradd --uid "$USER_UID" --home-dir "$USER_HOME" --no-create-home \
-        --gid "$USER_NAME" "$USER_NAME"
+    usermod --uid "$USER_UID" --gid "$group" --home "$USER_HOME" "$USER_NAME"
 else
-    useradd --uid "$USER_UID" --home-dir "$USER_HOME" --no-create-home \
-        --user-group "$USER_NAME"
+    useradd --uid "$USER_UID" --gid "$group" --home-dir "$USER_HOME" \
+        --no-create-home "$USER_NAME"
 fi
 
 # Sub-ids for nested Podman: everything up to 65535 except the user's own

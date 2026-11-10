@@ -25,8 +25,10 @@ const NVIDIA_CDI: &[&str] = &[
 
 /// The real host.
 pub fn detect() -> std::io::Result<HostEnv> {
-    let uid = std::fs::metadata("/proc/self")?.uid();
-    Ok(detect_with(uid, Path::new("/"), |k| std::env::var(k).ok()))
+    let me = std::fs::metadata("/proc/self")?;
+    let mut host = detect_with(me.uid(), Path::new("/"), |k| std::env::var(k).ok());
+    host.gid = me.gid();
+    Ok(host)
 }
 
 /// Detect against `root` (normally `/`) with `var` for environment variables.
@@ -36,6 +38,8 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
     let runtime = var("XDG_RUNTIME_DIR").map_or_else(|| at(&format!("run/user/{uid}")), |d| at(&d));
     HostEnv {
         uid,
+        // Set by `detect`; the uid's group is the usual one.
+        gid: uid,
         home: var("HOME").map(PathBuf::from).unwrap_or_default(),
         // kojed's per-context socket (ADR 0022), asked for by the CLI; a
         // context never gets the compositor's own socket.
@@ -59,13 +63,16 @@ pub fn detect_with(uid: u32, root: &Path, var: impl Fn(&str) -> Option<String>) 
 /// The user the base image is built for: name and home from `/etc/passwd`
 /// for the current uid (fallback `$USER`/`$HOME`).
 pub fn image_user() -> std::io::Result<crate::image::ImageUser> {
-    let uid = std::fs::metadata("/proc/self")?.uid();
+    let me = std::fs::metadata("/proc/self")?;
     let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
-    Ok(image_user_from(uid, &passwd, |k| std::env::var(k).ok()))
+    Ok(image_user_from(me.uid(), me.gid(), &passwd, |k| {
+        std::env::var(k).ok()
+    }))
 }
 
 fn image_user_from(
     uid: u32,
+    gid: u32,
     passwd: &str,
     var: impl Fn(&str) -> Option<String>,
 ) -> crate::image::ImageUser {
@@ -79,7 +86,12 @@ fn image_user_from(
             var("HOME").map(PathBuf::from).unwrap_or_default(),
         )
     });
-    crate::image::ImageUser { name, uid, home }
+    crate::image::ImageUser {
+        name,
+        uid,
+        gid,
+        home,
+    }
 }
 
 /// A context's mounts ready for the spec: expanded (ADR 0009 rules), resolved
@@ -290,12 +302,12 @@ mod tests {
     #[test]
     fn image_user_from_passwd_or_env() {
         let passwd = "root:x:0:0:root:/root:/bin/bash\nbikeshedder:x:1000:1000::/home/bikeshedder:/bin/bash\n";
-        let u = image_user_from(1000, passwd, |_| None);
+        let u = image_user_from(1000, 1000, passwd, |_| None);
         assert_eq!(
             (u.name.as_str(), u.home.as_path()),
             ("bikeshedder", Path::new("/home/bikeshedder"))
         );
-        let u = image_user_from(1001, passwd, |k| match k {
+        let u = image_user_from(1001, 1001, passwd, |k| match k {
             "USER" => Some("ldapuser".into()),
             "HOME" => Some("/home/ldapuser".into()),
             _ => None,

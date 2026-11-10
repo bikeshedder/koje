@@ -44,6 +44,8 @@ pub const SHM_SIZE: ByteSize = ByteSize(1 << 30);
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostEnv {
     pub uid: u32,
+    /// The user's primary group: the context runs as `uid:gid`.
+    pub gid: u32,
     /// The user's home; the context's home volume is mounted at this path.
     pub home: PathBuf,
     /// The context's Wayland socket: kojed's security-context socket (ADR 0022),
@@ -113,6 +115,9 @@ pub struct ContainerSpec {
     pub name: String,
     pub hostname: String,
     pub image: String,
+    /// Who the container's processes are (`uid:gid`, `--user`): the host
+    /// user, whatever the image says (its `USER` may be root).
+    pub user: String,
     pub labels: BTreeMap<String, String>,
     pub env: BTreeMap<String, String>,
     pub mounts: Vec<SpecMount>,
@@ -396,6 +401,7 @@ pub fn build(ctx: &ContextInputs<'_>, host: &HostEnv) -> Built {
             name: container_name(ctx.name),
             hostname: ctx.name.to_string(),
             image: ctx.image.to_owned(),
+            user: format!("{}:{}", host.uid, host.gid),
             labels: {
                 let mut labels = BTreeMap::from([(LABEL_CONTEXT.to_owned(), ctx.name.to_string())]);
                 // The real mounts, so koje knows which ones to mount live.
@@ -434,6 +440,7 @@ mod tests {
     fn host() -> HostEnv {
         HostEnv {
             uid: 1000,
+            gid: 1000,
             home: "/home/mj".into(),
             wayland_socket: Some("/run/user/1000/koje/kp/wayland/wayland-0".into()),
             pipewire_socket: Some("/run/user/1000/pipewire-0".into()),

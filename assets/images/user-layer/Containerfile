@@ -7,8 +7,11 @@ FROM ${KOJE_IMAGE}
 USER root
 ARG USER_NAME
 ARG USER_UID
+ARG USER_GID
 ARG USER_HOME
 COPY user-layer.sh containers.conf /tmp/koje-user-layer/
 RUN sh /tmp/koje-user-layer/user-layer.sh && rm -rf /tmp/koje-user-layer
-# koje runs the context's own command (its session bus) with --init.
+# koje runs the context's own command (its session bus) with --init, as the
+# user (`podman create --user uid:gid`); this USER only says the same.
 ENTRYPOINT []
+USER ${USER_UID}:${USER_GID}

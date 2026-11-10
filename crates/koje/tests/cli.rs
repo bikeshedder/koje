@@ -888,7 +888,7 @@ fn up_creates_once_then_starts_and_down_stops() {
         "{calls}"
     );
     assert!(
-        calls.contains("create --name koje-kp --hostname kp --init --userns=keep-id"),
+        calls.contains("create --name koje-kp --hostname kp --init --userns=keep-id --user "),
         "{calls}"
     );
     assert!(calls.contains("--label io.koje.context=kp"), "{calls}");
