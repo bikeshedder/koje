@@ -373,10 +373,11 @@ fn follow(
     notes
 }
 
-/// One row of `Images` (ADR 0064): name, label, description, kind
-/// (`builtin`, `folder`), Containerfile (`""` for built-in images), the
-/// contexts using it, whether it is built with your user, and why it is
-/// not usable (`""` when it is).
+/// One row of `Images` (ADR 0064, 0065): name, label, description, kind
+/// (`builtin`, `folder`, `customized`), Containerfile (`""` for built-in
+/// images), the contexts using it, whether it is built with your user, why
+/// it is not usable (`""` when it is), and whether koje ships another
+/// version of a customized one.
 pub type ImageRow = (
     String,
     String,
@@ -386,6 +387,7 @@ pub type ImageRow = (
     Vec<String>,
     bool,
     String,
+    bool,
 );
 
 /// `Images`.
@@ -396,9 +398,14 @@ pub fn images(paths: &Paths) -> Result<Vec<ImageRow>> {
     Ok(koje_core::images::list(paths)?
         .into_iter()
         .map(|e| {
+            let update = koje_runtime::images::koje_has_update(&e);
             let (kind, source, file) = match &e.dir {
-                Some(dir) if e.kind == Kind::Folder => (
-                    "folder",
+                Some(dir) if e.kind != Kind::BuiltIn => (
+                    if e.kind == Kind::Customized {
+                        "customized"
+                    } else {
+                        "folder"
+                    },
                     Source::Folder {
                         name: e.name.to_string(),
                         dir: dir.clone(),
@@ -419,6 +426,7 @@ pub fn images(paths: &Paths) -> Result<Vec<ImageRow>> {
                 e.used_by.iter().map(ToString::to_string).collect(),
                 built,
                 e.error.unwrap_or_default(),
+                update,
             )
         })
         .collect())
@@ -454,6 +462,27 @@ pub fn set_image(paths: &Paths, name: &str, dict: &HashMap<String, OwnedValue>) 
     let label = get::<&str>(dict, "label")?;
     let description = get::<&str>(dict, "description")?;
     koje_core::images::set(paths, &name, label, description).map_err(|e| Invalid(e.to_string()))?;
+    Ok(())
+}
+
+/// `CustomizeImage`, `ResetImage`, `KeepImageChanges` (ADR 0065).
+pub fn customize_image(paths: &Paths, name: &str) -> Result<()> {
+    let name = image_name(name)?;
+    koje_runtime::images::customize(paths, &name).map_err(|e| Invalid(format!("{e:#}")))?;
+    Ok(())
+}
+
+pub fn reset_image(paths: &Paths, name: &str) -> Result<()> {
+    let name = image_name(name)?;
+    koje_core::images::reset(paths, &name).map_err(|e| Invalid(e.to_string()))?;
+    Ok(())
+}
+
+pub fn keep_image_changes(paths: &Paths, name: &str) -> Result<()> {
+    let name = image_name(name)?;
+    let version = koje_runtime::images::koje_version(name.as_str())
+        .ok_or_else(|| Invalid(format!("{name} is not one of koje's own images")))?;
+    koje_core::images::keep(paths, &name, &version).map_err(|e| Invalid(e.to_string()))?;
     Ok(())
 }
 

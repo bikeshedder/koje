@@ -355,6 +355,44 @@ impl Api {
         Ok(())
     }
 
+    /// Customize koje's own image `name` (ADR 0065): its files copied into
+    /// its folder, which takes its place.
+    async fn customize_image(
+        &self,
+        name: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let (paths, name) = (self.paths.clone(), name.to_owned());
+        blocking(move || crate::manage::customize_image(&paths, &name)).await?;
+        let _ = Self::images_changed(&emitter).await;
+        Ok(())
+    }
+
+    /// Back to koje's own image: the customized folder is removed.
+    async fn reset_image(
+        &self,
+        name: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let (paths, name) = (self.paths.clone(), name.to_owned());
+        blocking(move || crate::manage::reset_image(&paths, &name)).await?;
+        let _ = Self::images_changed(&emitter).await;
+        let _ = Self::contexts_changed(&emitter).await;
+        Ok(())
+    }
+
+    /// Keep a customized image over koje's newer version: the mark goes.
+    async fn keep_image_changes(
+        &self,
+        name: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let (paths, name) = (self.paths.clone(), name.to_owned());
+        blocking(move || crate::manage::keep_image_changes(&paths, &name)).await?;
+        let _ = Self::images_changed(&emitter).await;
+        Ok(())
+    }
+
     /// Remove an image folder; refused while a context uses it.
     async fn remove_image(
         &self,

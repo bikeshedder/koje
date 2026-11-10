@@ -72,12 +72,26 @@
 
     <!--
       Every image: koje's own, then the image folders. Per image: name,
-      label (else the name), description, kind ("builtin", "folder"),
+      label (else the name), description, kind ("builtin", "folder",
+      "customized": a folder in koje's image's place, ADR 0065),
       Containerfile ("" for built-in images), the contexts using it,
-      whether it is built with your user, why it is not usable ("" when it is).
+      whether it is built with your user, why it is not usable ("" when it
+      is), whether koje ships another version of a customized one.
     -->
     <method name="Images">
-      <arg type="a(sssssasbs)" direction="out"/>
+      <arg type="a(sssssasbsb)" direction="out"/>
+    </method>
+    <!-- Customize koje's own image (ADR 0065): its files copied into its folder, which takes its place. -->
+    <method name="CustomizeImage">
+      <arg name="name" type="s" direction="in"/>
+    </method>
+    <!-- Back to koje's own image: the customized folder is removed. -->
+    <method name="ResetImage">
+      <arg name="name" type="s" direction="in"/>
+    </method>
+    <!-- Keep a customized image over koje's newer version: the mark goes. -->
+    <method name="KeepImageChanges">
+      <arg name="name" type="s" direction="in"/>
     </method>
     <!-- Create an image folder FROM `from` (as image = … names one) with a label; returns its name. -->
     <method name="NewImage">

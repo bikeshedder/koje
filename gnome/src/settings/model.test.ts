@@ -3,9 +3,9 @@ import {describe, expect, it} from 'vitest';
 import {
     type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
     memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
-    LOG_LINES, SWITCHES, adjustments, imageChoice, imageChoices, imageRemoval, imageStatus, images,
+    LOG_LINES, SWITCHES, adjustments, imageChoice, imageChoices, imageOrigin, imageRemoval, imageStatus, images,
     logEnded, logLine, logStarted, logTitle, profileSummary, profiles, recreateRow, states, statusLabel,
-    suggestImageName, validName, withProfile, withSwitch,
+    suggestImageName, usedBy, validName, withProfile, withSwitch,
 } from './model.js';
 
 const config: Config = {
@@ -79,9 +79,9 @@ describe('the recreate row', () => {
 
 describe('images', () => {
     const list = images([
-        ['fedora', 'Fedora', 'koje\'s image', 'builtin', '', ['kp'], true, ''],
-        ['web', 'Web development', '', 'folder', '/c/koje/images/web/Containerfile', [], false, ''],
-        ['kp', 'kp', '', 'folder', '/c/koje/images/kp/Containerfile', ['kp', 'shop'], true, ''],
+        ['fedora', 'Fedora', 'koje\'s image', 'builtin', '', ['kp'], true, '', false],
+        ['web', 'Web development', '', 'folder', '/c/koje/images/web/Containerfile', [], false, '', false],
+        ['kp', 'kp', '', 'folder', '/c/koje/images/kp/Containerfile', ['kp', 'shop'], true, '', false],
     ]);
     it('read the rows', () => {
         expect(list[0].kind).toBe('builtin');
@@ -109,6 +109,16 @@ describe('images', () => {
             sensitive: false, subtitle: 'Used by kp, shop: give them another image first.',
         });
         expect(imageRemoval(list[1]).sensitive).toBe(true);
+    });
+    it('of koje are customized, kept or reset', () => {
+        expect(imageOrigin(list[1])).toBeNull();
+        expect(imageOrigin(list[0])?.actions).toEqual(['customize']);
+        const mine = {...list[0], kind: 'customized' as const, file: '/c/koje/images/fedora/Containerfile'};
+        expect(imageOrigin(mine)?.actions).toEqual(['reset']);
+        expect(imageRemoval(mine).sensitive).toBe(false);
+        const newer = {...mine, update: true};
+        expect(imageOrigin(newer)?.actions).toEqual(['keep', 'reset']);
+        expect(usedBy(newer)).toBe('Newer version from koje');
     });
     it('get a free name for a context', () => {
         expect(suggestImageName('shop', list)).toBe('shop');

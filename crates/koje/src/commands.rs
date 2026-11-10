@@ -42,6 +42,8 @@ pub fn run(command: &Command) -> Result<()> {
             image_new(&paths, name, from, label.as_deref())
         }
         Command::Image(ImageCmd::List) => image_list(&paths),
+        Command::Image(ImageCmd::Customize { image }) => image_customize(&paths, image),
+        Command::Image(ImageCmd::Reset { image, yes }) => image_reset(&paths, image, *yes),
         Command::Image(ImageCmd::Rm { name, yes }) => image_rm(&paths, name, *yes),
         Command::Image(ImageCmd::Edit(ctx)) => image_edit(&paths, ctx),
 
@@ -434,6 +436,8 @@ fn image_list(paths: &Paths) -> Result<()> {
         let kind = match e.kind {
             koje_core::images::Kind::BuiltIn => " (koje's)",
             koje_core::images::Kind::Folder => "",
+            _ if koje_runtime::images::koje_has_update(&e) => " (customized; koje has a newer one)",
+            koje_core::images::Kind::Customized => " (customized)",
         };
         println!(
             "{:<width$}  {:<24}  {}{}",
@@ -447,6 +451,38 @@ fn image_list(paths: &Paths) -> Result<()> {
             e.error.map(|err| format!("  ! {err}")).unwrap_or_default()
         );
     }
+    Ok(())
+}
+
+/// `koje image customize`.
+fn image_customize(paths: &Paths, image: &str) -> Result<()> {
+    let name = koje_core::name::ImageName::new(image)?;
+    let dir = koje_runtime::images::customize(paths, &name)?;
+    println!("customized {name}: {}", dir.display());
+    println!(
+        "it takes the place of koje's {name} for every context; contexts get it when recreated"
+    );
+    crate::kojed::reload();
+    Ok(())
+}
+
+/// `koje image reset`.
+fn image_reset(paths: &Paths, image: &str, yes: bool) -> Result<()> {
+    let name = koje_core::name::ImageName::new(image)?;
+    if !yes
+        && !confirm(
+            &format!(
+                "Reset {name} to koje's version? {} and your changes in it are deleted.",
+                paths.images_dir().join(name.as_str()).display()
+            ),
+            false,
+        )?
+    {
+        bail!("aborted; nothing was changed");
+    }
+    koje_core::images::reset(paths, &name)?;
+    println!("{name} is koje's own image again; contexts get it when recreated");
+    crate::kojed::reload();
     Ok(())
 }
 

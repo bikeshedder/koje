@@ -302,20 +302,40 @@ export interface Image {
     name: string;
     label: string;
     description: string;
-    kind: 'builtin' | 'folder';
+    /** `customized`: a folder in koje's own image's place (ADR 0065). */
+    kind: 'builtin' | 'folder' | 'customized';
     /** Its Containerfile; `''` for koje's own. */
     file: string;
     usedBy: string[];
     built: boolean;
     /** Why it is not usable; `''` when it is. */
     error: string;
+    /** A customized one: koje ships another version than it was made from. */
+    update: boolean;
 }
 
-export function images(rows: [string, string, string, string, string, string[], boolean, string][]): Image[] {
-    return rows.map(([name, label, description, kind, file, usedBy, built, error]) => ({
-        name, label, description, file, usedBy, built, error,
-        kind: kind === 'builtin' ? 'builtin' : 'folder',
+export function images(rows: [string, string, string, string, string, string[], boolean, string, boolean][]): Image[] {
+    return rows.map(([name, label, description, kind, file, usedBy, built, error, update]) => ({
+        name, label, description, file, usedBy, built, error, update,
+        kind: kind === 'builtin' || kind === 'customized' ? kind : 'folder',
     }));
+}
+
+/** What can be done with koje's own image, or a customized one (ADR 0065). */
+export type OriginAction = 'customize' | 'reset' | 'keep';
+
+/** The "koje's version" row; `null` for the user's own images. */
+export function imageOrigin(img: Image): {subtitle: string; actions: OriginAction[]} | null {
+    switch (img.kind) {
+    case 'folder': return null;
+    case 'builtin': return {
+        subtitle: 'koje\'s own image, updated with koje. Customize it to change it for every context that uses it.',
+        actions: ['customize'],
+    };
+    case 'customized': return img.update
+        ? {subtitle: 'koje ships a newer version than the one you customized. Keep yours, or go back to koje\'s (your changes are lost).', actions: ['keep', 'reset']}
+        : {subtitle: 'Your version of koje\'s image: it takes its place for every context. Reset brings koje\'s back.', actions: ['reset']};
+    }
 }
 
 /** An image's name in lists: its label, and its name when that differs. */
@@ -352,6 +372,8 @@ export function imageStatus(img: Image, building: boolean): string {
 
 /** Who uses an image, in a line. */
 export function usedBy(img: Image): string {
+    if (img.update)
+        return 'Newer version from koje';
     return img.usedBy.length ? `Used by ${img.usedBy.join(', ')}` : 'No context uses it';
 }
 
@@ -359,6 +381,8 @@ export function usedBy(img: Image): string {
 export function imageRemoval(img: Image): {sensitive: boolean; subtitle: string} {
     if (img.kind === 'builtin')
         return {sensitive: false, subtitle: 'koje\'s own image cannot be removed.'};
+    if (img.kind === 'customized')
+        return {sensitive: false, subtitle: 'It takes the place of koje\'s own image: reset it instead.'};
     if (img.usedBy.length)
         return {sensitive: false, subtitle: `${usedBy(img)}: give them another image first.`};
     return {sensitive: true, subtitle: 'Deletes its folder with the Containerfile and what it copies.'};

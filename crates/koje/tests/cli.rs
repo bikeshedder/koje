@@ -638,6 +638,23 @@ fn image_new_creates_a_folder_building_on_its_image() {
     assert!(String::from_utf8_lossy(&used.stderr).contains("used by kp"));
     stdout(&koje(tmp.path(), &["image", "rm", "web", "--yes"]));
     assert!(!tmp.path().join("config/koje/images/web").exists());
+    // koje's own image, customized and reset (ADR 0065).
+    stdout(&koje(tmp.path(), &["image", "customize", "fedora"]));
+    let file = tmp.path().join("config/koje/images/fedora/Containerfile");
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains("FROM registry.fedoraproject.org/fedora")
+    );
+    let list = stdout(&koje(tmp.path(), &["image", "list"]));
+    assert!(list.contains("Fedora (customized)"), "{list}");
+    assert!(
+        !koje(tmp.path(), &["image", "customize", "app"])
+            .status
+            .success()
+    );
+    stdout(&koje(tmp.path(), &["image", "reset", "fedora", "--yes"]));
+    assert!(!file.exists());
 }
 
 #[test]

@@ -142,6 +142,8 @@ browser's session restore, accept `koje open`). Format: small TOML files in
 | `koje image edit <context>` | open the context's Containerfile with `xdg-open`: its image folder's, else a new one of its own made from its image (ADR 0063) |
 | `koje image new <name> [--from <image>] [--label <label>]` | create the image folder `~/.config/koje/images/<name>` with a Containerfile and `image.toml` (ADR 0040, 0064) |
 | `koje image list` | images: koje's own and the image folders, with label and the contexts using them (ADR 0064) |
+| `koje image customize <image>` | copy koje's own image (`fedora`) into its folder, which takes its place (ADR 0065) |
+| `koje image reset <image> [--yes]` | back to koje's own image: the customized folder is deleted |
 | `koje image rm <name> [--yes]` | remove an image folder; refused while a context uses it |
 | `koje setup [--dry-run] [--yes]` | after the package (ADR 0045): enable koje's GNOME Shell extension, build koje's image `fedora`, restart an outdated kojed; plan first, asks once |
 | `koje doctor` | check the package, packages, GNOME Shell and the extension, Mutter's Wayland globals, kojed, image, forwarder, sub-ids, NVIDIA |

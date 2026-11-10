@@ -274,6 +274,16 @@ pub enum ImageCmd {
     /// List images: koje's own and the image folders, with the contexts
     /// using them.
     List,
+    /// Customize koje's own image (`fedora`): its files are copied into
+    /// ~/.config/koje/images/<image>, which takes its place (ADR 0065).
+    Customize { image: String },
+    /// Back to koje's own image: the customized folder is removed.
+    Reset {
+        image: String,
+        /// Do not ask for confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Remove an image folder; refused while a context uses it.
     Rm {
         name: String,

@@ -97,6 +97,8 @@ export class SettingsWindow {
     #imageChoices: [string, string][] = [];
     /** The image whose label and description the entries hold. */
     #imageFilled = '';
+    /** The buttons of the "koje's Version" row. */
+    #originButtons: Gtk.Widget | null = null;
 
     constructor(app: Adw.Application) {
         this.#builder = Gtk.Builder.new_from_file(uiFile('window.ui'));
@@ -689,7 +691,7 @@ export class SettingsWindow {
 
     /** The image page (the entries only when another image was shown: an edit stays). */
     #fillImage(img: model.Image): void {
-        const own = img.kind === 'folder';
+        const own = img.kind !== 'builtin';
         const label = this.#get<Adw.EntryRow>('image_label_row');
         const description = this.#get<Adw.EntryRow>('image_description_row');
         if (this.#imageFilled !== img.name) {
@@ -704,11 +706,12 @@ export class SettingsWindow {
         const home = GLib.get_home_dir();
         file.subtitle = GLib.markup_escape_text(own
             ? (img.file.startsWith(`${home}/`) ? `~${img.file.slice(home.length)}` : img.file) || img.error
-            : 'Built into koje – make a new image from it to change it', -1);
+            : 'Built into koje – customize it to change it', -1);
         this.#get<Gtk.Button>('image_edit_button').visible = own && img.file !== '';
         const building = this.#busy.has(IMAGE + img.name);
         this.#get<Adw.ActionRow>('image_build_row').subtitle = GLib.markup_escape_text(model.imageStatus(img, building), -1);
         this.#get<Gtk.Button>('image_build_button').sensitive = !building && (!own || img.file !== '');
+        this.#fillOrigin(img);
         const removal = model.imageRemoval(img);
         this.#get<Adw.ActionRow>('image_remove_row').subtitle = GLib.markup_escape_text(removal.subtitle, -1);
         this.#get<Gtk.Button>('image_remove_button').sensitive = removal.sensitive;
@@ -727,6 +730,64 @@ export class SettingsWindow {
             const row = new Adw.ActionRow({title: 'No context uses it', subtitle: 'Choose it on a context\'s page.'});
             group.add(row);
             this.#imageUserRows = [row];
+        }
+    }
+
+    /** koje's version of its own image (ADR 0065): customize, keep, reset. */
+    #fillOrigin(img: model.Image): void {
+        const row = this.#get<Adw.ActionRow>('image_origin_row');
+        const origin = model.imageOrigin(img);
+        row.visible = origin !== null;
+        if (!origin)
+            return;
+        row.subtitle = GLib.markup_escape_text(origin.subtitle, -1);
+        // The buttons follow the state: replaced each time.
+        if (this.#originButtons)
+            row.remove(this.#originButtons);
+        const box = new Gtk.Box({spacing: 6, valign: Gtk.Align.CENTER});
+        const labels: Record<model.OriginAction, string> = {
+            customize: 'Customize…', reset: 'Reset to koje\'s Version…', keep: 'Keep Mine',
+        };
+        for (const action of origin.actions) {
+            const button = new Gtk.Button({label: labels[action]});
+            if (action === 'reset')
+                button.add_css_class('destructive-action');
+            button.connect('clicked', () => void this.#originAction(img, action));
+            box.append(button);
+        }
+        row.add_suffix(box);
+        this.#originButtons = box;
+    }
+
+    async #originAction(img: model.Image, action: model.OriginAction): Promise<void> {
+        try {
+            switch (action) {
+            case 'customize': {
+                const answer = await ask(this.#window, `Customize ${img.label}?`,
+                    `koje's files of ${img.name} are copied into ~/.config/koje/images/${img.name}, which then takes the place of koje's image for every context that uses it. koje updates no longer change it; you can go back to koje's version at any time.`,
+                    [['customize', 'Customize', Adw.ResponseAppearance.SUGGESTED]]);
+                if (answer === 'customize') {
+                    await this.#kojed.call('CustomizeImage', img.name);
+                    this.#imageFilled = '';
+                }
+                break;
+            }
+            case 'reset': {
+                const answer = await ask(this.#window, `Reset ${img.label} to koje's Version?`,
+                    `~/.config/koje/images/${img.name} and your changes in it are deleted. Contexts get koje's image when recreated.`,
+                    [['reset', 'Reset', Adw.ResponseAppearance.DESTRUCTIVE]]);
+                if (answer === 'reset') {
+                    await this.#kojed.call('ResetImage', img.name);
+                    this.#imageFilled = '';
+                }
+                break;
+            }
+            case 'keep':
+                await this.#kojed.call('KeepImageChanges', img.name);
+                break;
+            }
+        } catch (e) {
+            this.#error(e);
         }
     }
 

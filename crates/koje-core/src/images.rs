@@ -25,6 +25,10 @@ pub struct ImageConfig {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// A customized built-in image (ADR 0065): the hash of koje's files it
+    /// was copied from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_koje: Option<String>,
 }
 
 /// What koje says about its built-in images.
@@ -38,6 +42,8 @@ const BUILT_IN_TEXT: &[(&str, &str, &str)] = &[(
 pub enum Kind {
     BuiltIn,
     Folder,
+    /// A folder in a built-in image's place (ADR 0065).
+    Customized,
 }
 
 /// One listed image.
@@ -54,6 +60,8 @@ pub struct Entry {
     pub used_by: Vec<ContextName>,
     /// Why its `image.toml` or Containerfile is not usable.
     pub error: Option<String>,
+    /// A customized image: the version of koje's files it was copied from.
+    pub from_koje: Option<String>,
 }
 
 /// An image folder's `image.toml`; the default when there is none.
@@ -115,6 +123,7 @@ pub fn list(paths: &Paths) -> Result<Vec<Entry>> {
                 description: (*description).to_owned(),
                 dir: None,
                 error: None,
+                from_koje: None,
             });
         }
     }
@@ -127,14 +136,23 @@ pub fn list(paths: &Paths) -> Result<Vec<Entry>> {
         if image::containerfile(&dir, Path::is_file).is_none() {
             error.get_or_insert_with(|| "it has no Containerfile or Dockerfile".to_owned());
         }
+        let built_in = BUILT_IN_TEXT.iter().find(|(n, _, _)| *n == name.as_str());
         out.push(Entry {
             used_by: used_by(&name),
-            label: config.label.unwrap_or_else(|| name.to_string()),
+            label: config
+                .label
+                .or_else(|| built_in.map(|(_, l, _)| (*l).to_owned()))
+                .unwrap_or_else(|| name.to_string()),
             description: config.description.unwrap_or_default(),
+            kind: if built_in.is_some() {
+                Kind::Customized
+            } else {
+                Kind::Folder
+            },
             name,
-            kind: Kind::Folder,
             dir: Some(dir),
             error,
+            from_koje: config.from_koje,
         });
     }
     Ok(out)
@@ -167,7 +185,7 @@ pub fn create(
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .map(str::to_owned),
-        description: None,
+        ..ImageConfig::default()
     };
     fsutil::write_atomic(&dir.join("Containerfile"), containerfile.as_bytes())?;
     write_config(&dir, &config)?;
@@ -180,7 +198,8 @@ fn write_config(dir: &Path, config: &ImageConfig) -> Result<()> {
     let text = format!(
         "# A koje image (ADR 0064); its programs are in the Containerfile.\n\
          # label = \"…\"        shown instead of the folder's name\n\
-         # description = \"…\"\n{body}"
+         # description = \"…\"\n\
+         # from_koje = \"…\"    a customized koje image: the version it was copied from\n{body}"
     );
     fsutil::write_atomic(&dir.join(IMAGE_TOML), text.as_bytes())
 }
@@ -246,8 +265,81 @@ pub fn set(
     fsutil::write_atomic(&path, new.as_bytes())
 }
 
+/// Customize built-in image `name` (ADR 0065): its `files` (koje's, with
+/// the hash `version`) copied into its folder, which takes its place.
+pub fn customize(
+    paths: &Paths,
+    name: &ImageName,
+    files: &[(&str, &str)],
+    version: &str,
+) -> Result<PathBuf> {
+    let Some((_, label, description)) = BUILT_IN_TEXT.iter().find(|(n, _, _)| *n == name.as_str())
+    else {
+        return Err(Error::Image {
+            value: name.to_string(),
+            reason: "is not one of koje's own images – edit it as it is".into(),
+        });
+    };
+    let dir = paths.images_dir().join(name.as_str());
+    if dir.exists() {
+        return Err(Error::Image {
+            value: name.to_string(),
+            reason: format!("is customized already: {}", dir.display()),
+        });
+    }
+    for (file, text) in files {
+        fsutil::write_atomic(&dir.join(file), text.as_bytes())?;
+    }
+    write_config(
+        &dir,
+        &ImageConfig {
+            label: Some((*label).to_owned()),
+            description: Some(format!("{description} (customized)")),
+            from_koje: Some(version.to_owned()),
+        },
+    )?;
+    Ok(dir)
+}
+
+/// Back to koje's own image (ADR 0065): the customized folder goes; also
+/// while contexts use it, since koje's image takes its place.
+pub fn reset(paths: &Paths, name: &ImageName) -> Result<()> {
+    let dir = paths.images_dir().join(name.as_str());
+    if !BUILT_IN.contains(&name.as_str()) || !dir.is_dir() {
+        return Err(Error::Image {
+            value: name.to_string(),
+            reason: "is no customized koje image".into(),
+        });
+    }
+    std::fs::remove_dir_all(&dir).map_err(|source| Error::Write { path: dir, source })
+}
+
+/// Keep a customized image over koje's newer `version`: the mark goes.
+pub fn keep(paths: &Paths, name: &ImageName, version: &str) -> Result<()> {
+    if !BUILT_IN.contains(&name.as_str()) {
+        return Err(Error::Image {
+            value: name.to_string(),
+            reason: "is no customized koje image".into(),
+        });
+    }
+    let dir = folder(paths, name)?;
+    let path = dir.join(IMAGE_TOML);
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| Error::InvalidEdit(e.to_string()))?;
+    doc["from_koje"] = toml_edit::value(version);
+    fsutil::write_atomic(&path, doc.to_string().as_bytes())
+}
+
 /// Remove an image folder; refused while a context uses it.
 pub fn remove(paths: &Paths, name: &ImageName) -> Result<()> {
+    if BUILT_IN.contains(&name.as_str()) {
+        return Err(Error::Image {
+            value: name.to_string(),
+            reason: "is koje's own image – a customized one is reset instead".into(),
+        });
+    }
     let dir = folder(paths, name)?;
     let users: Vec<String> = list(paths)?
         .into_iter()
@@ -337,7 +429,7 @@ mod tests {
         std::fs::write(dir.join("Containerfile"), "FROM x\n").unwrap();
         let all = list(&p).unwrap();
         assert_eq!(all.len(), 1);
-        assert_eq!(all[0].kind, Kind::Folder);
+        assert_eq!(all[0].kind, Kind::Customized);
         // But koje does not make one.
         assert!(create(&p, &n("fedora"), "FROM x\n", None).is_err());
     }
@@ -372,6 +464,47 @@ mod tests {
         remove(&p, &n("web")).unwrap();
         assert!(!dir.exists());
         assert!(remove(&p, &n("fedora")).is_err());
+    }
+
+    #[test]
+    fn a_built_in_image_is_customized_kept_and_reset() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(tmp.path());
+        let kp = ContextName::new("kp").unwrap();
+        crate::context::create(&p, &kp, None, None).unwrap();
+        let files = [(
+            "Containerfile",
+            "FROM registry.fedoraproject.org/fedora:44\n",
+        )];
+        assert!(customize(&p, &n("web"), &files, "v1").is_err());
+
+        let dir = customize(&p, &n("fedora"), &files, "v1").unwrap();
+        assert!(customize(&p, &n("fedora"), &files, "v1").is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("Containerfile")).unwrap(),
+            files[0].1
+        );
+        let all = list(&p).unwrap();
+        assert_eq!(all.len(), 1);
+        let fedora = &all[0];
+        assert_eq!(fedora.kind, Kind::Customized);
+        assert_eq!(fedora.label, "Fedora");
+        assert_eq!(fedora.from_koje.as_deref(), Some("v1"));
+        assert_eq!(fedora.used_by, [kp]);
+        // Edited like any image; kept over a newer version; never removed.
+        set(&p, &n("fedora"), Some("My Fedora"), None).unwrap();
+        keep(&p, &n("fedora"), "v2").unwrap();
+        let fedora = list(&p).unwrap().remove(0);
+        assert_eq!(
+            (fedora.label.as_str(), fedora.from_koje.as_deref()),
+            ("My Fedora", Some("v2"))
+        );
+        assert!(remove(&p, &n("fedora")).is_err());
+        // Reset while kp uses it: koje's image is back.
+        reset(&p, &n("fedora")).unwrap();
+        assert!(!dir.exists());
+        assert_eq!(list(&p).unwrap()[0].kind, Kind::BuiltIn);
+        assert!(reset(&p, &n("fedora")).is_err());
     }
 
     #[test]

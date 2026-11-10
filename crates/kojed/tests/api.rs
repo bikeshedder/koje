@@ -262,6 +262,24 @@ async fn settings_app_calls(conn: &zbus::Connection) {
     )
     .await;
     assert!(err.contains("koje's own image"), "{err}");
+
+    // koje's own image, customized and reset (ADR 0065).
+    let (): () = call(&conn, "CustomizeImage", &("fedora",)).await;
+    let images: Vec<ImageRow> = call(&conn, "Images", &()).await;
+    assert_eq!(
+        (images[0].0.as_str(), images[0].3.as_str()),
+        ("fedora", "customized")
+    );
+    assert!(
+        images[0].4.ends_with("/images/fedora/Containerfile"),
+        "{}",
+        images[0].4
+    );
+    assert!(!images[0].8, "no newer version from koje");
+    let (): () = call(&conn, "KeepImageChanges", &("fedora",)).await;
+    let (): () = call(&conn, "ResetImage", &("fedora",)).await;
+    let images: Vec<ImageRow> = call(&conn, "Images", &()).await;
+    assert_eq!(images[0].3, "builtin");
 }
 
 /// A row of `Images`.
@@ -274,6 +292,7 @@ type ImageRow = (
     Vec<String>,
     bool,
     String,
+    bool,
 );
 
 /// `(name, role, current, stored, windows, layouts, modified, error)` of `States`.

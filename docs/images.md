@@ -35,6 +35,13 @@ context to it. An image's page edits its label and description, opens its
 `Containerfile` in your desktop's editor, builds it with the output shown
 live, and lists the contexts using it.
 
+koje's own `fedora` is updated with koje. To change it for every context,
+*Customize…* it on its page (or `koje image customize fedora`): koje copies
+its files into `~/.config/koje/images/fedora/`, which then takes its place
+and is edited like any image. When a later koje ships a newer `fedora`, the
+image is marked "Newer version from koje": *Keep Mine*, or *Reset to koje's
+Version* (`koje image reset fedora`), which deletes your copy (ADR 0065).
+
 From the CLI: `koje image new <name> [--from <image>] [--label <label>]`,
 `koje image list`, `koje image rm <name>`, and `koje image edit <context>`,
 which gives a context an image of its own (named after it) and opens its

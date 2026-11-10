@@ -347,6 +347,29 @@ pub fn folder_file(paths: &Paths, value: &str) -> Result<Option<PathBuf>> {
     })
 }
 
+/// The version (hash of the files) of built-in image `name` this koje ships.
+pub fn koje_version(name: &str) -> Option<String> {
+    built_in(name).map(embedded_hash)
+}
+
+/// Customize built-in image `name` (ADR 0065): koje's files into its folder.
+pub fn customize(paths: &Paths, name: &koje_core::name::ImageName) -> Result<PathBuf> {
+    let files = built_in(name.as_str())
+        .with_context(|| format!("{name} is not one of koje's own images"))?;
+    let version = embedded_hash(files);
+    Ok(koje_core::images::customize(paths, name, files, &version)?)
+}
+
+/// Whether a customized image was copied from another version than koje
+/// ships now (ADR 0065). Hand-made folders without `from_koje` are not marked.
+pub fn koje_has_update(entry: &koje_core::images::Entry) -> bool {
+    entry.kind == koje_core::images::Kind::Customized
+        && entry
+            .from_koje
+            .as_ref()
+            .is_some_and(|v| koje_version(entry.name.as_str()).is_some_and(|k| &k != v))
+}
+
 /// A context's own Containerfile (ADR 0063).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnFile {
@@ -495,6 +518,23 @@ mod tests {
             text.ends_with("FROM docker.io/library/debian:13\n"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn a_customized_image_is_marked_when_koje_ships_another_version() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(tmp.path());
+        let fedora = koje_core::name::ImageName::default_image();
+        let dir = customize(&p, &fedora).unwrap();
+        assert!(dir.join("Containerfile").is_file());
+        let entry = || koje_core::images::list(&p).unwrap().remove(0);
+        assert!(!koje_has_update(&entry()));
+        koje_core::images::keep(&p, &fedora, "an-older-version").unwrap();
+        assert!(koje_has_update(&entry()));
+        let current = koje_version("fedora").unwrap();
+        koje_core::images::keep(&p, &fedora, &current).unwrap();
+        assert!(!koje_has_update(&entry()));
+        assert!(customize(&p, &koje_core::name::ImageName::new("web").unwrap()).is_err());
     }
 
     #[test]
