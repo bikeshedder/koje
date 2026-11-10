@@ -11,7 +11,7 @@ import Gtk from 'gi://Gtk?version=4.0';
 import {Kojed, KojedError} from '../api/kojed.js';
 import {ask, askImage, askName} from './dialogs.js';
 import * as model from './model.js';
-import {OutputDialog} from './output.js';
+import {OutputWindow} from './output.js';
 
 Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish');
 Gio._promisify(Gtk.FileLauncher.prototype, 'launch', 'launch_finish');
@@ -73,7 +73,7 @@ export class SettingsWindow {
     readonly #busy = new Map<string, string>();
     /** Context → the output of its last operation. */
     readonly #logs = new Map<string, model.Log>();
-    readonly #output = new OutputDialog();
+    readonly #output: OutputWindow;
     #selected = MEMORY;
     #running = false;
 
@@ -103,6 +103,11 @@ export class SettingsWindow {
         const get = <T>(id: string) => this.#builder.get_object(id) as T;
         this.#window = get<Adw.ApplicationWindow>('window');
         this.#window.set_application(app);
+        this.#output = new OutputWindow(app);
+        this.#window.connect('close-request', () => {
+            this.#output.destroy();
+            return false;
+        });
         this.#toasts = get('toasts');
         this.#split = get('split');
         this.#sidebar = get('sidebar');
@@ -507,7 +512,7 @@ export class SettingsWindow {
         const log = model.logStarted(operation);
         this.#logs.set(key, log);
         if (this.#output.context === key)
-            this.#output.present(this.#window, key, model.logTitle(this.#titleOf(key), log), []);
+            this.#output.present(key, model.logTitle(this.#titleOf(key), log), []);
         this.#render();
         this.#syncImageRows();
     }
@@ -554,7 +559,7 @@ export class SettingsWindow {
     #showOutput(context: string): void {
         const log = this.#logs.get(context);
         if (log)
-            this.#output.present(this.#window, context, model.logTitle(this.#titleOf(context), log), log.lines);
+            this.#output.present(context, model.logTitle(this.#titleOf(context), log), log.lines);
     }
 
     #error(e: unknown): void {
@@ -757,7 +762,7 @@ export class SettingsWindow {
         if (!img)
             return;
         const key = IMAGE + img.name;
-        this.#output.present(this.#window, key, model.logTitle(this.#titleOf(key), model.logStarted('build')), []);
+        this.#output.present(key, model.logTitle(this.#titleOf(key), model.logStarted('build')), []);
         try {
             await this.#kojed.call('BuildImage', img.name);
         } catch (e) {

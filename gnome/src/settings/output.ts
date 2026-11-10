@@ -1,20 +1,25 @@
-// The output of an operation (kojed's OperationProgress lines), live: what a
-// start or recreate builds, and why something failed.
+// The output of an operation (kojed's OperationProgress lines), live, in a
+// window of its own: what a start, recreate or image build does, and why
+// something failed.
 
 import Adw from 'gi://Adw';
 import Gdk from 'gi://Gdk?version=4.0';
 import Gtk from 'gi://Gtk?version=4.0';
 
-export class OutputDialog {
-    readonly #dialog: Adw.Dialog;
+/** How close to the end (pixels) still counts as following the output. */
+const FOLLOW_SLACK = 24;
+
+export class OutputWindow {
+    readonly #window: Adw.Window;
     readonly #title: Adw.WindowTitle;
     readonly #buffer = new Gtk.TextBuffer();
-    readonly #view: Gtk.TextView;
-    readonly #scroll: Gtk.ScrolledWindow;
-    /** The context it shows; `null` while closed. */
+    readonly #adjustment: Gtk.Adjustment;
+    /** Whether new output scrolls into view: until scrolled up to read. */
+    #follow = true;
+    /** What it shows (a context, or `image:<name>`); `null` while closed. */
     context: string | null = null;
 
-    constructor() {
+    constructor(app: Gtk.Application) {
         this.#title = new Adw.WindowTitle();
         const header = new Adw.HeaderBar({title_widget: this.#title});
         const copy = new Gtk.Button({icon_name: 'edit-copy-symbolic', tooltip_text: 'Copy All'});
@@ -23,7 +28,7 @@ export class OutputDialog {
             Gdk.Display.get_default()?.get_clipboard().set(this.#buffer.get_text(start, end, false));
         });
         header.pack_start(copy);
-        this.#view = new Gtk.TextView({
+        const view = new Gtk.TextView({
             buffer: this.#buffer,
             editable: false,
             cursor_visible: false,
@@ -31,41 +36,58 @@ export class OutputDialog {
             wrap_mode: Gtk.WrapMode.WORD_CHAR,
             top_margin: 12, bottom_margin: 12, left_margin: 12, right_margin: 12,
         });
-        this.#scroll = new Gtk.ScrolledWindow({child: this.#view, vexpand: true});
-        const toolbar = new Adw.ToolbarView({content: this.#scroll});
+        const scroll = new Gtk.ScrolledWindow({child: view, vexpand: true});
+        this.#adjustment = scroll.vadjustment;
+        // The range grows once new lines are laid out: follow it then, not
+        // when they are inserted (the end is not where it will be yet).
+        this.#adjustment.connect('notify::upper', () => this.#keepUp());
+        this.#adjustment.connect('notify::page-size', () => this.#keepUp());
+        this.#adjustment.connect('value-changed', adj => {
+            this.#follow = adj.value + adj.page_size >= adj.upper - FOLLOW_SLACK;
+        });
+        const toolbar = new Adw.ToolbarView({content: scroll});
         toolbar.add_top_bar(header);
-        this.#dialog = new Adw.Dialog({child: toolbar, content_width: 860, content_height: 560});
-        this.#dialog.connect('closed', () => {
+        this.#window = new Adw.Window({
+            application: app,
+            content: toolbar,
+            default_width: 900,
+            default_height: 600,
+            hide_on_close: true,
+        });
+        this.#window.connect('close-request', () => {
             this.context = null;
+            return false;
         });
     }
 
-    /** Show `lines` of `context`'s operation under `title`. */
-    present(parent: Gtk.Widget, context: string, title: string, lines: string[]): void {
+    /** Show `lines` of `context`'s operation under `title`, following the end. */
+    present(context: string, title: string, lines: string[]): void {
         this.context = context;
-        this.#title.title = title;
+        this.title = title;
         this.#buffer.set_text(lines.join('\n'), -1);
-        this.#dialog.present(parent);
-        this.#scrollToEnd();
+        this.#follow = true;
+        this.#window.present();
+        this.#keepUp();
+    }
+
+    /** Gone with the settings window: a hidden window would keep the app running. */
+    destroy(): void {
+        this.#window.destroy();
     }
 
     set title(title: string) {
         this.#title.title = title;
+        this.#window.title = title;
     }
 
-    /** One more line; followed to the end unless scrolled up to read. */
+    /** One more line. */
     append(line: string): void {
-        const adj = this.#scroll.vadjustment;
-        const atEnd = adj.value + adj.page_size >= adj.upper - 24;
         const end = this.#buffer.get_end_iter();
         this.#buffer.insert(end, this.#buffer.get_char_count() > 0 ? `\n${line}` : line, -1);
-        if (atEnd)
-            this.#scrollToEnd();
     }
 
-    #scrollToEnd(): void {
-        const mark = this.#buffer.create_mark(null, this.#buffer.get_end_iter(), false);
-        this.#view.scroll_mark_onscreen(mark);
-        this.#buffer.delete_mark(mark);
+    #keepUp(): void {
+        if (this.#follow)
+            this.#adjustment.value = this.#adjustment.upper - this.#adjustment.page_size;
     }
 }
