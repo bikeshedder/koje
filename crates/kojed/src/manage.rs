@@ -215,18 +215,19 @@ where
 }
 
 /// `settings` with the keys of `dict` applied (the keys of [`config`] that
-/// can change: `prefix`, `label`, `icon`, `color`, `profile`, `access`,
+/// can change: `prefix`, `label`, `icon`, `color`, `image`, `profile`, `access`,
 /// `mounts`, `memory_soft`, `memory_hard`). Keys not given stay; an empty
 /// `label`, `icon` or `profile` removes it; `access` replaces all overrides.
 pub fn apply(
     mut settings: ContextSettings,
     dict: &HashMap<String, OwnedValue>,
 ) -> Result<ContextSettings> {
-    const KEYS: [&str; 9] = [
+    const KEYS: [&str; 10] = [
         "prefix",
         "label",
         "icon",
         "color",
+        "image",
         "profile",
         "access",
         "mounts",
@@ -251,6 +252,10 @@ pub fn apply(
         settings.color = c
             .parse::<Color>()
             .map_err(|e| Invalid(format!("color: {e}")))?;
+    }
+    if let Some(i) = text("image")? {
+        koje_core::image::parse(&i).map_err(|e| Invalid(format!("image: {e}")))?;
+        settings.image = i;
     }
     if let Some(p) = text("profile")? {
         settings.profile = if p.is_empty() {
@@ -368,10 +373,95 @@ fn follow(
     notes
 }
 
-/// `ImageFile`: the context's Containerfile, made if it has none (ADR 0063).
-pub fn image_file(paths: &Paths, ctx: &ContextName) -> Result<String> {
-    let own = koje_runtime::images::own_file(paths, ctx).map_err(|e| Invalid(format!("{e:#}")))?;
-    Ok(own.file.display().to_string())
+/// One row of `Images` (ADR 0064): name, label, description, kind
+/// (`builtin`, `folder`), Containerfile (`""` for built-in images), the
+/// contexts using it, whether it is built with your user, and why it is
+/// not usable (`""` when it is).
+pub type ImageRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Vec<String>,
+    bool,
+    String,
+);
+
+/// `Images`.
+pub fn images(paths: &Paths) -> Result<Vec<ImageRow>> {
+    use koje_core::image::Source;
+    use koje_core::images::Kind;
+    let podman = koje_podman::Podman::new();
+    Ok(koje_core::images::list(paths)?
+        .into_iter()
+        .map(|e| {
+            let (kind, source, file) = match &e.dir {
+                Some(dir) if e.kind == Kind::Folder => (
+                    "folder",
+                    Source::Folder {
+                        name: e.name.to_string(),
+                        dir: dir.clone(),
+                    },
+                    koje_core::image::containerfile(dir, std::path::Path::is_file)
+                        .map(|f| f.display().to_string())
+                        .unwrap_or_default(),
+                ),
+                _ => ("builtin", Source::BuiltIn(e.name.clone()), String::new()),
+            };
+            let built = podman.image_exists(&source.user_tag()).unwrap_or(false);
+            (
+                e.name.to_string(),
+                e.label,
+                e.description,
+                kind.to_owned(),
+                file,
+                e.used_by.iter().map(ToString::to_string).collect(),
+                built,
+                e.error.unwrap_or_default(),
+            )
+        })
+        .collect())
+}
+
+fn image_name(name: &str) -> Result<koje_core::name::ImageName> {
+    Ok(koje_core::name::ImageName::new(name).map_err(|e| Invalid(e.to_string()))?)
+}
+
+/// `NewImage`: an image folder building on `from` (as `image = …` names it).
+pub fn new_image(paths: &Paths, name: &str, from: &str, label: &str) -> Result<String> {
+    let name = image_name(name)?;
+    let from_line =
+        koje_runtime::images::from_line(paths, from).map_err(|e| Invalid(format!("{e:#}")))?;
+    if koje_core::image::parents(&format!("FROM {from_line}")).contains(&name) {
+        bail!(Invalid(format!("image {name} cannot build on itself")));
+    }
+    let text = koje_runtime::images::new_containerfile(&from_line);
+    koje_core::images::create(paths, &name, &text, Some(label))
+        .map_err(|e| Invalid(e.to_string()))?;
+    Ok(name.to_string())
+}
+
+/// `SetImage`: `label`, `description` (`""` removes one).
+pub fn set_image(paths: &Paths, name: &str, dict: &HashMap<String, OwnedValue>) -> Result<()> {
+    if let Some(key) = dict
+        .keys()
+        .find(|k| !["label", "description"].contains(&k.as_str()))
+    {
+        bail!(Invalid(format!("{key} cannot be set")));
+    }
+    let name = image_name(name)?;
+    let label = get::<&str>(dict, "label")?;
+    let description = get::<&str>(dict, "description")?;
+    koje_core::images::set(paths, &name, label, description).map_err(|e| Invalid(e.to_string()))?;
+    Ok(())
+}
+
+/// `RemoveImage`.
+pub fn remove_image(paths: &Paths, name: &str) -> Result<()> {
+    let name = image_name(name)?;
+    koje_core::images::remove(paths, &name).map_err(|e| Invalid(e.to_string()))?;
+    Ok(())
 }
 
 /// `NewContext`: a fresh `context.toml` as `koje new` writes it.

@@ -21,6 +21,7 @@ pub mod error;
 pub mod fsutil;
 pub mod hostbus;
 pub mod image;
+pub mod images;
 pub mod integration;
 pub mod layout;
 pub mod layouts;

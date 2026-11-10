@@ -3,7 +3,9 @@ import {describe, expect, it} from 'vitest';
 import {
     type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
     memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
-    LOG_LINES, SWITCHES, adjustments, logEnded, logLine, logStarted, logTitle, imageRow, recreateRow, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
+    LOG_LINES, SWITCHES, adjustments, imageChoice, imageChoices, imageRemoval, imageStatus, images,
+    logEnded, logLine, logStarted, logTitle, profileSummary, profiles, recreateRow, states, statusLabel,
+    suggestImageName, validName, withProfile, withSwitch,
 } from './model.js';
 
 const config: Config = {
@@ -75,19 +77,47 @@ describe('the recreate row', () => {
     });
 });
 
-describe('the image row', () => {
-    it('offers to create a Containerfile for koje\'s image', () => {
-        expect(imageRow(config, '/home/mj')).toEqual({subtitle: 'koje/base', button: 'Create Containerfile…'});
+describe('images', () => {
+    const list = images([
+        ['fedora', 'Fedora', 'koje\'s image', 'builtin', '', ['kp'], true, ''],
+        ['web', 'Web development', '', 'folder', '/c/koje/images/web/Containerfile', [], false, ''],
+        ['kp', 'kp', '', 'folder', '/c/koje/images/kp/Containerfile', ['kp', 'shop'], true, ''],
+    ]);
+    it('read the rows', () => {
+        expect(list[0].kind).toBe('builtin');
+        expect(list[1].usedBy).toEqual([]);
     });
-    it('names the folder and says when Recreate would change the container', () => {
-        const own = {...config, image: 'kp', image_file: '/home/mj/.config/koje/images/kp/Containerfile'};
-        expect(imageRow(own, '/home/mj/')).toEqual({
-            subtitle: 'kp · ~/.config/koje/images/kp/Containerfile', button: 'Edit Containerfile…',
+    it('are the context\'s choices, with a registry image as written', () => {
+        expect(imageChoices(list, 'web')).toEqual([
+            ['fedora', 'Fedora'], ['web', 'Web development (web)'], ['kp', 'kp'],
+        ]);
+        const reg = imageChoices(list, 'docker.io/library/debian:13');
+        expect(reg.at(-1)).toEqual(['docker.io/library/debian:13', 'docker.io/library/debian:13']);
+        expect(imageChoice(reg, 'docker.io/library/debian:13')).toBe(3);
+        expect(imageChoices(list, 'koje/base:latest')).toHaveLength(3);
+        expect(imageChoice(imageChoices(list, 'koje/base:latest'), 'koje/base:latest')).toBe(0);
+    });
+    it('say whether they are built and who uses them', () => {
+        expect(imageStatus(list[0], false)).toBe('Built');
+        expect(imageStatus(list[1], false)).toMatch(/^Not built yet/);
+        expect(imageStatus(list[1], true)).toBe('Building…');
+        expect(imageStatus({...list[1], error: 'it has no Containerfile'}, false)).toBe('it has no Containerfile');
+    });
+    it('are removed only when koje\'s and unused', () => {
+        expect(imageRemoval(list[0]).sensitive).toBe(false);
+        expect(imageRemoval(list[2])).toEqual({
+            sensitive: false, subtitle: 'Used by kp, shop: give them another image first.',
         });
-        expect(imageRow(own, '/home/other').subtitle).toBe('kp · /home/mj/.config/koje/images/kp/Containerfile');
-        const changed = imageRow({...own, image_outdated: 'a folder changed'}, '/home/mj');
-        expect(changed.subtitle).toBe(
-            'kp · ~/.config/koje/images/kp/Containerfile\nChanged (a folder changed) – Recreate builds and applies it');
+        expect(imageRemoval(list[1]).sensitive).toBe(true);
+    });
+    it('get a free name for a context', () => {
+        expect(suggestImageName('shop', list)).toBe('shop');
+        expect(suggestImageName('kp', list)).toBe('kp-2');
+        expect(suggestImageName('fedora', list)).toBe('fedora-2');
+    });
+    it('make Recreate say when the image changed', () => {
+        expect(recreateRow({...config, image_outdated: 'web was rebuilt'}).subtitle)
+            .toBe('Its image changed (web was rebuilt): Recreate builds and applies it.');
     });
 });
 
@@ -137,9 +167,9 @@ describe('the context form', () => {
     });
     it('sends only what changed', () => {
         expect(changes(f, f)).toEqual({});
-        const edited = {...f, label: 'Kundenportal', memoryHard: '8G', mounts: ['~/src', '~/docs']};
+        const edited = {...f, label: 'Kundenportal', image: 'web', memoryHard: '8G', mounts: ['~/src', '~/docs']};
         expect(changes(f, edited)).toEqual({
-            label: 'Kundenportal', memory_hard: 8 * 2 ** 30, mounts: ['~/src', '~/docs'],
+            label: 'Kundenportal', image: 'web', memory_hard: 8 * 2 ** 30, mounts: ['~/src', '~/docs'],
         });
         expect(changes(f, {...f, access: {}})).toEqual({access: {}});
     });

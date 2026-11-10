@@ -267,6 +267,19 @@ pub enum ImageCmd {
         /// The image it builds on (default: fedora).
         #[arg(long, default_value = koje_core::image::DEFAULT)]
         from: String,
+        /// Shown instead of the name (image.toml).
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// List images: koje's own and the image folders, with the contexts
+    /// using them.
+    List,
+    /// Remove an image folder; refused while a context uses it.
+    Rm {
+        name: String,
+        /// Do not ask for confirmation.
+        #[arg(long)]
+        yes: bool,
     },
 }
 

@@ -31,6 +31,8 @@ pub struct Api {
     pub paths: Paths,
     /// Contexts with an operation (`Up`, `Down`, …) under way.
     pub busy: Arc<std::sync::Mutex<BTreeSet<ContextName>>>,
+    /// Images being built (`BuildImage`).
+    pub building: Arc<std::sync::Mutex<BTreeSet<String>>>,
 }
 
 /// A row of `Apps`.
@@ -312,22 +314,156 @@ impl Api {
         Ok(notes)
     }
 
-    /// The Containerfile of a context's image folder, as `koje image edit`
-    /// finds it (ADR 0063): the folder it uses, else its own, made from its
-    /// image and set as its image. The caller opens it.
-    async fn image_file(
+    /// Every image (ADR 0064): koje's own and the image folders, see
+    /// `crate::manage::ImageRow`.
+    async fn images(&self) -> Result<Vec<crate::manage::ImageRow>, Error> {
+        let paths = self.paths.clone();
+        blocking(move || crate::manage::images(&paths)).await
+    }
+
+    /// Create an image folder `FROM` `from` (as `image = …` names an image)
+    /// with a label; returns its name.
+    async fn new_image(
         &self,
-        context: &str,
+        name: &str,
+        from: &str,
+        label: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<String, Error> {
-        let ctx = context_name(context)?;
-        let paths = self.paths.clone();
-        let file = blocking(move || crate::manage::image_file(&paths, &ctx)).await?;
-        let reloaded = self.daemon.lock().await.reload().await;
-        let _ = Self::contexts_changed(&emitter).await;
-        reloaded?;
-        Ok(file)
+        let (paths, name, from, label) = (
+            self.paths.clone(),
+            name.to_owned(),
+            from.to_owned(),
+            label.to_owned(),
+        );
+        let created =
+            blocking(move || crate::manage::new_image(&paths, &name, &from, &label)).await?;
+        let _ = Self::images_changed(&emitter).await;
+        Ok(created)
     }
+
+    /// Change an image's `label` or `description` (`""` removes one).
+    async fn set_image(
+        &self,
+        name: &str,
+        settings: HashMap<String, OwnedValue>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let (paths, name) = (self.paths.clone(), name.to_owned());
+        blocking(move || crate::manage::set_image(&paths, &name, &settings)).await?;
+        let _ = Self::images_changed(&emitter).await;
+        Ok(())
+    }
+
+    /// Remove an image folder; refused while a context uses it.
+    async fn remove_image(
+        &self,
+        name: &str,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), Error> {
+        let (paths, name) = (self.paths.clone(), name.to_owned());
+        blocking(move || crate::manage::remove_image(&paths, &name)).await?;
+        let _ = Self::images_changed(&emitter).await;
+        Ok(())
+    }
+
+    /// Build an image with what it builds on and your user on top, as
+    /// `koje image build <name>`. Returns at once; `ImageBuildProgress`,
+    /// then `ImageBuildFinished` or `ImageBuildFailed` follow. Contexts get
+    /// the build when recreated.
+    fn build_image(
+        &self,
+        name: &str,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> Result<(), Error> {
+        let image = koje_core::name::ImageName::new(name)
+            .map_err(|e| Error::InvalidArgs(e.to_string()))?
+            .to_string();
+        {
+            let mut busy = self
+                .building
+                .lock()
+                .map_err(|e| Error::Failed(e.to_string()))?;
+            if !busy.insert(image.clone()) {
+                return Err(Error::Busy(format!("{image} is being built already")));
+            }
+        }
+        let (conn, paths, busy) = (conn.clone(), self.paths.clone(), Arc::clone(&self.building));
+        tokio::spawn(async move {
+            let Ok(emitter) = SignalEmitter::new(&conn, OBJECT_PATH) else {
+                return;
+            };
+            let _ = Self::image_build_started(&emitter, &image).await;
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            let name = image.clone();
+            let run = blocking(move || {
+                koje_runtime::say::to(
+                    move |line| {
+                        let _ = tx.send(line.to_owned());
+                    },
+                    || {
+                        koje_runtime::images::ensure(
+                            &paths,
+                            &name,
+                            koje_runtime::images::Options {
+                                force: true,
+                                ..Default::default()
+                            },
+                        )
+                        .map(drop)
+                    },
+                )
+            });
+            let progress = async {
+                while let Some(line) = rx.recv().await {
+                    let _ = Self::image_build_progress(&emitter, &image, &line).await;
+                }
+            };
+            let (result, ()) = tokio::join!(run, progress);
+            if let Ok(mut b) = busy.lock() {
+                b.remove(&image);
+            }
+            match result {
+                Ok(()) => {
+                    let _ = Self::image_build_finished(&emitter, &image).await;
+                }
+                Err(e) => {
+                    let message = zbus::DBusError::description(&e)
+                        .map_or_else(|| e.to_string(), ToOwned::to_owned);
+                    tracing::warn!(image, "build: {message}");
+                    let _ = Self::image_build_failed(&emitter, &image, &message).await;
+                }
+            }
+            let _ = Self::images_changed(&emitter).await;
+            let _ = Self::contexts_changed(&emitter).await;
+        });
+        Ok(())
+    }
+
+    /// Images came, went or changed.
+    #[zbus(signal)]
+    async fn images_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn image_build_started(emitter: &SignalEmitter<'_>, image: &str) -> zbus::Result<()>;
+
+    /// A line of what the build does (podman's output).
+    #[zbus(signal)]
+    async fn image_build_progress(
+        emitter: &SignalEmitter<'_>,
+        image: &str,
+        line: &str,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn image_build_finished(emitter: &SignalEmitter<'_>, image: &str) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn image_build_failed(
+        emitter: &SignalEmitter<'_>,
+        image: &str,
+        message: &str,
+    ) -> zbus::Result<()>;
 
     /// Create a context as `koje new` does (a color of its own); returns its
     /// name.
@@ -661,8 +797,9 @@ impl Api {
     /// Read the contexts' config files again (koje calls it after `new` and `edit`).
     async fn reload(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> fdo::Result<()> {
         let reloaded = self.daemon.lock().await.reload().await;
-        // A new or removed context, a new color.
+        // A new or removed context, a new color; `koje image new`/`rm`.
         let _ = Self::contexts_changed(&emitter).await;
+        let _ = Self::images_changed(&emitter).await;
         reloaded.map_err(|e| failed(&e))
     }
 

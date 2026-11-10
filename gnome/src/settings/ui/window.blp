@@ -133,6 +133,22 @@ Adw.ApplicationWindow window {
                       }
                     }
 
+                    Adw.PreferencesGroup {
+                      title: "Image";
+                      description: "Where the context's programs come from. A change applies to a new container (Recreate).";
+
+                      [header-suffix]
+                      Button new_image_button {
+                        label: "New Image…";
+                        valign: center;
+                      }
+
+                      Adw.ComboRow image_choice_row {
+                        title: "Image";
+                        use-markup: false;
+                      }
+                    }
+
                     Adw.PreferencesGroup mounts_group {
                       title: "Folders";
                       description: "Folders below your home that the context sees at the same path.";
@@ -185,17 +201,6 @@ Adw.ApplicationWindow window {
 
                     Adw.PreferencesGroup {
                       title: "Container";
-
-                      Adw.ActionRow image_row {
-                        title: "Image";
-                        subtitle-selectable: true;
-
-                        [suffix]
-                        Button image_button {
-                          label: "Edit Containerfile…";
-                          valign: center;
-                        }
-                      }
 
                       Adw.ActionRow recreate_row {
                         title: "Recreate";
@@ -260,6 +265,88 @@ Adw.ApplicationWindow window {
                       description: "What a save would remember of the running context.";
                     }
                   };
+                }
+              };
+            }
+
+            StackPage {
+              name: "image";
+
+              child: Adw.PreferencesPage {
+                Adw.PreferencesGroup {
+                  title: "Image";
+
+                  Adw.EntryRow image_label_row {
+                    title: "Label";
+                    show-apply-button: true;
+                  }
+
+                  Adw.EntryRow image_description_row {
+                    title: "Description";
+                    show-apply-button: true;
+                  }
+
+                  Adw.ActionRow image_name_row {
+                    title: "Name";
+                    subtitle-selectable: true;
+                  }
+                }
+
+                Adw.PreferencesGroup {
+                  title: "Programs";
+
+                  Adw.ActionRow image_file_row {
+                    title: "Containerfile";
+                    subtitle-selectable: true;
+
+                    [suffix]
+                    Button image_edit_button {
+                      label: "Edit…";
+                      valign: center;
+                    }
+                  }
+
+                  Adw.ActionRow image_build_row {
+                    title: "Build";
+
+                    [suffix]
+                    Button image_build_button {
+                      label: "Build Now";
+                      valign: center;
+                    }
+                  }
+
+                  Adw.ActionRow {
+                    title: "New Image From This";
+                    subtitle: "An image of your own that builds on this one.";
+
+                    [suffix]
+                    Button image_derive_button {
+                      label: "New Image…";
+                      valign: center;
+                    }
+                  }
+                }
+
+                Adw.PreferencesGroup image_users_group {
+                  title: "Used By";
+                  description: "Contexts get a new build when they are recreated.";
+                }
+
+                Adw.PreferencesGroup {
+                  Adw.ActionRow image_remove_row {
+                    title: "Remove Image";
+
+                    [suffix]
+                    Button image_remove_button {
+                      label: "Remove…";
+                      valign: center;
+
+                      styles [
+                        "destructive-action",
+                      ]
+                    }
+                  }
                 }
               };
             }

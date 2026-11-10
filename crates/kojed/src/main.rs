@@ -66,6 +66,7 @@ async fn main() -> Result<()> {
                 runtime: runtime.clone(),
                 paths,
                 busy: Arc::default(),
+                building: Arc::default(),
             },
         )?
         .build()

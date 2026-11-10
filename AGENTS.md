@@ -29,6 +29,7 @@ An English summary is `docs/architecture.md`. Settled decisions are in
 | project | The user's work (repos, documents). koje has **no project object**; a context mounts folders. |
 | container | Only the technical implementation: *context container*, *dev container*, compose container. |
 | state | Named snapshot of a context: which windows run and where. Roles: `default`, `fresh`; reserved: `empty`. |
+| image | Where a context's programs come from (ADR 0040, 0064): koje's built-in `fedora` or an image folder `~/.config/koje/images/<name>/` (Containerfile, `image.toml`); koje adds the user on top. Kept and listed like contexts. |
 | layout | Named arrangement of a context's running windows. Part of a state's file; not switchable on GNOME yet (ADR 0061). |
 | access profile | Which host resources a context gets (`gpu`, `sound`, `wayland`, `nested`, `network`, …): a profile (`full`, `desktop`, `headless`, `isolated`) plus overrides; also host interfaces (`notifications`, `file_chooser`, …). ADR 0017, 0019. |
 | integration | Optional description of how koje launches/remembers a program. Programs work without one. |

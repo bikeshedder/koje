@@ -14,7 +14,11 @@ export interface Methods {
     Focus: {in: [string]; out: []};
     Favorites: {in: [string]; out: [boolean, string[]]};
     SetFavorites: {in: [string, boolean, string[]]; out: []};
-    ImageFile: {in: [string]; out: [string]};
+    Images: {in: []; out: [[string, string, string, string, string, string[], boolean, string][]]};
+    NewImage: {in: [string, string, string]; out: [string]};
+    SetImage: {in: [string, Record<string, GLib.Variant>]; out: []};
+    RemoveImage: {in: [string]; out: []};
+    BuildImage: {in: [string]; out: []};
     NewContext: {in: [string]; out: [string]};
     Config: {in: [string]; out: [Record<string, unknown>]};
     SetConfig: {in: [string, Record<string, GLib.Variant>]; out: [string[]]};
@@ -45,7 +49,11 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     Focus: ['(s)', '()'],
     Favorites: ['(s)', '(bas)'],
     SetFavorites: ['(sbas)', '()'],
-    ImageFile: ['(s)', '(s)'],
+    Images: ['()', '(a(sssssasbs))'],
+    NewImage: ['(sss)', '(s)'],
+    SetImage: ['(sa{sv})', '()'],
+    RemoveImage: ['(s)', '()'],
+    BuildImage: ['(s)', '()'],
     NewContext: ['(s)', '(s)'],
     Config: ['(s)', '(a{sv})'],
     SetConfig: ['(sa{sv})', '(as)'],
@@ -73,6 +81,11 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
 export interface Signals {
     ContextsChanged: [];
     FavoritesChanged: [string];
+    ImagesChanged: [];
+    ImageBuildStarted: [string];
+    ImageBuildProgress: [string, string];
+    ImageBuildFinished: [string];
+    ImageBuildFailed: [string, string];
     OperationStarted: [string, string];
     OperationFinished: [string, string];
     OperationFailed: [string, string, string, string];

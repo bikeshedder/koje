@@ -9,7 +9,7 @@ import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk?version=4.0';
 
 import {Kojed, KojedError} from '../api/kojed.js';
-import {ask, askName} from './dialogs.js';
+import {ask, askImage, askName} from './dialogs.js';
 import * as model from './model.js';
 import {OutputDialog} from './output.js';
 
@@ -17,6 +17,14 @@ Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish'
 Gio._promisify(Gtk.FileLauncher.prototype, 'launch', 'launch_finish');
 
 const MEMORY = '';
+const IMAGE = model.IMAGE_KEY;
+
+/** An image's row in the sidebar. */
+interface ImageRows {
+    sidebar: Gtk.ListBoxRow;
+    title: Gtk.Label;
+    subtitle: Gtk.Label;
+}
 
 /** The rows a context has in the sidebar and on the Memory page. */
 interface ContextRows {
@@ -81,6 +89,15 @@ export class SettingsWindow {
     #windowRows: Gtk.Widget[] = [];
     #refreshSource = 0;
 
+    // Images (ADR 0064).
+    #images: model.Image[] = [];
+    readonly #imageRows = new Map<string, ImageRows>();
+    #imageUserRows: Gtk.Widget[] = [];
+    /** The context page's image choices, `[value, title]`. */
+    #imageChoices: [string, string][] = [];
+    /** The image whose label and description the entries hold. */
+    #imageFilled = '';
+
     constructor(app: Adw.Application) {
         this.#builder = Gtk.Builder.new_from_file(uiFile('window.ui'));
         const get = <T>(id: string) => this.#builder.get_object(id) as T;
@@ -101,6 +118,7 @@ export class SettingsWindow {
 
         this.#memoryRow = this.#sidebarRow(MEMORY, 'Memory', 'power-profile-performance-symbolic').sidebar;
         this.#sidebar.append(this.#memoryRow);
+        this.#sidebar.set_header_func((row, before) => this.#sidebarHeader(row, before));
         this.#sidebar.connect('row-activated', (_l, row) => {
             this.#select(row.get_name());
             this.#split.show_content = true;
@@ -110,36 +128,32 @@ export class SettingsWindow {
         get<Gtk.Button>('save_as').connect('clicked', () => void this.#saveAs());
         get<Gtk.Button>('recreate_button').connect('clicked', () => void this.#recreate());
         get<Gtk.Button>('remove_button').connect('clicked', () => void this.#remove());
-        get<Gtk.Button>('image_button').connect('clicked', () => void this.#editImage());
+        this.#connectImages();
 
-        for (const signal of ['ContextsChanged', 'MemoryChanged'] as const)
+        for (const signal of ['ContextsChanged', 'MemoryChanged', 'ImagesChanged'] as const)
             this.#kojed.connect(signal, () => this.#scheduleRefresh());
+        // An image's build: its output under `image:<name>`, as a context's.
+        this.#kojed.connect('ImageBuildStarted', image => this.#started(IMAGE + image, 'build'));
+        this.#kojed.connect('ImageBuildProgress', (image, line) => this.#progress(IMAGE + image, 'build', line));
+        this.#kojed.connect('ImageBuildFinished', image => {
+            this.#busy.delete(IMAGE + image);
+            this.#ended(IMAGE + image, null);
+            this.#toast(`Built image ${image} – contexts get it when recreated`);
+            this.#scheduleRefresh();
+        });
+        this.#kojed.connect('ImageBuildFailed', (image, message) => {
+            const key = IMAGE + image;
+            this.#busy.delete(key);
+            this.#ended(key, message);
+            this.#toast(`Image ${image}: build failed – ${message}`, () => this.#showOutput(key));
+            this.#scheduleRefresh();
+        });
         this.#kojed.connect('StatesChanged', context => {
             if (context === this.#selected)
                 void this.#loadStates();
         });
-        this.#kojed.connect('OperationStarted', (context, operation) => {
-            this.#busy.set(context, operation);
-            const log = model.logStarted(operation);
-            this.#logs.set(context, log);
-            if (this.#output.context === context)
-                this.#output.present(this.#window, context, model.logTitle(context, log), []);
-            this.#render();
-        });
-        this.#kojed.connect('OperationProgress', (context, operation, line) => {
-            let log = this.#logs.get(context);
-            if (!log || log.state !== 'running') {
-                // Started before this window was there.
-                log = model.logStarted(operation);
-                this.#logs.set(context, log);
-            }
-            const wasBuilding = log.building;
-            model.logLine(log, line);
-            if (this.#output.context === context)
-                this.#output.append(line);
-            else if (!wasBuilding && log.building && context === this.#selected)
-                this.#showOutput(context); // a build takes minutes: show what it does
-        });
+        this.#kojed.connect('OperationStarted', (context, operation) => this.#started(context, operation));
+        this.#kojed.connect('OperationProgress', (context, operation, line) => this.#progress(context, operation, line));
         this.#kojed.connect('OperationFinished', (context, operation) => {
             this.#busy.delete(context);
             this.#ended(context, null);
@@ -196,9 +210,10 @@ export class SettingsWindow {
             return;
         }
         this.#syncRows();
+        await this.#refreshImages();
         await this.#refreshMemory();
         this.#render();
-        if (this.#selected !== MEMORY && this.#config === null)
+        if (this.#current() && this.#config === null)
             void this.#loadContext();
         else if (this.#current()?.status === 'running')
             void this.#loadWindows();
@@ -260,9 +275,96 @@ export class SettingsWindow {
         });
         this.#css.load_from_string(css);
         // A context asked for before its row existed (`koje-settings <context>`).
-        const selected = this.#selected === MEMORY ? this.#memoryRow : this.#rows.get(this.#selected)?.sidebar;
+        const selected = this.#rowOf(this.#selected);
         if (selected && this.#sidebar.get_selected_row() !== selected)
             this.#sidebar.select_row(selected);
+    }
+
+    /** The sidebar row of a context, an image (`image:<name>`) or Memory. */
+    #rowOf(key: string): Gtk.ListBoxRow | undefined {
+        if (key === MEMORY)
+            return this.#memoryRow;
+        if (key.startsWith(IMAGE))
+            return this.#imageRows.get(key.slice(IMAGE.length))?.sidebar;
+        return this.#rows.get(key)?.sidebar;
+    }
+
+    // ----- Images in the sidebar (ADR 0064) -----
+
+    async #refreshImages(): Promise<void> {
+        try {
+            const [rows] = await this.#kojed.call('Images');
+            this.#images = model.images(rows);
+        } catch (e) {
+            this.#error(e);
+            return;
+        }
+        this.#syncImageRows();
+        const img = this.#currentImage();
+        if (img)
+            this.#fillImage(img);
+        if (this.#form && !this.#filling)
+            this.#fillImageChoices(this.#form.image);
+    }
+
+    #currentImage(): model.Image | undefined {
+        if (!this.#selected.startsWith(IMAGE))
+            return undefined;
+        const name = this.#selected.slice(IMAGE.length);
+        return this.#images.find(i => i.name === name);
+    }
+
+    /** Image rows after the contexts, under an "Images" heading with +. */
+    #syncImageRows(): void {
+        const names = new Set(this.#images.map(i => i.name));
+        for (const [name, rows] of this.#imageRows) {
+            if (!names.has(name)) {
+                this.#sidebar.remove(rows.sidebar);
+                this.#imageRows.delete(name);
+            }
+        }
+        this.#images.forEach((img, i) => {
+            let rows = this.#imageRows.get(img.name);
+            if (!rows) {
+                const box = new Gtk.Box({spacing: 12, margin_top: 6, margin_bottom: 6});
+                box.append(new Gtk.Image({icon_name: 'package-x-generic-symbolic'}));
+                const texts = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL});
+                const title = new Gtk.Label({xalign: 0, ellipsize: 3});
+                const subtitle = new Gtk.Label({xalign: 0, ellipsize: 3, css_classes: ['caption', 'dim-label']});
+                texts.append(title);
+                texts.append(subtitle);
+                box.append(texts);
+                rows = {sidebar: new Gtk.ListBoxRow({child: box, name: IMAGE + img.name}), title, subtitle};
+                this.#imageRows.set(img.name, rows);
+                // After Memory and the contexts, in the listed order.
+                this.#sidebar.insert(rows.sidebar, 1 + this.#rows.size + i);
+            }
+            rows.title.label = img.label;
+            const busy = this.#busy.has(IMAGE + img.name);
+            rows.subtitle.label = busy ? 'Building…' : model.usedBy(img);
+        });
+        this.#sidebar.invalidate_headers();
+        const selected = this.#rowOf(this.#selected);
+        if (selected && this.#sidebar.get_selected_row() !== selected)
+            this.#sidebar.select_row(selected);
+    }
+
+    /** The heading above the first image row. */
+    #sidebarHeader(row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | null): void {
+        const first = row.get_name().startsWith(IMAGE) && !before?.get_name().startsWith(IMAGE);
+        if (!first) {
+            if (row.get_header())
+                row.set_header(null);
+            return;
+        }
+        if (row.get_header())
+            return;
+        const header = new Gtk.Box({spacing: 6, margin_top: 18, margin_start: 12, margin_end: 6});
+        header.append(new Gtk.Label({label: 'Images', xalign: 0, hexpand: true, css_classes: ['heading', 'dim-label']}));
+        const add = new Gtk.Button({icon_name: 'list-add-symbolic', tooltip_text: 'New Image', css_classes: ['flat']});
+        add.connect('clicked', () => void this.#newImage(model.IMAGE_DEFAULT_FROM));
+        header.append(add);
+        row.set_header(header);
     }
 
     async #refreshMemory(): Promise<void> {
@@ -295,11 +397,15 @@ export class SettingsWindow {
         this.#config = null;
         this.#original = null;
         this.#form = null;
-        const row = name === MEMORY ? this.#memoryRow : this.#rows.get(name)?.sidebar;
+        this.#imageFilled = '';
+        const row = this.#rowOf(name);
         if (row)
             this.#sidebar.select_row(row);
         this.#render();
-        if (name !== MEMORY)
+        const img = this.#currentImage();
+        if (img)
+            this.#fillImage(img);
+        else if (name !== MEMORY && !name.startsWith(IMAGE))
             void this.#loadContext();
     }
 
@@ -311,9 +417,18 @@ export class SettingsWindow {
             this.#clearActions();
             return;
         }
+        const img = this.#currentImage();
+        if (img) {
+            this.#pages.visible_child_name = 'image';
+            this.#contentPage.title = img.label;
+            this.#switcher.visible = false;
+            this.#renderOutputActions(this.#selected);
+            return;
+        }
         const c = this.#current();
         if (!c) {
-            if (this.#selected !== MEMORY && this.#contexts.length)
+            // Gone, or not there yet (images come after the contexts).
+            if (this.#selected !== MEMORY && this.#contexts.length && !this.#selected.startsWith(IMAGE))
                 this.#selected = MEMORY;
             this.#pages.visible_child_name = 'memory';
             this.#contentPage.title = 'Memory';
@@ -337,22 +452,29 @@ export class SettingsWindow {
         }
     }
 
-    #renderActions(c: model.Context): void {
+    /** The spinner (output, live) or the last output's button; whether busy. */
+    #renderOutputActions(key: string): boolean {
         this.#clearActions();
-        if (this.#busy.has(c.name)) {
+        if (this.#busy.has(key)) {
             // What it does, live.
             const busy = new Gtk.Button({child: new Adw.Spinner(), tooltip_text: 'Show Output'});
-            busy.connect('clicked', () => this.#showOutput(c.name));
+            busy.connect('clicked', () => this.#showOutput(key));
             this.#actions.append(busy);
-            return;
+            return true;
         }
-        if (this.#logs.has(c.name)) {
+        if (this.#logs.has(key)) {
             const last = new Gtk.Button({
                 icon_name: 'utilities-terminal-symbolic', tooltip_text: 'Output of the Last Operation',
             });
-            last.connect('clicked', () => this.#showOutput(c.name));
+            last.connect('clicked', () => this.#showOutput(key));
             this.#actions.append(last);
         }
+        return false;
+    }
+
+    #renderActions(c: model.Context): void {
+        if (this.#renderOutputActions(c.name))
+            return;
         const buttons: Record<model.Action, [string, string, () => Promise<void>]> = {
             up: ['media-playback-start-symbolic', 'Start', () => this.#up(c.name, '')],
             down: ['system-shutdown-symbolic', 'Stop', () => this.#down(c.name)],
@@ -379,6 +501,41 @@ export class SettingsWindow {
         this.#toasts.add_toast(toast);
     }
 
+    /** An operation of `key` (a context, or `image:<name>`) began. */
+    #started(key: string, operation: string): void {
+        this.#busy.set(key, operation);
+        const log = model.logStarted(operation);
+        this.#logs.set(key, log);
+        if (this.#output.context === key)
+            this.#output.present(this.#window, key, model.logTitle(this.#titleOf(key), log), []);
+        this.#render();
+        this.#syncImageRows();
+    }
+
+    /** A line of what it does. */
+    #progress(key: string, operation: string, line: string): void {
+        let log = this.#logs.get(key);
+        if (!log || log.state !== 'running') {
+            // Started before this window was there.
+            log = model.logStarted(operation);
+            this.#logs.set(key, log);
+        }
+        const wasBuilding = log.building;
+        model.logLine(log, line);
+        if (this.#output.context === key)
+            this.#output.append(line);
+        else if (!wasBuilding && log.building && key === this.#selected)
+            this.#showOutput(key); // a build takes minutes: show what it does
+    }
+
+    /** What the output dialog calls `key`: an image's label, a context's name. */
+    #titleOf(key: string): string {
+        if (!key.startsWith(IMAGE))
+            return key;
+        const name = key.slice(IMAGE.length);
+        return `image ${this.#images.find(i => i.name === name)?.label ?? name}`;
+    }
+
     /** An operation of `context` ended (`failed`: why, else `null`). */
     #ended(context: string, failed: string | null): void {
         const log = this.#logs.get(context);
@@ -387,7 +544,7 @@ export class SettingsWindow {
         const ended = model.logEnded(log, failed);
         this.#logs.set(context, ended);
         if (this.#output.context === context) {
-            this.#output.title = model.logTitle(context, ended);
+            this.#output.title = model.logTitle(this.#titleOf(context), ended);
             if (failed !== null)
                 this.#output.append(`failed: ${failed}`);
         }
@@ -397,7 +554,7 @@ export class SettingsWindow {
     #showOutput(context: string): void {
         const log = this.#logs.get(context);
         if (log)
-            this.#output.present(this.#window, context, model.logTitle(context, log), log.lines);
+            this.#output.present(this.#window, context, model.logTitle(this.#titleOf(context), log), log.lines);
     }
 
     #error(e: unknown): void {
@@ -483,41 +640,191 @@ export class SettingsWindow {
         }
     }
 
-    /** The Container group from the config: the image and Recreate rows. */
+    /** The Container group from the config: Recreate, and whether its image changed. */
     #fillContainer(c: model.Config): void {
-        const row = model.imageRow(c, GLib.get_home_dir());
-        this.#get<Adw.ActionRow>('image_row').subtitle = GLib.markup_escape_text(row.subtitle, -1);
-        this.#get<Gtk.Button>('image_button').label = row.button;
         const recreate = model.recreateRow(c);
-        this.#get<Adw.ActionRow>('recreate_row').subtitle = recreate.subtitle;
+        this.#get<Adw.ActionRow>('recreate_row').subtitle = GLib.markup_escape_text(recreate.subtitle, -1);
         this.#get<Gtk.Button>('recreate_button').sensitive = recreate.sensitive;
     }
 
-    /**
-     * The context's Containerfile in the desktop's editor (ADR 0063): kojed
-     * finds or makes it; a new one is asked for first.
-     */
-    async #editImage(): Promise<void> {
-        const context = this.#selected;
-        const c = this.#config;
-        if (!c)
-            return;
-        if (!c.image_file) {
-            const answer = await ask(this.#window, `Give ${context} Its Own Image?`,
-                `A Containerfile building on ${c.image} is created in koje's image folder and becomes ${context}'s image. Install programs there; Recreate builds and applies it.`,
-                [['create', 'Create and Open', Adw.ResponseAppearance.SUGGESTED]]);
-            if (answer !== 'create')
-                return;
+    // ----- Images (ADR 0064) -----
+
+    #connectImages(): void {
+        this.#get<Adw.ComboRow>('image_choice_row').connect('notify::selected', row => {
+            const value = this.#imageChoices[row.selected]?.[0];
+            if (value !== undefined)
+                this.#edit({image: value});
+        });
+        this.#get<Gtk.Button>('new_image_button').connect('clicked', () => void this.#newImageForContext());
+        for (const [id, key] of [['image_label_row', 'label'], ['image_description_row', 'description']] as const) {
+            this.#get<Adw.EntryRow>(id).connect('apply', row => void this.#setImage(key, row.text));
         }
+        this.#get<Gtk.Button>('image_edit_button').connect('clicked', () => void this.#editContainerfile());
+        this.#get<Gtk.Button>('image_build_button').connect('clicked', () => void this.#buildImage());
+        this.#get<Gtk.Button>('image_derive_button').connect('clicked', () => {
+            const img = this.#currentImage();
+            if (img)
+                void this.#newImage(img.name);
+        });
+        this.#get<Gtk.Button>('image_remove_button').connect('clicked', () => void this.#removeImage());
+    }
+
+    /** The context page's image dropdown, on `current` (from code: no edit). */
+    #fillImageChoices(current: string): void {
+        const filling = this.#filling;
+        this.#filling = true;
+        this.#imageChoices = model.imageChoices(this.#images, current);
+        const row = this.#get<Adw.ComboRow>('image_choice_row');
+        row.model = Gtk.StringList.new(this.#imageChoices.map(([, title]) => title));
+        row.selected = model.imageChoice(this.#imageChoices, current);
+        const img = this.#images.find(i => i.name === current);
+        row.subtitle = img?.description || (img ? '' : 'A registry image or a folder, as written in context.toml');
+        this.#filling = filling;
+    }
+
+    /** The image page (the entries only when another image was shown: an edit stays). */
+    #fillImage(img: model.Image): void {
+        const own = img.kind === 'folder';
+        const label = this.#get<Adw.EntryRow>('image_label_row');
+        const description = this.#get<Adw.EntryRow>('image_description_row');
+        if (this.#imageFilled !== img.name) {
+            label.text = img.label;
+            description.text = img.description;
+            this.#imageFilled = img.name;
+        }
+        label.sensitive = own;
+        description.sensitive = own;
+        this.#get<Adw.ActionRow>('image_name_row').subtitle = `image = "${img.name}" in a context's context.toml`;
+        const file = this.#get<Adw.ActionRow>('image_file_row');
+        const home = GLib.get_home_dir();
+        file.subtitle = GLib.markup_escape_text(own
+            ? (img.file.startsWith(`${home}/`) ? `~${img.file.slice(home.length)}` : img.file) || img.error
+            : 'Built into koje – make a new image from it to change it', -1);
+        this.#get<Gtk.Button>('image_edit_button').visible = own && img.file !== '';
+        const building = this.#busy.has(IMAGE + img.name);
+        this.#get<Adw.ActionRow>('image_build_row').subtitle = GLib.markup_escape_text(model.imageStatus(img, building), -1);
+        this.#get<Gtk.Button>('image_build_button').sensitive = !building && (!own || img.file !== '');
+        const removal = model.imageRemoval(img);
+        this.#get<Adw.ActionRow>('image_remove_row').subtitle = GLib.markup_escape_text(removal.subtitle, -1);
+        this.#get<Gtk.Button>('image_remove_button').sensitive = removal.sensitive;
+
+        const group = this.#get<Adw.PreferencesGroup>('image_users_group');
+        this.#imageUserRows.forEach(r => group.remove(r));
+        this.#imageUserRows = img.usedBy.map(context => {
+            const label = this.#contexts.find(c => c.name === context)?.label ?? context;
+            const row = new Adw.ActionRow({title: GLib.markup_escape_text(label, -1), activatable: true});
+            row.add_suffix(new Gtk.Image({icon_name: 'go-next-symbolic'}));
+            row.connect('activated', () => this.#select(context));
+            group.add(row);
+            return row;
+        });
+        if (!img.usedBy.length) {
+            const row = new Adw.ActionRow({title: 'No context uses it', subtitle: 'Choose it on a context\'s page.'});
+            group.add(row);
+            this.#imageUserRows = [row];
+        }
+    }
+
+    async #setImage(key: 'label' | 'description', text: string): Promise<void> {
+        const img = this.#currentImage();
+        if (!img)
+            return;
         try {
-            const [path] = await this.#kojed.call('ImageFile', context);
-            const launcher = new Gtk.FileLauncher({file: Gio.File.new_for_path(path)});
+            await this.#kojed.call('SetImage', img.name, {[key]: new GLib.Variant('s', text)});
+            this.#imageFilled = '';
+        } catch (e) {
+            this.#error(e);
+        }
+    }
+
+    /** The Containerfile in the desktop's editor (ADR 0063). */
+    async #editContainerfile(): Promise<void> {
+        const img = this.#currentImage();
+        if (!img?.file)
+            return;
+        try {
+            const launcher = new Gtk.FileLauncher({file: Gio.File.new_for_path(img.file)});
             await launcher.launch(this.#window, null);
         } catch (e) {
             if (!(e instanceof GLib.Error && e.matches(Gtk.DialogError, Gtk.DialogError.DISMISSED)))
                 this.#error(e);
         }
-        await this.#refreshContainer();
+    }
+
+    /** Build it now; the output is shown at once. */
+    async #buildImage(): Promise<void> {
+        const img = this.#currentImage();
+        if (!img)
+            return;
+        const key = IMAGE + img.name;
+        this.#output.present(this.#window, key, model.logTitle(this.#titleOf(key), model.logStarted('build')), []);
+        try {
+            await this.#kojed.call('BuildImage', img.name);
+        } catch (e) {
+            this.#error(e);
+        }
+    }
+
+    async #removeImage(): Promise<void> {
+        const img = this.#currentImage();
+        if (!img)
+            return;
+        const answer = await ask(this.#window, `Remove Image ${img.label}?`,
+            'Its folder with the Containerfile and everything next to it is deleted.',
+            [['remove', 'Remove', Adw.ResponseAppearance.DESTRUCTIVE]]);
+        if (answer !== 'remove')
+            return;
+        try {
+            await this.#kojed.call('RemoveImage', img.name);
+            this.#select(MEMORY);
+        } catch (e) {
+            this.#error(e);
+        }
+    }
+
+    /** A new image building on `from`; shown when made. */
+    async #newImage(from: string): Promise<void> {
+        const answer = await askImage(this.#window, {name: '', label: '', from}, model.imageChoices(this.#images, from));
+        if (!answer)
+            return;
+        try {
+            const [name] = await this.#kojed.call('NewImage', answer.name, answer.from, answer.label);
+            await this.#refreshImages();
+            this.#select(IMAGE + name);
+        } catch (e) {
+            this.#error(e);
+        }
+    }
+
+    /**
+     * A new image for the selected context (ADR 0064): from its image, and
+     * the context's image at once (a form being edited keeps its edits).
+     */
+    async #newImageForContext(): Promise<void> {
+        const context = this.#selected;
+        const f = this.#form;
+        if (!f || !this.#original)
+            return;
+        const label = this.#current()?.label ?? context;
+        const answer = await askImage(this.#window,
+            {name: model.suggestImageName(context, this.#images), label, from: f.image},
+            model.imageChoices(this.#images, f.image));
+        if (!answer)
+            return;
+        try {
+            const [name] = await this.#kojed.call('NewImage', answer.name, answer.from, answer.label);
+            await this.#kojed.call('SetConfig', context, {image: new GLib.Variant('s', name)});
+            if (context !== this.#selected || !this.#form || !this.#original)
+                return;
+            this.#original = {...this.#original, image: name};
+            this.#form = {...this.#form, image: name};
+            await this.#refreshImages();
+            this.#fillImageChoices(name);
+            this.#formChanged();
+            this.#toast(`${context} now uses image ${name} – edit it on its page; Recreate applies it`);
+        } catch (e) {
+            this.#error(e);
+        }
     }
 
     /** Only the Container group's part of the config (image, Recreate): a form being edited stays. */
@@ -533,7 +840,6 @@ export class SettingsWindow {
             this.#config = {
                 ...this.#config,
                 container: fresh.container,
-                image: fresh.image,
                 image_file: fresh.image_file,
                 image_outdated: fresh.image_outdated,
             };
@@ -640,6 +946,7 @@ export class SettingsWindow {
         profileRow.model = Gtk.StringList.new(profiles.map(([, label]) => label));
         profileRow.selected = Math.max(0, profiles.findIndex(([p]) => p === f.profile));
         this.#get<Adw.ExpanderRow>('switches_row').expanded = false;
+        this.#fillImageChoices(f.image);
         this.#fillContainer(c);
         this.#fillMounts();
         this.#filling = false;
@@ -706,6 +1013,9 @@ export class SettingsWindow {
             row.subtitle = name in f.access ? 'Changed from the profile' : '';
         }
         this.#get<Adw.ComboRow>('profile_row').subtitle = model.profileSummary(c.bases, f.profile);
+        const img = this.#images.find(i => i.name === f.image);
+        this.#get<Adw.ComboRow>('image_choice_row').subtitle =
+            img?.description || (img ? '' : 'A registry image or a folder, as written in context.toml');
         this.#get<Adw.ExpanderRow>('switches_row').subtitle = model.adjustments(f);
         this.#filling = false;
         const problems = model.problems(f);

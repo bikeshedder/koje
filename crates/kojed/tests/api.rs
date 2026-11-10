@@ -229,7 +229,52 @@ async fn settings_app_calls(conn: &zbus::Connection) {
     assert!(err.contains("io.koje.Error.InvalidConfig"), "{err}");
     let err = call_err(&conn, "Up", &("shop", "", "later", true, true)).await;
     assert!(err.contains("io.koje.Error.InvalidArgs"), "{err}");
+    // Images like contexts (ADR 0064).
+    let name: String = call(&conn, "NewImage", &("web", "fedora", "Web development")).await;
+    assert_eq!(name, "web");
+    let err = call_err(&conn, "NewImage", &("web", "fedora", "")).await;
+    assert!(err.contains("io.koje.Error.InvalidConfig"), "{err}");
+    let err = call_err(&conn, "NewImage", &("x", "nope", "")).await;
+    assert!(err.contains("io.koje.Error.InvalidConfig"), "{err}");
+    let change: HashMap<&str, Value<'_>> = [("description", Value::from("Node"))].into();
+    let (): () = call(&conn, "SetImage", &("web", change)).await;
+    let use_it: HashMap<&str, Value<'_>> = [("image", Value::from("web"))].into();
+    let _: Vec<String> = call(&conn, "SetConfig", &("shop", use_it)).await;
+    let images: Vec<ImageRow> = call(&conn, "Images", &()).await;
+    let web = images.iter().find(|i| i.0 == "web").unwrap();
+    assert_eq!(
+        (web.1.as_str(), web.2.as_str(), web.3.as_str()),
+        ("Web development", "Node", "folder")
+    );
+    assert!(web.4.ends_with("/images/web/Containerfile"), "{}", web.4);
+    assert_eq!(web.5, ["shop"]);
+    assert_eq!(images[0].0, "fedora");
+    assert_eq!(images[0].3, "builtin");
+    let err = call_err(&conn, "RemoveImage", &("web",)).await;
+    assert!(err.contains("used by shop"), "{err}");
+    let back: HashMap<&str, Value<'_>> = [("image", Value::from("fedora"))].into();
+    let _: Vec<String> = call(&conn, "SetConfig", &("shop", back)).await;
+    let (): () = call(&conn, "RemoveImage", &("web",)).await;
+    let err = call_err(
+        &conn,
+        "SetImage",
+        &("fedora", HashMap::<&str, Value<'_>>::new()),
+    )
+    .await;
+    assert!(err.contains("koje's own image"), "{err}");
 }
+
+/// A row of `Images`.
+type ImageRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Vec<String>,
+    bool,
+    String,
+);
 
 /// `(name, role, current, stored, windows, layouts, modified, error)` of `States`.
 type StateRow = (String, String, bool, bool, u32, u32, i64, String);

@@ -1,8 +1,16 @@
 # Images
 
 A context's programs come from its **image** (ADR 0040). koje ships one,
-`fedora`; your own are **image folders**: a `Containerfile` (or `Dockerfile`)
-and what it copies, in `~/.config/koje/images/<name>/`. Programs installed in
+`fedora`; your own are **image folders**: a `Containerfile` (or `Dockerfile`),
+what it copies, and an optional `image.toml`, in
+`~/.config/koje/images/<name>/`. Images are kept like contexts (ADR 0064):
+koje Settings lists them under the contexts, each with its page.
+
+```toml
+# image.toml
+label       = "Web development"   # shown instead of the name
+description = "Node, VS Code"
+``` Programs installed in
 an image survive `koje recreate` and are shared, layer by layer, by every
 context that uses it.
 
@@ -19,14 +27,18 @@ context that uses it.
 koje adds your user on top of every image (its *user layer*), so any of these
 can run a context.
 
-## A context's own image
+## Making and sharing images
 
-`koje image edit <context>` (or *Edit Containerfile* in koje Settings) gives
-the context an image folder named after it, building on the image it has,
-and opens the `Containerfile` in your desktop's editor (ADR 0063).
+In koje Settings, a context's page has its image as a dropdown and
+*New Image…*, which makes an image from the one it has and switches the
+context to it. An image's page edits its label and description, opens its
+`Containerfile` in your desktop's editor, builds it with the output shown
+live, and lists the contexts using it.
 
-`koje image new <name> [--from <image>]` creates an image folder to share;
-use it with `image = "<name>"`.
+From the CLI: `koje image new <name> [--from <image>] [--label <label>]`,
+`koje image list`, `koje image rm <name>`, and `koje image edit <context>`,
+which gives a context an image of its own (named after it) and opens its
+`Containerfile` (ADR 0063).
 
 ## When images are built
 

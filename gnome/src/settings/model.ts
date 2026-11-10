@@ -166,6 +166,8 @@ export interface Form {
     label: string;
     icon: string;
     color: string;
+    /** `image = …`: an image's name, or a registry image or path as written. */
+    image: string;
     profile: string;
     /** The switches the context sets itself. */
     access: Record<string, boolean>;
@@ -204,6 +206,7 @@ export function form(c: Config): Form {
         label: c.label,
         icon: c.icon,
         color: c.color,
+        image: c.image,
         profile: c.profile,
         access: {...c.access},
         mounts: [...c.mounts],
@@ -266,7 +269,7 @@ export function problems(f: Form): Partial<Record<keyof Form, string>> {
 /** `SetConfig`'s keys for what changed from `before` to `after` (plain values). */
 export function changes(before: Form, after: Form): Record<string, string | number | string[] | Record<string, boolean>> {
     const out: Record<string, string | number | string[] | Record<string, boolean>> = {};
-    for (const key of ['prefix', 'label', 'icon', 'color', 'profile'] as const) {
+    for (const key of ['prefix', 'label', 'icon', 'color', 'image', 'profile'] as const) {
         if (before[key] !== after[key])
             out[key] = after[key];
     }
@@ -286,19 +289,97 @@ function sameRecord(a: Record<string, boolean>, b: Record<string, boolean>): boo
     return [...keys].every(k => a[k] === b[k]);
 }
 
-/** The image row (ADR 0063): what the image is, and whether Recreate would change it. */
-export function imageRow(c: Config, home: string): {subtitle: string; button: string} {
-    const h = home.replace(/\/+$/, '');
-    const file = c.image_file.startsWith(`${h}/`) ? `~${c.image_file.slice(h.length)}` : c.image_file;
-    const where = file ? `${c.image} · ${file}` : c.image;
-    return {
-        subtitle: c.image_outdated ? `${where}\nChanged (${c.image_outdated}) – Recreate builds and applies it` : where,
-        button: c.image_file ? 'Edit Containerfile…' : 'Create Containerfile…',
-    };
+// ----- Images (ADR 0064) -----
+
+/** Sidebar and output keys of images: context names have no `:`. */
+export const IMAGE_KEY = 'image:';
+
+/** What a new image builds on unless chosen otherwise. */
+export const IMAGE_DEFAULT_FROM = 'fedora';
+
+/** An image as `Images` reports it. */
+export interface Image {
+    name: string;
+    label: string;
+    description: string;
+    kind: 'builtin' | 'folder';
+    /** Its Containerfile; `''` for koje's own. */
+    file: string;
+    usedBy: string[];
+    built: boolean;
+    /** Why it is not usable; `''` when it is. */
+    error: string;
+}
+
+export function images(rows: [string, string, string, string, string, string[], boolean, string][]): Image[] {
+    return rows.map(([name, label, description, kind, file, usedBy, built, error]) => ({
+        name, label, description, file, usedBy, built, error,
+        kind: kind === 'builtin' ? 'builtin' : 'folder',
+    }));
+}
+
+/** An image's name in lists: its label, and its name when that differs. */
+export function imageTitle(img: Image): string {
+    return img.label.toLowerCase() === img.name ? img.label : `${img.label} (${img.name})`;
+}
+
+/**
+ * The context's image dropdown: every image, and `current` as written when
+ * it is none of them (a registry image or a path).
+ */
+export function imageChoices(list: Image[], current: string): [string, string][] {
+    const out: [string, string][] = list.map(i => [i.name, imageTitle(i)]);
+    const legacy = ['koje/base:latest', 'koje/base', 'localhost/koje/base:latest'];
+    if (current !== '' && !legacy.includes(current) && !list.some(i => i.name === current))
+        out.push([current, current]);
+    return out;
+}
+
+/** Which choice `image = …` is (the old base image is `fedora`). */
+export function imageChoice(choices: [string, string][], current: string): number {
+    const value = ['koje/base:latest', 'koje/base', 'localhost/koje/base:latest'].includes(current) ? 'fedora' : current;
+    return Math.max(0, choices.findIndex(([v]) => v === value));
+}
+
+/** An image's line in the sidebar and its build row. */
+export function imageStatus(img: Image, building: boolean): string {
+    if (building)
+        return 'Building…';
+    if (img.error)
+        return img.error;
+    return img.built ? 'Built' : 'Not built yet: the first start of a context using it builds it';
+}
+
+/** Who uses an image, in a line. */
+export function usedBy(img: Image): string {
+    return img.usedBy.length ? `Used by ${img.usedBy.join(', ')}` : 'No context uses it';
+}
+
+/** The Remove row: koje's own and images in use stay. */
+export function imageRemoval(img: Image): {sensitive: boolean; subtitle: string} {
+    if (img.kind === 'builtin')
+        return {sensitive: false, subtitle: 'koje\'s own image cannot be removed.'};
+    if (img.usedBy.length)
+        return {sensitive: false, subtitle: `${usedBy(img)}: give them another image first.`};
+    return {sensitive: true, subtitle: 'Deletes its folder with the Containerfile and what it copies.'};
+}
+
+/** A name for a new image made for `context`: its name, else with a number. */
+export function suggestImageName(context: string, list: Image[]): string {
+    const taken = (n: string) => list.some(i => i.name === n) || n === 'fedora';
+    if (!taken(context))
+        return context;
+    for (let i = 2; ; i++) {
+        const name = `${context}-${i}`;
+        if (!taken(name))
+            return name;
+    }
 }
 
 /** The Recreate row: only a context with a container can be recreated. */
 export function recreateRow(c: Config): {sensitive: boolean; subtitle: string} {
+    if (c.container && c.image_outdated)
+        return {sensitive: true, subtitle: `Its image changed (${c.image_outdated}): Recreate builds and applies it.`};
     return c.container
         ? {
             sensitive: true,
@@ -428,6 +509,7 @@ export function logTitle(context: string, log: Log): string {
 }
 
 const OPERATION_TITLES: Record<string, [string, string]> = {
+    build: ['Building', 'Built'],
     up: ['Starting', 'Started'],
     down: ['Stopping', 'Stopped'],
     sleep: ['Putting to sleep', 'Put to sleep'],

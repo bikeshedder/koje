@@ -244,6 +244,8 @@ pub struct ContextSettings {
     /// `None`: koje's default icon.
     pub icon: Option<String>,
     pub color: Color,
+    /// `image = …` (ADR 0040).
+    pub image: String,
     pub profile: Option<crate::access::Profile>,
     pub switches: Vec<(&'static str, Option<bool>)>,
     pub mounts: Vec<String>,
@@ -260,6 +262,7 @@ impl ContextSettings {
             label: cfg.label.clone(),
             icon: cfg.icon.clone(),
             color: cfg.color,
+            image: cfg.image.clone(),
             profile: cfg.access.profile,
             switches: crate::access::Access::ALL
                 .switches()
@@ -291,6 +294,16 @@ pub fn with_settings(text: &str, s: &ContextSettings) -> Result<String> {
         }
     }
     doc["color"] = toml_edit::value(s.color.to_string());
+    // Unset is the default image: written only when it changes.
+    let image = doc
+        .get("image")
+        .and_then(toml_edit::Item::as_str)
+        .unwrap_or(crate::image::DEFAULT);
+    if image != s.image {
+        doc = with_image(&doc.to_string(), &s.image)?
+            .parse()
+            .map_err(|e: toml_edit::TomlError| bad(&e))?;
+    }
 
     // Mounts: an `unsafe` table entry stays a table while its path stays.
     let old: Vec<toml_edit::Value> = doc
@@ -607,6 +620,7 @@ mod tests {
             label: Some("Kundenportal".into()),
             icon: Some("briefcase-symbolic".into()),
             color: "#e01b24".parse().unwrap(),
+            image: "web".into(),
             profile: Some(crate::access::Profile::Desktop),
             switches: vec![("gpu", Some(true)), ("sound", None)],
             mounts: vec!["~/src".into(), "/tmp".into(), "~/docs".into()],
@@ -619,6 +633,8 @@ mod tests {
         assert_eq!(cfg.label.as_deref(), Some("Kundenportal"));
         assert_eq!(cfg.icon.as_deref(), Some("briefcase-symbolic"));
         assert_eq!(cfg.color.to_string(), "#E01B24");
+        assert_eq!(cfg.image, "web");
+        assert!(out.contains("# The image (ADR 0040)"), "its comment stays");
         assert_eq!(cfg.access.profile, Some(crate::access::Profile::Desktop));
         assert_eq!((cfg.access.gpu, cfg.access.sound), (Some(true), None));
         assert_eq!(cfg.mounts.len(), 3);

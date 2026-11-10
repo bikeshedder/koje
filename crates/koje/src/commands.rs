@@ -38,7 +38,11 @@ pub fn run(command: &Command) -> Result<()> {
             no_cache,
             pull,
         }) => image_build(&paths, images, *no_cache, *pull),
-        Command::Image(ImageCmd::New { name, from }) => image_new(&paths, name, from),
+        Command::Image(ImageCmd::New { name, from, label }) => {
+            image_new(&paths, name, from, label.as_deref())
+        }
+        Command::Image(ImageCmd::List) => image_list(&paths),
+        Command::Image(ImageCmd::Rm { name, yes }) => image_rm(&paths, name, *yes),
         Command::Image(ImageCmd::Edit(ctx)) => image_edit(&paths, ctx),
 
         Command::Up {
@@ -401,24 +405,68 @@ fn image_edit(paths: &Paths, ctx: &Ctx) -> Result<()> {
 }
 
 /// `koje image new`: an image folder with a Containerfile building on `from`.
-fn image_new(paths: &Paths, name: &str, from: &str) -> Result<()> {
+fn image_new(paths: &Paths, name: &str, from: &str, label: Option<&str>) -> Result<()> {
     let name = koje_core::name::ImageName::new(name)?;
-    let dir = paths.images_dir().join(name.as_str());
-    if dir.exists() {
-        bail!("{} exists already", dir.display());
-    }
     let from_line = koje_runtime::images::from_line(paths, from)?;
     if koje_core::image::parents(&format!("FROM {from_line}")).contains(&name) {
         bail!("image {name} cannot build on itself");
     }
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let file = dir.join("Containerfile");
-    koje_core::fsutil::write_atomic(
-        &file,
-        koje_runtime::images::new_containerfile(&from_line).as_bytes(),
-    )?;
-    println!("created {}", file.display());
+    let text = koje_runtime::images::new_containerfile(&from_line);
+    let dir = koje_core::images::create(paths, &name, &text, label)?;
+    println!("created {}", dir.join("Containerfile").display());
     println!("use it in a context with image = \"{name}\" (koje edit <context>)");
+    crate::kojed::reload();
+    Ok(())
+}
+
+/// `koje image list`.
+fn image_list(paths: &Paths) -> Result<()> {
+    let images = koje_core::images::list(paths)?;
+    let width = images
+        .iter()
+        .map(|e| e.name.as_str().len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    println!("{:<width$}  {:<24}  USED BY", "NAME", "LABEL");
+    for e in images {
+        let used: Vec<String> = e.used_by.iter().map(ToString::to_string).collect();
+        let kind = match e.kind {
+            koje_core::images::Kind::BuiltIn => " (koje's)",
+            koje_core::images::Kind::Folder => "",
+        };
+        println!(
+            "{:<width$}  {:<24}  {}{}",
+            e.name,
+            format!("{}{kind}", e.label),
+            if used.is_empty() {
+                "-".to_owned()
+            } else {
+                used.join(", ")
+            },
+            e.error.map(|err| format!("  ! {err}")).unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+/// `koje image rm`.
+fn image_rm(paths: &Paths, name: &str, yes: bool) -> Result<()> {
+    let name = koje_core::name::ImageName::new(name)?;
+    if !yes
+        && !confirm(
+            &format!(
+                "Remove image {name}? Its folder {} is deleted.",
+                paths.images_dir().join(name.as_str()).display()
+            ),
+            false,
+        )?
+    {
+        bail!("aborted; nothing was removed");
+    }
+    koje_core::images::remove(paths, &name)?;
+    println!("removed image {name}");
+    crate::kojed::reload();
     Ok(())
 }
 

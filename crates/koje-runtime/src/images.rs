@@ -374,10 +374,8 @@ pub fn own_file(paths: &Paths, ctx: &ContextName) -> Result<OwnFile> {
     let created = !dir.exists();
     let file = if created {
         let text = new_containerfile(&from_line(paths, &cfg.image)?);
-        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        let file = dir.join("Containerfile");
-        koje_core::fsutil::write_atomic(&file, text.as_bytes())?;
-        file
+        let label = cfg.label.clone().unwrap_or_else(|| cfg.name.to_string());
+        koje_core::images::create(paths, &name, &text, Some(&label))?.join("Containerfile")
     } else {
         // Made before (another context's, or by hand): used as it is.
         containerfile(&dir)?
@@ -446,6 +444,8 @@ mod tests {
         let own = own_file(&p, &kp).unwrap();
         assert_eq!(own.file, p.images_dir().join("kp/Containerfile"));
         assert!(own.created && own.image_set);
+        let config = koje_core::images::load_config(&p.images_dir().join("kp")).unwrap();
+        assert_eq!(config.label.as_deref(), Some("kp"));
         let text = std::fs::read_to_string(&own.file).unwrap();
         assert!(
             text.ends_with("FROM localhost/koje/fedora:latest\n"),

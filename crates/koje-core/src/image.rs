@@ -229,7 +229,11 @@ impl Source {
 impl fmt::Display for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Folder { dir, .. } => write!(f, "image folder {}", dir.display()),
+            // Folders at a path have a made-up name: their path says more.
+            Self::Folder { name, dir } if name.starts_with("path-") => {
+                write!(f, "image folder {}", dir.display())
+            }
+            Self::Folder { name, .. } => write!(f, "image {name}"),
             Self::BuiltIn(name) => write!(f, "koje's image {name}"),
             Self::Registry(reference) => write!(f, "registry image {reference}"),
         }

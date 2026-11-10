@@ -606,6 +606,38 @@ fn image_new_creates_a_folder_building_on_its_image() {
             .status
             .success()
     );
+    // Listed like contexts (ADR 0064), with a label and the contexts using it.
+    stdout(&koje(
+        tmp.path(),
+        &["image", "new", "app", "--label", "App work"],
+    ));
+    stdout(&koje(tmp.path(), &["new", "kp"]));
+    let config = config_of(tmp.path(), "kp");
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(
+        &config,
+        text.replace("image  = \"fedora\"", "image  = \"app\""),
+    )
+    .unwrap();
+    let list = stdout(&koje(tmp.path(), &["image", "list"]));
+    let line = |name: &str| {
+        list.lines()
+            .find(|l| l.starts_with(&format!("{name} ")))
+            .unwrap_or_else(|| panic!("{list}"))
+            .to_owned()
+    };
+    assert!(line("fedora").contains("Fedora (koje's)"), "{list}");
+    assert!(
+        line("app").contains("App work") && line("app").trim_end().ends_with("kp"),
+        "{list}"
+    );
+    assert!(line("dev").trim_end().ends_with('-'), "{list}");
+    // Removed only when no context uses it.
+    let used = koje(tmp.path(), &["image", "rm", "app", "--yes"]);
+    assert!(!used.status.success());
+    assert!(String::from_utf8_lossy(&used.stderr).contains("used by kp"));
+    stdout(&koje(tmp.path(), &["image", "rm", "web", "--yes"]));
+    assert!(!tmp.path().join("config/koje/images/web").exists());
 }
 
 #[test]
