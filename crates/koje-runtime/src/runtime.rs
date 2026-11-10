@@ -515,6 +515,62 @@ pub fn recreate(kojed: &dyn Host, paths: &Paths, context: &str) -> Result<()> {
     }
 }
 
+/// Remove a context for good from kojed (`Remove`, ADR 0060): a running one
+/// is stopped without saving (its programs closed first, open windows do not
+/// hold it), then [`purge`].
+pub fn remove(kojed: &dyn Host, paths: &Paths, context: &str) -> Result<()> {
+    let name = ContextName::new(context)?;
+    if !context::exists(paths, &name) {
+        bail!("context {name} does not exist");
+    }
+    let podman = Podman::new();
+    let status = match podman.status(&name) {
+        Ok(status) => Some(status),
+        Err(e) => {
+            crate::say!("could not check for a container ({e:#}); removing koje's files only");
+            None
+        }
+    };
+    if matches!(
+        status,
+        Some(ContainerStatus::Running | ContainerStatus::Paused)
+    ) {
+        down(kojed, paths, context, None, true, true)?;
+    }
+    let status = status.map(|_| podman.status(&name)).transpose()?;
+    purge(paths, &name, status)
+}
+
+/// Delete a context: its container (stopped first), its home volume, its
+/// host bus proxy and koje's files (config, states, recovery file) – the
+/// config last, so a failed removal can be repeated. `status` `None`: Podman
+/// could not be asked; only koje's files go.
+pub fn purge(paths: &Paths, name: &ContextName, status: Option<ContainerStatus>) -> Result<()> {
+    use koje_core::container::home_volume;
+    let podman = Podman::new();
+    if let Some(status) = status.filter(|s| *s != ContainerStatus::Missing) {
+        match plan_down(status) {
+            DownPlan::Stop => podman.stop(name)?,
+            DownPlan::UnpauseAndStop => {
+                podman.unpause(name)?;
+                podman.stop(name)?;
+            }
+            DownPlan::AlreadyStopped | DownPlan::NotCreated => {}
+        }
+        podman.remove(name)?;
+    }
+    let volume = home_volume(name);
+    if status.is_some() && podman.volume_exists(&volume).unwrap_or(false) {
+        // Shared for live mounts (ADR 0033): unmount it in Podman's namespace first.
+        podman.release_home(name)?;
+        podman.remove_volume(&volume)?;
+    }
+    crate::hostbus::stop_proxy(name);
+    context::remove(paths, name)?;
+    crate::say!("removed context {name}");
+    Ok(())
+}
+
 /// How long `down` waits for programs to end.
 const CLOSE_TIMEOUT_SECS: u64 = 10;
 

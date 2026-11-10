@@ -12,6 +12,8 @@ import {Kojed, KojedError} from '../api/kojed.js';
 import {ask, askName} from './dialogs.js';
 import * as model from './model.js';
 
+Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish');
+
 const MEMORY = '';
 
 /** The rows a context has in the sidebar and on the Memory page. */
@@ -102,6 +104,7 @@ export class SettingsWindow {
         this.#connectForm();
         get<Gtk.Button>('save_as').connect('clicked', () => void this.#saveAs());
         get<Gtk.Button>('recreate_button').connect('clicked', () => void this.#recreate());
+        get<Gtk.Button>('remove_button').connect('clicked', () => void this.#remove());
 
         for (const signal of ['ContextsChanged', 'MemoryChanged'] as const)
             this.#kojed.connect(signal, () => this.#scheduleRefresh());
@@ -113,8 +116,10 @@ export class SettingsWindow {
             this.#busy.set(context, operation);
             this.#render();
         });
-        this.#kojed.connect('OperationFinished', context => {
+        this.#kojed.connect('OperationFinished', (context, operation) => {
             this.#busy.delete(context);
+            if (operation === 'remove')
+                this.#toast(`Removed ${context}`);
             this.#scheduleRefresh();
         });
         this.#kojed.connect('OperationFailed', (context, operation, error, message) => {
@@ -399,6 +404,20 @@ export class SettingsWindow {
             await this.#do('Recreate', this.#selected);
     }
 
+    async #remove(): Promise<void> {
+        const context = this.#selected;
+        const answer = await ask(this.#window, `Remove ${context}?`,
+            'Its container, everything in its home, its states and settings are deleted for good. A running context is stopped without saving. Folders from your home are not touched.',
+            [['remove', 'Remove', Adw.ResponseAppearance.DESTRUCTIVE]]);
+        if (answer === 'remove') {
+            try {
+                await this.#kojed.call('Remove', context);
+            } catch (e) {
+                this.#error(e);
+            }
+        }
+    }
+
     // ----- The selected context -----
 
     async #loadContext(): Promise<void> {
@@ -437,12 +456,18 @@ export class SettingsWindow {
             const hex = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0').toUpperCase();
             this.#edit({color: `#${hex(c.red)}${hex(c.green)}${hex(c.blue)}`});
         });
-        const profiles = this.#get<Adw.ComboRow>('profile_row');
-        profiles.model = Gtk.StringList.new(model.PROFILES.map(([, label]) => label));
-        profiles.connect('notify::selected', row => {
-            this.#edit({profile: model.PROFILES[row.selected]?.[0] ?? ''});
+        this.#get<Adw.ComboRow>('profile_row').connect('notify::selected', row => {
+            if (this.#filling || !this.#form || !this.#config)
+                return;
+            const profile = model.profiles(this.#config.default_profile)[row.selected]?.[0] ?? '';
+            if (profile === this.#form.profile)
+                return;
+            // A profile as it is: its switches folded away.
+            this.#form = model.withProfile(this.#form, profile);
+            this.#get<Adw.ExpanderRow>('switches_row').expanded = false;
+            this.#formChanged();
         });
-        const group = this.#get<Adw.PreferencesGroup>('access_group');
+        const group = this.#get<Adw.ExpanderRow>('switches_row');
         for (const [name, title] of model.SWITCHES) {
             const row = new Adw.SwitchRow({title});
             row.connect('notify::active', r => {
@@ -452,7 +477,7 @@ export class SettingsWindow {
                 this.#formChanged();
             });
             this.#switchRows.set(name, row);
-            group.add(row);
+            group.add_row(row);
         }
         this.#get<Gtk.Button>('add_mount').connect('clicked', () => void this.#addMount());
         this.#get<Gtk.Button>('revert_button').connect('clicked', () => {
@@ -485,8 +510,11 @@ export class SettingsWindow {
         const rgba = new Gdk.RGBA();
         if (rgba.parse(f.color))
             this.#get<Gtk.ColorDialogButton>('color_button').rgba = rgba;
-        this.#get<Adw.ComboRow>('profile_row').selected =
-            Math.max(0, model.PROFILES.findIndex(([p]) => p === f.profile));
+        const profiles = model.profiles(c.default_profile);
+        const profileRow = this.#get<Adw.ComboRow>('profile_row');
+        profileRow.model = Gtk.StringList.new(profiles.map(([, label]) => label));
+        profileRow.selected = Math.max(0, profiles.findIndex(([p]) => p === f.profile));
+        this.#get<Adw.ExpanderRow>('switches_row').expanded = false;
         this.#get<Adw.ActionRow>('image_row').subtitle = c.image;
         this.#fillMounts();
         this.#filling = false;
@@ -520,8 +548,10 @@ export class SettingsWindow {
         let folder: Gio.File | null = null;
         try {
             folder = await dialog.select_folder(this.#window, null);
-        } catch {
-            return; // cancelled
+        } catch (e) {
+            if (!(e instanceof GLib.Error && e.matches(Gtk.DialogError, Gtk.DialogError.DISMISSED)))
+                this.#error(e);
+            return;
         }
         const path = folder?.get_path();
         if (!path || !this.#form)
@@ -548,8 +578,10 @@ export class SettingsWindow {
         const on = model.effective(f, c.bases);
         for (const [name, row] of this.#switchRows) {
             row.active = on[name] ?? false;
-            row.subtitle = name in f.access ? 'Set for this context' : '';
+            row.subtitle = name in f.access ? 'Changed from the profile' : '';
         }
+        this.#get<Adw.ComboRow>('profile_row').subtitle = model.profileSummary(c.bases, f.profile);
+        this.#get<Adw.ExpanderRow>('switches_row').subtitle = model.adjustments(f);
         this.#filling = false;
         const problems = model.problems(f);
         const rows: [string, keyof model.Form][] = [

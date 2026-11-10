@@ -507,7 +507,23 @@ impl Api {
         })
     }
 
-    /// An operation (`up`, `down`, `sleep`, `recreate`) on a context began.
+    /// Remove a context for good, as `koje rm --yes`: a running one is
+    /// stopped without saving, then its container, home volume, states and
+    /// config are deleted. Returns at once; `OperationFinished` or
+    /// `OperationFailed` follow, then `ContextsChanged`.
+    fn remove(
+        &self,
+        context: &str,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> Result<(), Error> {
+        let ctx = context_name(context)?;
+        self.operation(conn, ctx, "remove", |host, paths, ctx| {
+            koje_runtime::runtime::remove(host, paths, ctx.as_str())?;
+            host.reload()
+        })
+    }
+
+    /// An operation (`up`, `down`, `sleep`, `recreate`, `remove`) on a context began.
     #[zbus(signal)]
     async fn operation_started(
         emitter: &SignalEmitter<'_>,

@@ -127,6 +127,10 @@ Adw.ApplicationWindow window {
                       Adw.ComboRow profile_row {
                         title: "Profile";
                       }
+
+                      Adw.ExpanderRow switches_row {
+                        title: "Adjust";
+                      }
                     }
 
                     Adw.PreferencesGroup mounts_group {
@@ -193,6 +197,21 @@ Adw.ApplicationWindow window {
                         [suffix]
                         Button recreate_button {
                           label: "Recreate…";
+                          valign: center;
+
+                          styles [
+                            "destructive-action",
+                          ]
+                        }
+                      }
+
+                      Adw.ActionRow {
+                        title: "Remove Context";
+                        subtitle: "Deletes the container, its home, states and settings. Folders from your home stay.";
+
+                        [suffix]
+                        Button remove_button {
+                          label: "Remove…";
                           valign: center;
 
                           styles [

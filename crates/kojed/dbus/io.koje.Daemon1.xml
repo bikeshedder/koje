@@ -154,7 +154,15 @@
     <method name="Recreate">
       <arg name="context" type="s" direction="in"/>
     </method>
-    <!-- An operation ("up", "down", "sleep", "recreate") on a context began. -->
+    <!--
+      Remove a context for good, as `koje rm --yes`: a running one is
+      stopped without saving, then its container, home volume, states and
+      config are deleted. Returns at once; ContextsChanged follows.
+    -->
+    <method name="Remove">
+      <arg name="context" type="s" direction="in"/>
+    </method>
+    <!-- An operation ("up", "down", "sleep", "recreate", "remove") on a context began. -->
     <signal name="OperationStarted">
       <arg name="context" type="s"/>
       <arg name="operation" type="s"/>

@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {
     type Config, actions, ago, changes, contexts, effective, form, formatSize, humanSize,
     memoryFraction, memoryLabel, mountPath, parseSize, problems, stateActions, stateSubtitle,
-    states, statusLabel, validName, withSwitch,
+    SWITCHES, adjustments, profileSummary, profiles, states, statusLabel, validName, withProfile, withSwitch,
 } from './model.js';
 
 const config: Config = {
@@ -63,6 +63,27 @@ describe('sizes as koje writes them', () => {
     });
 });
 
+describe('profiles', () => {
+    const all = Object.fromEntries(SWITCHES.map(([n]) => [n, true]));
+    const none = Object.fromEntries(SWITCHES.map(([n]) => [n, false]));
+    const bases = {
+        '': all, full: all, isolated: none,
+        desktop: {...all, gpu: false},
+        headless: {...none, network: true, nested: true},
+    };
+    it('name koje\'s default by what it is', () => {
+        expect(profiles('desktop')[0]).toEqual(['', 'Default (Desktop)']);
+        expect(profiles('full').map(([p]) => p)).toEqual(['', 'full', 'desktop', 'headless', 'isolated']);
+    });
+    it('say in a line what they give', () => {
+        expect(profileSummary(bases, 'full')).toBe('Everything');
+        expect(profileSummary(bases, 'desktop')).toBe('Everything but graphics card');
+        expect(profileSummary(bases, 'headless')).toBe('Only network, containers inside');
+        expect(profileSummary(bases, 'isolated')).toBe('Nothing: no windows, no network');
+        expect(profileSummary(bases, '')).toBe("koje's default for all contexts. Everything");
+    });
+});
+
 describe('the context form', () => {
     const f = form(config);
     it('comes from the config', () => {
@@ -78,6 +99,13 @@ describe('the context form', () => {
         expect(back.access).toEqual({});
         const off = withSwitch(f, config.bases, 'gpu', false);
         expect(off.access).toEqual({sound: false, gpu: false});
+    });
+    it('takes a chosen profile as it is', () => {
+        const desktop = withProfile(f, 'desktop');
+        expect(desktop.access).toEqual({});
+        expect(changes(f, desktop)).toEqual({profile: 'desktop', access: {}});
+        expect(adjustments(desktop)).toBe('As the profile gives');
+        expect(adjustments(f)).toBe('1 changed from the profile');
     });
     it('sends only what changed', () => {
         expect(changes(f, f)).toEqual({});

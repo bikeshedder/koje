@@ -45,6 +45,12 @@ impl Host {
         });
     }
 
+    /// Read the contexts again: after one was removed.
+    pub fn reload(&self) -> Result<()> {
+        self.handle
+            .block_on(async { self.daemon.lock().await.reload().await })
+    }
+
     fn known(&self, ctx: &ContextName) -> Result<()> {
         if !self.handle.block_on(self.daemon.lock()).knows(ctx) {
             anyhow::bail!("no context named {ctx}");

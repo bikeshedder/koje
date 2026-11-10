@@ -22,6 +22,7 @@ export interface Methods {
     Sleep: {in: [string]; out: []};
     Wake: {in: [string]; out: []};
     Recreate: {in: [string]; out: []};
+    Remove: {in: [string]; out: []};
     States: {in: [string]; out: [[string, string, boolean, boolean, number, number, number, string][]]};
     Save: {in: [string, string]; out: [string, number]};
     CopyState: {in: [string, string, string]; out: []};
@@ -51,6 +52,7 @@ export const METHODS: {[M in keyof Methods]: [string, string]} = {
     Sleep: ['(s)', '()'],
     Wake: ['(s)', '()'],
     Recreate: ['(s)', '()'],
+    Remove: ['(s)', '()'],
     States: ['(s)', '(a(ssbbuuxs))'],
     Save: ['(ss)', '(su)'],
     CopyState: ['(sss)', '()'],

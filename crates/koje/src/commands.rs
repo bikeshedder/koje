@@ -300,7 +300,6 @@ fn run_editor(file: &Path) -> Result<()> {
 /// `koje rm`: delete a context's config, states and recovery file.
 fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
     use koje_core::container::{container_name, home_volume};
-    use koje_core::lifecycle::{DownPlan, plan_down};
     use koje_core::ports::{ContainerRuntime as _, ContainerStatus};
 
     let name = context_name(ctx)?;
@@ -339,26 +338,9 @@ fn rm(paths: &Paths, ctx: &Ctx, yes: bool) -> Result<()> {
             bail!("aborted; nothing was removed");
         }
     }
-    // Container and volume first, config last: on failure `koje rm` can be repeated.
-    if let Some(status) = status.filter(|_| has_container) {
-        match plan_down(status) {
-            DownPlan::Stop => podman.stop(&name)?,
-            DownPlan::UnpauseAndStop => {
-                podman.unpause(&name)?;
-                podman.stop(&name)?;
-            }
-            DownPlan::AlreadyStopped | DownPlan::NotCreated => {}
-        }
-        podman.remove(&name)?;
-    }
-    if has_volume {
-        // Shared for live mounts (ADR 0033): unmount it in Podman's namespace first.
-        podman.release_home(&name)?;
-        podman.remove_volume(&volume)?;
-    }
-    koje_runtime::hostbus::stop_proxy(&name);
-    context::remove(paths, &name)?;
-    println!("removed context {name}");
+    koje_runtime::runtime::purge(paths, &name, status)?;
+    // kojed forgets it: rules, color, workspace.
+    crate::kojed::reload();
     Ok(())
 }
 

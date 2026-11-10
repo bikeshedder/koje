@@ -35,6 +35,7 @@ const BUSY: Record<string, string> = {
     down: 'Stopping…',
     sleep: 'Going to sleep…',
     recreate: 'Recreating…',
+    remove: 'Removing…',
 };
 
 /** The header's actions for a context's status. */
@@ -121,14 +122,43 @@ export const SWITCHES: [string, string][] = [
     ['print', 'Printing'],
 ];
 
-/** The profile choices: `config.toml`'s (`''`), then the four. */
-export const PROFILES: [string, string][] = [
-    ['', 'From config.toml'],
+/** The four profiles, as ADR 0017 names them. */
+const PROFILE_NAMES: [string, string][] = [
     ['full', 'Full'],
     ['desktop', 'Desktop'],
     ['headless', 'Headless'],
     ['isolated', 'Isolated'],
 ];
+
+/**
+ * The profile choices: koje's default for all contexts (`''`, set in
+ * `config.toml`; `defaultProfile` is what it currently is), then the four.
+ */
+export function profiles(defaultProfile: string): [string, string][] {
+    const name = PROFILE_NAMES.find(([p]) => p === defaultProfile)?.[1] ?? defaultProfile;
+    return [['', `Default (${name})`], ...PROFILE_NAMES];
+}
+
+/** What a profile gives, in one line: `Everything but Graphics card`, `Nothing`. */
+export function profileSummary(bases: Config['bases'], profile: string): string {
+    const base = bases[profile] ?? {};
+    const on = SWITCHES.filter(([n]) => base[n]).map(([, t]) => t);
+    const off = SWITCHES.filter(([n]) => !base[n]).map(([, t]) => t);
+    let text: string;
+    if (off.length === 0)
+        text = 'Everything';
+    else if (on.length === 0)
+        text = 'Nothing: no windows, no network';
+    else if (off.length <= on.length)
+        text = `Everything but ${lower(off).join(', ')}`;
+    else
+        text = `Only ${lower(on).join(', ')}`;
+    return profile === '' ? `koje's default for all contexts. ${text}` : text;
+}
+
+function lower(titles: string[]): string[] {
+    return titles.map(t => t.charAt(0).toLowerCase() + t.slice(1));
+}
 
 /** The page's fields; sizes as text. */
 export interface Form {
@@ -179,6 +209,19 @@ export function form(c: Config): Form {
 /** What each switch is with `f`'s profile and overrides. */
 export function effective(f: Form, bases: Config['bases']): Record<string, boolean> {
     return {...(bases[f.profile] ?? {}), ...f.access};
+}
+
+/** `f` with another profile: the profile as it is, the context's own switches dropped. */
+export function withProfile(f: Form, profile: string): Form {
+    return {...f, profile, access: {}};
+}
+
+/** The subtitle of the switches' row: how many differ from the profile. */
+export function adjustments(f: Form): string {
+    const n = Object.keys(f.access).length;
+    if (n === 0)
+        return 'As the profile gives';
+    return n === 1 ? '1 changed from the profile' : `${n} changed from the profile`;
 }
 
 /**
